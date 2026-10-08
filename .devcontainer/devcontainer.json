@@ -1,0 +1,16 @@
+{
+  "name": "Plaud 보강 작업대",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "hostRequirements": { "cpus": 4, "memory": "8gb", "storage": "32gb" },
+  "postCreateCommand": "bash scripts/setup.sh",
+  "postStartCommand": "bash scripts/start.sh",
+  "postAttachCommand": "bash scripts/start.sh",
+  "forwardPorts": [8765],
+  "portsAttributes": {
+    "8765": { "label": "Plaud 보강 작업대", "onAutoForward": "openBrowser" }
+  },
+  "customizations": {
+    "codespaces": { "openFiles": ["README.md"] },
+    "vscode": { "extensions": ["ms-python.python"] }
+  }
+}
