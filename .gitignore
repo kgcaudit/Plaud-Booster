@@ -1,7 +1,9 @@
-# 회의 음원·전사·목소리 기준이 들어가는 곳 — 절대 올리지 않는다
-data/
-models/
+node_modules/
+web/vendor/
+web/models/
+test-results/
 *.log
 __pycache__/
-.pytest_cache/
-.venv/
+# 시험용 실제 음원·전사는 절대 올리지 않는다
+private/
+tests/_real.mjs

@@ -3,32 +3,37 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <title>Plaud 보강 작업대</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
     <strong>Plaud 보강 작업대</strong>
-    <span class="sub">누락 구간 보충 · 구간 재전사 · 조각 음원 화자 매칭</span>
+    <span class="sub">누락 구간 보충 · 구간 재전사 · 조각 음원 화자 매칭 — 모든 처리는 이 PC 브라우저 안에서만</span>
   </div>
-  <div id="sysline" class="sysline">상태 확인 중…</div>
+  <div id="sysline" class="sysline">준비 중…</div>
 </header>
 
 <nav class="tabs" role="tablist">
-  <button role="tab" data-tab="jobs" class="on">작업</button>
-  <button role="tab" data-tab="review">검수·내보내기</button>
-  <button role="tab" data-tab="voices">목소리 기준</button>
-  <button role="tab" data-tab="glossary">인명·용어 사전</button>
-  <button role="tab" data-tab="settings">설정·백업</button>
+  <button type="button" role="tab" data-tab="jobs" class="on">작업</button>
+  <button type="button" role="tab" data-tab="review">검수·내보내기</button>
+  <button type="button" role="tab" data-tab="voices">목소리 기준</button>
+  <button type="button" role="tab" data-tab="glossary">인명·용어 사전</button>
+  <button type="button" role="tab" data-tab="settings">설정·백업</button>
 </nav>
 
 <main>
+<div id="banner" class="banner hidden"></div>
+
 <!-- ======================= 작업 ======================= -->
 <section id="tab-jobs" class="tab on">
   <div class="bar">
     <h2>작업 목록</h2>
-    <button id="btnNew" class="primary">＋ 새 작업</button>
+    <button type="button" id="btnNew" class="primary">＋ 새 작업</button>
   </div>
 
   <form id="newJob" class="card hidden" autocomplete="off">
@@ -48,7 +53,7 @@
 
     <fieldset>
       <legend>2. 음원 <small id="audioHint">MP3·WAV·M4A 1개</small></legend>
-      <input type="file" id="audioFiles" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm,.mp4">
+      <input type="file" id="audioFiles" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm">
       <ul id="audioList" class="uplist"></ul>
     </fieldset>
 
@@ -93,10 +98,10 @@
   <div class="bar">
     <select id="rvJob" aria-label="작업 선택"></select>
     <div class="seg" role="group" aria-label="보기">
-      <button data-f="need" class="on">확인 필요</button>
-      <button data-f="all">전체</button>
-      <button data-f="edited">수정함</button>
-      <button data-f="todo">미검수</button>
+      <button type="button" data-f="need" class="on">확인 필요</button>
+      <button type="button" data-f="all">전체</button>
+      <button type="button" data-f="edited">수정함</button>
+      <button type="button" data-f="todo">미검수</button>
     </div>
     <label class="chk"><input type="checkbox" id="rvPlaud"> Plaud 전사 함께 보기</label>
   </div>
@@ -106,8 +111,8 @@
     <span class="spacer"></span>
     <label class="chk"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
     <label class="chk"><input type="checkbox" id="exGl" checked> 사전 적용</label>
-    <button id="exTxt">통합본 TXT</button>
-    <button id="exCsv">CSV</button>
+    <button type="button" id="exTxt">통합본 TXT</button>
+    <button type="button" id="exCsv">CSV</button>
   </div>
   <div class="tablewrap"><table class="rv">
     <thead><tr><th class="c-t">시각</th><th class="c-p"></th><th class="c-s">화자</th><th>발언</th><th class="c-k">판정</th><th class="c-ok">확인</th></tr></thead>
@@ -127,7 +132,7 @@
 
 <!-- ======================= 사전 ======================= -->
 <section id="tab-glossary" class="tab">
-  <div class="bar"><h2>인명·용어 사전</h2><span class="spacer"></span><button id="glAdd">＋ 줄 추가</button><button id="glSave" class="primary">저장</button></div>
+  <div class="bar"><h2>인명·용어 사전</h2><span class="spacer"></span><button type="button" id="glAdd">＋ 줄 추가</button><button type="button" id="glSave" class="primary">저장</button></div>
   <p class="note">음성인식이 잘못 적는 이름·용어를 바로잡습니다. 검수 화면 표시와 내보내기에만 적용되고 원문은 그대로 둡니다.</p>
   <table class="gl"><thead><tr><th>잘못 적힌 말</th><th>바로잡을 말</th><th></th></tr></thead><tbody id="glBody"></tbody></table>
 </section>
@@ -138,24 +143,26 @@
     <div class="card">
       <h3>엔진</h3>
       <p id="engState">-</p>
-      <button id="btnSetup">모델 받기</button>
-      <p class="note">처음 한 번 Whisper turbo·CAM++ 모델(약 1GB)을 GitHub에서 받습니다.</p>
-      <label>처리 스레드 <input type="number" id="threads" min="0" max="64" style="width:5em"> <small>0 = CPU 수만큼</small></label>
-      <button id="btnThreads">적용</button>
+      <div class="pbar big"><i id="dlBar"></i></div>
+      <p class="row"><button type="button" id="btnModels" class="primary">모델 받기</button> <button type="button" id="btnClearModels">받은 모델 지우기</button></p>
+      <p class="note">처음 한 번 Whisper turbo·CAM++ 모델(약 0.9GB)을 이 사이트에서 받아 브라우저에 보관합니다. 회사망에서 받는 데 몇 분 걸릴 수 있습니다.</p>
+      <label>처리 스레드 <input type="number" id="threads" min="0" max="32" class="num"> <small>0 = 자동(CPU 수 − 1)</small></label>
+      <button type="button" id="btnThreads">적용</button>
     </div>
     <div class="card">
-      <h3>백업</h3>
-      <p class="note">음원을 뺀 목소리 기준·사전·작업 결과·검수 내용을 zip으로 받습니다. Codespace는 오래 쓰지 않으면 지워지므로 작업이 끝날 때마다 받아 두세요.</p>
-      <a id="btnBackup" class="button" href="/api/backup">백업 내려받기</a>
-      <label class="button">백업 올리기 <input type="file" id="restoreFile" accept=".zip" hidden></label>
+      <h3>저장 공간·백업</h3>
+      <p id="storeState" class="note">-</p>
+      <p class="note">작업 결과·검수·목소리 기준은 <b>이 브라우저에만</b> 저장됩니다. 브라우저 데이터를 지우면 함께 사라지므로, 작업이 끝날 때마다 백업을 받아 두세요(음원은 빠집니다).</p>
+      <p class="row"><button type="button" id="btnBackup">백업 내려받기</button>
+      <label class="button">백업 올리기 <input type="file" id="restoreFile" accept=".json" hidden></label></p>
       <p id="restoreMsg" class="msg"></p>
     </div>
     <div class="card">
-      <h3>Codespaces에서 쓸 때</h3>
+      <h3>쓸 때 알아 둘 것</h3>
       <ul class="tips">
-        <li>처리 중에 Codespace가 멈추지 않도록 GitHub 설정 → Codespaces → <b>Default idle timeout</b>을 240분으로 올려 두세요. 멈춰도 다시 열면 끊긴 구간부터 이어서 처리합니다.</li>
-        <li>이 페이지 주소는 본인 GitHub 계정으로만 열립니다. 포트 공개 범위를 Public으로 바꾸지 마세요.</li>
-        <li>처리 속도: 2코어 시험에서 3분 구간이 약 4분(목소리 기준 만들기 포함). 4코어면 더 빠릅니다.</li>
+        <li>처리는 이 탭에서 돌아갑니다. <b>처리하는 동안 탭을 닫지 마세요.</b> 닫았다가 다시 열면 끊긴 구간부터 이어서 합니다.</li>
+        <li>음원과 전사는 인터넷으로 나가지 않습니다. 이 사이트가 받아 오는 것은 화면과 모델 파일뿐입니다.</li>
+        <li>처리 속도는 PC 성능에 따라 다릅니다. 시험(스레드 1개)에서는 음성 1분에 약 7분, 목소리 기준 만들기에 약 5분이 걸렸습니다. 스레드가 많을수록 빨라집니다(위 「처리 스레드」).</li>
         <li>다 쓴 작업은 「음원 지우기」로 음원만 지울 수 있습니다(결과는 남음).</li>
       </ul>
     </div>
@@ -164,6 +171,6 @@
 </main>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
-<script src="/static/app.js"></script>
+<script type="module" src="src/app.js"></script>
 </body>
 </html>
