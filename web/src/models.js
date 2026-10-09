@@ -6,16 +6,25 @@ import { agcGains } from "./diar.js";
 
 export class Whisper {
   /** @param ort onnxruntime-web 모듈, encBytes/decBytes: Uint8Array, tokensText: tokens.txt 내용 */
-  static async create(ort, encBytes, decBytes, tokensText, opts = {}, { gpu = false } = {}) {
+  /** encBytes·decBytes: 바이트 또는 바이트를 돌려주는 함수(하나씩 읽어 세션을 만든 뒤 놓도록 — 메모리 절약) */
+  static async create(ort, encBytes, decBytes, tokensText, opts = {}, { gpu = false, onLoad = () => {} } = {}) {
     const so = { executionProviders: ["wasm"], graphOptimizationLevel: "all", ...opts };
+    const get = async (b) => (typeof b === "function" ? b() : b);
     // 인코더(시간 대부분)는 그래픽 칩이 되면 WebGPU로, 안 되면 CPU(wasm)로. 디코더는 한 걸음이 짧아 CPU가 낫다
     let enc = null, device = "cpu", gpuError = null;
+    let bytes = await get(encBytes);
+    encBytes = null;
+    onLoad();
     if (gpu) {
-      try { enc = await ort.InferenceSession.create(encBytes, { ...so, executionProviders: ["webgpu"] }); device = "gpu"; }
+      try { enc = await ort.InferenceSession.create(bytes, { ...so, executionProviders: ["webgpu"] }); device = "gpu"; }
       catch (e) { gpuError = String((e && e.message) || e).slice(0, 200); }
     }
-    if (!enc) enc = await ort.InferenceSession.create(encBytes, so);
-    const dec = await ort.InferenceSession.create(decBytes, so);
+    if (!enc) enc = await ort.InferenceSession.create(bytes, so);
+    bytes = await get(decBytes); // 인코더 바이트는 여기서 놓인다
+    decBytes = null;
+    onLoad();
+    const dec = await ort.InferenceSession.create(bytes, so);
+    bytes = null;
     const w = new Whisper(ort, enc, dec, tokensText);
     w.device = device; w.gpuError = gpuError;
     return w;

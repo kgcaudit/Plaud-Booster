@@ -48,6 +48,7 @@ function startWorker() {
     if (m.type === "models") {
       if (m.phase === "download") WSTATE.dl = m;
       if (m.phase === "load") WSTATE.dl = { ...(WSTATE.dl || {}), loading: true };
+      if (m.phase === "stored") { WSTATE.dl = null; toast("모델을 이 기기에 저장했습니다 — 다음부터는 받지 않습니다"); worker.postMessage({ type: "status" }); }
       if (m.phase === "ready") { WSTATE.dl = null; WSTATE.threads = m.threads; if (m.device) WSTATE.device = m.device; if (m.gpuError) toast("그래픽 칩 가속을 켜지 못해 CPU로 전사합니다"); worker.postMessage({ type: "status" }); }
       renderSys();
     }
@@ -55,6 +56,7 @@ function startWorker() {
     if (m.type === "idle") { wakeLock(false); loadJobs(); }
     if (m.type === "bench") onBench(m);
     if (m.type === "error") toast(m.message);
+    if (m.type === "notice") toast(m.message);
   };
 }
 const kick = () => worker && worker.postMessage({ type: "kick" });
@@ -71,7 +73,8 @@ function renderSys() {
   let eng;
   if (WSTATE.fake) eng = '<span class="bad">시험용 가짜 엔진</span>';
   else if (!m) eng = "엔진 확인 중";
-  else if (WSTATE.dl && !WSTATE.dl.loading) eng = `모델 받는 중 ${Math.round((WSTATE.dl.got / WSTATE.dl.total) * 100)}%`;
+  // 인터넷에서 받는 중인지, 이 기기에 저장된 모델을 메모리로 불러오는 중인지 나눠 보여 준다
+  else if (WSTATE.dl && !WSTATE.dl.loading) eng = `${WSTATE.dl.net ? "모델 받는 중" : "저장된 모델 불러오는 중"} ${Math.round((WSTATE.dl.got / WSTATE.dl.total) * 100)}%`;
   else if (WSTATE.dl && WSTATE.dl.loading) eng = "모델 여는 중";
   else if (m.ready) eng = '<span class="ok">엔진 준비됨</span>';
   else eng = `<span class="bad">모델 없음</span> (받은 양 ${Math.round((m.cachedBytes / Math.max(1, m.totalBytes)) * 100)}%)`;

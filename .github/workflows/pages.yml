@@ -46,6 +46,9 @@ jobs:
       - if: steps.pwcache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
       - name: ffmpeg (MP3 조각 풀기 시험용)
+        # 우분투 저장소가 멈추면 설치가 끝없이 걸려 배포까지 막힌다(2026-10-10). 4분 넘으면 건너뛰고 ffmpeg 쓰는 시험만 빠진다
+        timeout-minutes: 4
+        continue-on-error: true
         run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
       - run: npm test
 

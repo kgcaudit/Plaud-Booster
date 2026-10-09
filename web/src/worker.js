@@ -46,16 +46,17 @@ async function loadFile(info, onBytes, fromNet = false) {
     if (hit) {
       b = new Uint8Array(await hit.r.arrayBuffer());
       if (hit.legacy) { legacy = true; await cache.put(url, new Response(b)); }
+      onBytes(b.length, false);
     } else {
       const net = await fetch(url, { cache: "no-store" });
       if (!net.ok) throw new Error(`모델 받기 실패: ${part} (${net.status})`);
       await cache.put(url, net.clone());
       b = new Uint8Array(await net.arrayBuffer());
+      onBytes(b.length, true);
     }
     if (o + b.length > info.size) break;
     out.set(b, o);
     o += b.length;
-    onBytes(b.length);
   }
   const bad = o !== info.size || (legacy && hex(await crypto.subtle.digest("SHA-256", out)) !== info.sha256);
   if (bad) {
@@ -64,6 +65,28 @@ async function loadFile(info, onBytes, fromNet = false) {
     return loadFile(info, onBytes, true); // 예전 캐시 내용이 달랐다 → 새로 받는다
   }
   return out;
+}
+
+/** 「모델 받기」: 조각을 캐시에만 받아 둔다(메모리에 올리지 않음). 이미 있는 조각은 건너뛴다 */
+async function prefetch(info, onBytes) {
+  const cache = await caches.open(cacheName(info));
+  for (let i = 0; i < info.parts.length; i++) {
+    const url = partUrl(info.parts[i]);
+    const hit = await findPart(info, url);
+    if (hit && !hit.legacy) { onBytes(info.partSizes[i], false); continue; }
+    const net = await fetch(url, { cache: "no-store" });
+    if (!net.ok) throw new Error(`모델 받기 실패: ${info.parts[i]} (${net.status})`);
+    await cache.put(url, net);
+    onBytes(info.partSizes[i], true);
+  }
+}
+async function downloadAll() {
+  const m = await getManifest();
+  const files = Object.values(m.files), total = files.reduce((x, f) => x + f.size, 0);
+  let got = 0, net = 0;
+  for (const f of files) await prefetch(f, (n, fromNet) => { got += n; if (fromNet) net += n; post({ type: "models", phase: "download", got, total, net }); });
+  await cleanupOldCaches();
+  post({ type: "models", phase: "stored" });
 }
 
 export async function modelStatus() {
@@ -126,10 +149,10 @@ async function ensureModels(need = "all") {
   }
   const st = await modelStatus();
 
-  let got = 0; // 이번에 읽는 양만 센다(이미 캐시에 있는 조각도 읽으면서 센다)
+  let got = 0, net = 0; // 이번에 읽는 양(net: 그중 인터넷에서 받은 양 — 0이면 화면에 「불러오는 중」)
   const toLoad = [...(haveDiar ? [] : [m.files.vad, m.files.campplus]), ...(need === "all" && !whisper ? [m.files.tokens, m.files.decoder, m.files.encoder] : [])].filter(Boolean);
   const want = toLoad.reduce((x, f) => x + f.size, 0) || st.totalBytes;
-  const tick = (n) => { got += n; post({ type: "models", phase: "download", got, total: want }); };
+  const tick = (n, fromNet) => { got += n; if (fromNet) net += n; post({ type: "models", phase: "download", got, total: want, net }); };
   const { Whisper, CamPlus, SileroVad } = await import("./models.js");
   if (!haveDiar) {
     const vadBytes = m.files.vad ? await loadFile(m.files.vad, tick) : null;
@@ -140,12 +163,21 @@ async function ensureModels(need = "all") {
   }
   if (need === "all" && !whisper) {
     const tokens = new TextDecoder().decode(await loadFile(m.files.tokens, tick));
-    const decBytes = await loadFile(m.files.decoder, tick);
-    let encBytes = await loadFile(m.files.encoder, tick);
+    // 메모리: 인코더(700MB)·디코더를 한꺼번에 읽어 두지 않고 하나씩 읽어 세션을 만든 뒤 바로 놓는다.
+    // (한꺼번에 들면 JS 사본 + wasm 사본 + 그래픽 칩 사본이 겹쳐 휴대폰 브라우저 탭이 메모리 부족으로 꺼진다)
+    // 그래픽 칩에 올리다 탭이 두 번 연달아 꺼지면 CPU로 연다(kv gpuLoading: 끝나지 못한 횟수 — 한 번은 새로 고침일 수 있음).
+    let gpu = useGpu;
+    const pend = (await S.get("kv", "gpuLoading")) || { n: 0 };
+    if (gpu && pend.n >= 2) {
+      gpu = false;
+      await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpu: false });
+      post({ type: "notice", message: "지난번 그래픽 칩에 모델을 올리다 멈춰, 그래픽 칩 가속을 껐습니다(설정에서 다시 켤 수 있음)" });
+    }
+    if (gpu) await S.put("kv", "gpuLoading", { n: pend.n + 1, at: S.now() });
+    whisper = await Whisper.create(ort, () => loadFile(m.files.encoder, tick), () => loadFile(m.files.decoder, tick), tokens, {},
+      { gpu, onLoad: () => post({ type: "models", phase: "load" }) });
+    await S.del("kv", "gpuLoading");
     await cleanupOldCaches();
-    post({ type: "models", phase: "load" });
-    whisper = await Whisper.create(ort, encBytes, decBytes, tokens, {}, { gpu: useGpu });
-    encBytes = null; // 세션을 만든 뒤에는 원본 바이트를 놓아 메모리를 돌려준다
   }
   post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads, partial: !whisper, device: whisper ? whisper.device : null, gpuError: whisper ? whisper.gpuError : null });
 }
@@ -313,7 +345,7 @@ self.onmessage = async (ev) => {
       finally { busy = false; if (owner) loop(); }
       return;
     }
-    if (m.type === "download") { await ensureModels("all"); post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE }); }
+    if (m.type === "download") { await downloadAll(); post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE }); }
   } catch (e) {
     post({ type: "error", message: String(e && e.message || e) });
   }
