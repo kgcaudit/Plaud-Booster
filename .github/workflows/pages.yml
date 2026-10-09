@@ -19,7 +19,7 @@ concurrency:
 
 env:
   SHERPA_REL: https://github.com/k2-fsa/sherpa-onnx/releases/download
-  MODEL_REV: turbo-nbits8-v3-vad
+  MODEL_REV: turbo-nbits8-split4-v4
   SILERO_SHA16: 9e2449e1087496d8
 
 jobs:
@@ -77,7 +77,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: _models
-          key: models-${{ env.MODEL_REV }}-${{ hashFiles('tools/prepare_models.py', 'tools/shrink_decoder.py', 'tools/to_nbits.py') }}
+          key: models-${{ env.MODEL_REV }}-${{ hashFiles('tools/prepare_models.py', 'tools/shrink_decoder.py', 'tools/to_nbits.py', 'tools/split_encoder.py') }}
 
       - name: 모델 받기·줄이기·나누기
         if: steps.models.outputs.cache-hit != 'true'

@@ -48,8 +48,12 @@ def main():
     bits, block = os.environ.get("ENC_BITS", "8"), os.environ.get("ENC_BLOCK", "128")
     enc = os.path.join(out, "_encoder.tmp.onnx")
     subprocess.run([sys.executable, os.path.join(here, "to_nbits.py"), os.path.join(turbo, "turbo-encoder.int8.onnx"), enc, bits, block, "4"], check=True)
+    # 인코더를 블록 경계에서 4조각으로 나눈다(split_encoder.py) — 휴대폰에서 조각마다 세션을 만들고 놓아 메모리 최대치를 줄임
+    nparts = int(os.environ.get("ENC_PARTS", "4"))
+    pre = os.path.join(out, "_enc")
+    subprocess.run([sys.executable, os.path.join(here, "split_encoder.py"), enc, pre, str(nparts)], check=True)
     files = {
-        "encoder": {**split(enc, out, "whisper-encoder.onnx"), "format": f"nbits{bits}-b{block}"},
+        **{f"enc{k}": {**split(f"{pre}.{k}.onnx", out, f"whisper-encoder.{k}.onnx"), "format": f"nbits{bits}-b{block}"} for k in range(nparts)},
         "decoder": split(small, out, "whisper-decoder.onnx"),
         "campplus": split(camp, out, "campplus.onnx"),
         "tokens": split(os.path.join(turbo, "turbo-tokens.txt"), out, "tokens.txt"),
@@ -58,9 +62,11 @@ def main():
         files["vad"] = split(vad, out, "silero-vad.onnx")
     os.remove(small)
     os.remove(enc)
+    for k in range(nparts):
+        os.remove(f"{pre}.{k}.onnx")
     version = hashlib.sha256("".join(f["sha256"] for f in files.values()).encode()).hexdigest()[:12]
     with open(os.path.join(out, "manifest.json"), "w") as f:
-        json.dump({"version": version, "files": files}, f, indent=1)
+        json.dump({"version": version, "encoderParts": [f"enc{k}" for k in range(nparts)], "files": files}, f, indent=1)
     total = sum(f["size"] for f in files.values())
     print(f"models {version}: {total / 2**20:.0f} MB in {sum(len(f['parts']) for f in files.values())} parts")
 

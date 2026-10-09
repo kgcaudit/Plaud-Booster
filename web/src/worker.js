@@ -67,6 +67,9 @@ async function loadFile(info, onBytes, fromNet = false) {
   return out;
 }
 
+/** 인코더 파일들(블록 경계에서 나눈 조각, 차례대로). 예전 manifest는 encoder 하나 */
+const encFiles = (m) => (m.encoderParts ? m.encoderParts.map((k) => m.files[k]) : [m.files.encoder]);
+
 /** 「모델 받기」: 조각을 캐시에만 받아 둔다(메모리에 올리지 않음). 이미 있는 조각은 건너뛴다 */
 async function prefetch(info, onBytes) {
   const cache = await caches.open(cacheName(info));
@@ -139,7 +142,7 @@ async function ensureModels(need = "all") {
     const set = (await S.get("kv", "settings")) || {};
     // 그래픽 칩 가속: 설정에서 끄지 않았고, 인코더가 그래픽 칩용 형식(MatMulNBits)이고, 이 기기에 WebGPU가 있을 때만
     let adapter = null;
-    if (set.gpu !== false && /^nbits/.test(m.files.encoder.format || "") && self.navigator.gpu) {
+    if (set.gpu !== false && /^nbits/.test(encFiles(m)[0].format || "") && self.navigator.gpu) {
       try { adapter = await self.navigator.gpu.requestAdapter(); } catch { adapter = null; }
     }
     useGpu = !!adapter;
@@ -150,7 +153,7 @@ async function ensureModels(need = "all") {
   const st = await modelStatus();
 
   let got = 0, net = 0; // 이번에 읽는 양(net: 그중 인터넷에서 받은 양 — 0이면 화면에 「불러오는 중」)
-  const toLoad = [...(haveDiar ? [] : [m.files.vad, m.files.campplus]), ...(need === "all" && !whisper ? [m.files.tokens, m.files.decoder, m.files.encoder] : [])].filter(Boolean);
+  const toLoad = [...(haveDiar ? [] : [m.files.vad, m.files.campplus]), ...(need === "all" && !whisper ? [m.files.tokens, m.files.decoder, ...encFiles(m)] : [])].filter(Boolean);
   const want = toLoad.reduce((x, f) => x + f.size, 0) || st.totalBytes;
   const tick = (n, fromNet) => { got += n; if (fromNet) net += n; post({ type: "models", phase: "download", got, total: want, net }); };
   const { Whisper, CamPlus, SileroVad } = await import("./models.js");
@@ -174,7 +177,7 @@ async function ensureModels(need = "all") {
       post({ type: "notice", message: "지난번 그래픽 칩에 모델을 올리다 멈춰, 그래픽 칩 가속을 껐습니다(설정에서 다시 켤 수 있음)" });
     }
     if (gpu) await S.put("kv", "gpuLoading", { n: pend.n + 1, at: S.now() });
-    whisper = await Whisper.create(ort, () => loadFile(m.files.encoder, tick), () => loadFile(m.files.decoder, tick), tokens, {},
+    whisper = await Whisper.create(ort, encFiles(m).map((f) => () => loadFile(f, tick)), () => loadFile(m.files.decoder, tick), tokens, {},
       { gpu, onLoad: () => post({ type: "models", phase: "load" }) });
     await S.del("kv", "gpuLoading");
     await cleanupOldCaches();
@@ -276,7 +279,8 @@ async function loop() {
         const msg = e && e.name === "QuotaExceededError"
           ? "저장 공간이 부족합니다. 시크릿 창이 아닌 일반 창에서 열고, 설정·백업 탭에서 남은 공간을 확인하세요."
           : String((e && e.message) || e).slice(0, 300);
-        await S.saveJob(job.id, { status: "오류", error: msg });
+        // 처리 중에 지워진 작업이면 저장이 실패할 수 있다 — 그래도 다음 작업으로 넘어간다
+        try { await S.saveJob(job.id, { status: "오류", error: msg }); } catch { /* 지워진 작업 */ }
         post({ type: "job", id: job.id });
       }
     }
@@ -284,6 +288,8 @@ async function loop() {
     busy = false;
     post({ type: "idle" });
   }
+  // 처리하는 동안 들어온 「시작」 요청은 busy라 건너뛰었으므로, 끝난 뒤 대기 작업이 남았으면 다시 돈다
+  if (owner && (await nextJob())) setTimeout(loop, 0);
 }
 
 /* ------------------------------------------------------------------ 기기 성능 시험 */

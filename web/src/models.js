@@ -6,28 +6,52 @@ import { agcGains } from "./diar.js";
 
 export class Whisper {
   /** @param ort onnxruntime-web 모듈, encBytes/decBytes: Uint8Array, tokensText: tokens.txt 내용 */
-  /** encBytes·decBytes: 바이트 또는 바이트를 돌려주는 함수(하나씩 읽어 세션을 만든 뒤 놓도록 — 메모리 절약) */
+  /**
+   * encBytes: 바이트, 바이트를 돌려주는 함수, 또는 그 함수들의 배열(인코더를 블록 경계에서 나눈 조각 — 차례로 이어 돌림).
+   * 조각마다 읽어 세션을 만든 뒤 바로 놓아, 한 번에 메모리에 드는 양을 조각 크기(약 170MB)로 줄인다(휴대폰 탭 꺼짐 방지).
+   */
   static async create(ort, encBytes, decBytes, tokensText, opts = {}, { gpu = false, onLoad = () => {} } = {}) {
     const so = { executionProviders: ["wasm"], graphOptimizationLevel: "all", ...opts };
     const get = async (b) => (typeof b === "function" ? b() : b);
+    const loaders = Array.isArray(encBytes) ? encBytes : [encBytes];
     // 인코더(시간 대부분)는 그래픽 칩이 되면 WebGPU로, 안 되면 CPU(wasm)로. 디코더는 한 걸음이 짧아 CPU가 낫다
+    const build = async (ep) => {
+      const ss = [];
+      try {
+        for (const ld of loaders) {
+          let bytes = await get(ld);
+          onLoad();
+          ss.push(await ort.InferenceSession.create(bytes, { ...so, executionProviders: [ep] }));
+          bytes = null;
+        }
+        return ss;
+      } catch (e) { for (const x of ss) await x.release?.(); throw e; }
+    };
     let enc = null, device = "cpu", gpuError = null;
-    let bytes = await get(encBytes);
-    encBytes = null;
-    onLoad();
     if (gpu) {
-      try { enc = await ort.InferenceSession.create(bytes, { ...so, executionProviders: ["webgpu"] }); device = "gpu"; }
+      try { enc = await build("webgpu"); device = "gpu"; }
       catch (e) { gpuError = String((e && e.message) || e).slice(0, 200); }
     }
-    if (!enc) enc = await ort.InferenceSession.create(bytes, so);
-    bytes = await get(decBytes); // 인코더 바이트는 여기서 놓인다
-    decBytes = null;
+    if (!enc) enc = await build("wasm");
+    let bytes = await get(decBytes);
     onLoad();
     const dec = await ort.InferenceSession.create(bytes, so);
     bytes = null;
     const w = new Whisper(ort, enc, dec, tokensText);
     w.device = device; w.gpuError = gpuError;
     return w;
+  }
+
+  /** 멜 → 디코더용 cross k·v. 인코더 조각을 차례로 잇는다(조각 사이 텐서는 다음 조각 입력) */
+  async encode(mel) {
+    let feed = mel, out = null;
+    for (let k = 0; k < this.enc.length; k++) {
+      const s = this.enc[k];
+      out = await s.run({ [s.inputNames[0]]: feed });
+      if (k > 0) feed.dispose?.();
+      if (k < this.enc.length - 1) feed = out[s.outputNames[0]];
+    }
+    return out;
   }
 
   constructor(ort, enc, dec, tokensText) {
@@ -68,7 +92,7 @@ export class Whisper {
   async transcribe(audio) {
     const { ort } = this;
     const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
-    const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.enc.run({ mel });
+    const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
     const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
     const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
     const prompt = [this.SOT, this.KO, this.TRANSCRIBE, this.NOTS];
@@ -110,7 +134,7 @@ Whisper.prototype.transcribeTs = async function (audio) {
   const TS0 = Number(this.NOTS) + 1, EOT = this.EOT, SOT = Number(this.SOT);
   const dur = audio.length / 16000, maxTs = TS0 + Math.min(1500, Math.floor(dur / 0.02) + 1);
   const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
-  const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.enc.run({ mel });
+  const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
   const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
   const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
   const prompt = [this.SOT, this.KO, this.TRANSCRIBE];
@@ -182,7 +206,7 @@ Whisper.prototype.bench = async function (audio, steps = 24) {
   const now = () => performance.now();
   let t = now();
   const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
-  const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.enc.run({ mel });
+  const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
   const enc = now() - t;
   const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
   const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
