@@ -78,7 +78,7 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 .joblist { display: grid; gap: 10px; }
 /* 작업 카드: 위 [제목·상태 | 버튼], 아래 정보표는 카드 전체 폭(버튼 열에 눌려 왼쪽에 몰리지 않게) */
 .job { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; display: grid;
-  grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "hd acts" "info info" "prog prog"; gap: 8px 16px; }
+  grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "hd acts" "info info" "batt batt" "prog prog"; gap: 8px 16px; }
 .job .hd { grid-area: hd; align-self: center; min-width: 0; }
 .job .t { font-weight: 600; overflow-wrap: anywhere; }
 .job .acts { grid-area: acts; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: start; }
@@ -89,7 +89,7 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 .job .info dd { margin: 0; overflow-wrap: anywhere; }
 .job .prog { grid-area: prog; display: flex; gap: 10px; align-items: center; font-size: 12.5px; color: var(--mute); }
 @media (max-width: 720px) {
-  .job { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hd" "acts" "info" "prog"; }
+  .job { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hd" "acts" "info" "batt" "prog"; }
   .job .acts { justify-content: flex-start; }
 }
 .job .prog .pbar { flex: 1; max-width: 420px; }
@@ -284,3 +284,11 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
 .tl-ctl button { flex: 1 1 0; max-width: 120px; }
 .tl-ctl #tlPlay { flex: 1.4 1 0; }
 @media (max-width: 720px) { .tl-top #tlNow { display: none; } .tl-ctl button { max-width: none; } }
+
+/* 출처별 녹음 요령 · 충전 안내 */
+.srctip { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 4px 0 8px; min-width: 0; }
+.srctip summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.srctip .tips { margin-top: 8px; }
+.srctip li { overflow-wrap: anywhere; }
+.job .note.batt { grid-area: batt; margin: 0; color: var(--warn, #b45309); overflow-wrap: anywhere; }
+@media (pointer: coarse) { .srctip summary { min-height: 44px; display: flex; align-items: center; } }

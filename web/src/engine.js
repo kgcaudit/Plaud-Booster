@@ -104,6 +104,21 @@ export async function match(embedAt, s, e, C) {
   return [Object.fromEntries(sorted.map(([k, v]) => [k, Math.round((v / tot) * 100) / 100])), whole];
 }
 
+/**
+ * 처리 속도 감시: 한 건 처리 시간이 처음 8건의 가운데값보다 1.8배 넘게 느려지면(휴대폰 발열로 성능을 낮춘 경우 등)
+ * 진행 문구에 안내를 붙인다. ctx.now가 있으면 그것을 시계로 쓴다(시험용).
+ */
+export function pacer(now = () => Date.now()) {
+  const d = [];
+  let t = now();
+  const med = (a) => { const b = [...a].sort((x, y) => x - y); return b[b.length >> 1]; };
+  return () => {
+    const t2 = now(); d.push(t2 - t); t = t2;
+    if (d.length < 16) return "";
+    return med(d.slice(-8)) > 1.8 * med(d.slice(0, 8)) ? " · 처음보다 느려졌습니다(발열 가능) — 충전기를 연결하고 잠시 식혀 주세요" : "";
+  };
+}
+
 const sumSec = (rs) => rs.reduce((m, [s, e]) => m + e - s, 0);
 
 /**
@@ -208,7 +223,7 @@ export async function runSony(job, files, ctx) {
   const ids = diar.clusters.map((c) => c.id);
   const todo = diar.units.map((u, k) => k).filter((k) => !skip.has(ids[diar.units[k].c]));
   const done = await ctx.loadPartial();
-  const tic = Date.now();
+  const tic = Date.now(), pace = pacer(ctx.now);
   let nNew = 0;
   for (const k of todo) {
     if (done[k]) continue;
@@ -222,7 +237,7 @@ export async function runSony(job, files, ctx) {
     nNew++;
     const n = todo.filter((q) => done[q]).length;
     const left = ((todo.length - n) * (Date.now() - tic)) / nNew / 60000;
-    ctx.progress(Math.floor((n / Math.max(1, todo.length)) * 99), `${n}/${todo.length} 발언 전사 · 남은 시간 약 ${Math.ceil(left)}분`);
+    ctx.progress(Math.floor((n / Math.max(1, todo.length)) * 99), `${n}/${todo.length} 발언 전사 · 남은 시간 약 ${Math.ceil(left)}분${pace()}`);
   }
   const segs = [];
   let dropped = 0;
@@ -309,7 +324,7 @@ export async function runJob(job, files, ctx) {
   }
 
   const done = await ctx.loadPartial();
-  const tic = Date.now();
+  const tic = Date.now(), pace = pacer(ctx.now);
   let nNew = 0;
   for (let k = 0; k < chunks.length; k++) {
     if (done[k]) continue;
@@ -330,7 +345,7 @@ export async function runJob(job, files, ctx) {
     nNew++;
     const n = Object.keys(done).length;
     const left = ((chunks.length - n) * (Date.now() - tic)) / nNew / 60000;
-    ctx.progress(10 + Math.floor((n / Math.max(1, chunks.length)) * 89), `${n}/${chunks.length} 구간 · 남은 시간 약 ${Math.ceil(left)}분`);
+    ctx.progress(10 + Math.floor((n / Math.max(1, chunks.length)) * 89), `${n}/${chunks.length} 구간 · 남은 시간 약 ${Math.ceil(left)}분${pace()}`);
   }
 
   const segs = [];

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runJob, label, isHallu, isGeneric, centroid } from "../../web/src/engine.js";
+import { runJob, label, isHallu, isGeneric, centroid, pacer } from "../../web/src/engine.js";
 import { exportTxt, exportCsv, mergeBackup, mergedLines } from "../../web/src/export.js";
 
 // 합성 음원: 6초 주기(4초 말 + 2초 쉼). 화자는 시간대로 정해지는 가짜 특징(앞 30초 A, 뒤 B)
@@ -108,4 +108,17 @@ test("기준 만들기: 한 사람당 창 수를 제한하되 회의 전체에�
   assert.equal(seen.length, 30);
   assert.equal(out.갑.n, 30);
   assert.ok(Math.min(...seen) < 20 && Math.max(...seen) > 900);
+});
+
+test("느려짐 알림: 최근 구간이 처음보다 1.8배 넘게 느려야만 알린다", () => {
+  let t = 0; const step = (d) => { t += d; };
+  const p = pacer(() => t);
+  let msg = "";
+  for (let k = 0; k < 16; k++) { step(1000); msg = p(); }
+  assert.equal(msg, "");
+  for (let k = 0; k < 8; k++) { step(2500); msg = p(); }
+  assert.match(msg, /느려졌습니다/);
+  const q = pacer(() => t);
+  for (let k = 0; k < 24; k++) { step(1200 + (k % 3) * 100); msg = q(); }
+  assert.equal(msg, "");
 });

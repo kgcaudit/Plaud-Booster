@@ -131,6 +131,8 @@ try {
   assert.ok(await page.locator("input[name='mode'][value='diar']").isChecked());
   assert.ok(await page.locator("#fsTranscript").isHidden());
   assert.ok(await page.locator("#callWrap").isHidden());
+  assert.match(await page.locator("#srcTip summary").textContent(), /소니 녹음기/); // 출처별 녹음 요령
+  assert.match(await page.locator("#srcTip").textContent(), /저역 차단/);
   await page.setInputFiles("#audioFiles", [asFile(sony2, "audio/wav"), asFile(sony1, "audio/wav")]); // 거꾸로 골라도
   await page.waitForSelector("#audioList li:first-child:has-text('251009_1430.wav')"); // 녹음 시각 순
   await page.waitForSelector("#audioList li:nth-child(2):has-text('앞 파일과')");

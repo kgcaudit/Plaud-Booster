@@ -127,12 +127,27 @@ $$('input[name="source"]').forEach((r) => r.addEventListener("change", () => {
 }));
 $$('input[name="mode"]').forEach((r) => r.addEventListener("change", applyMode));
 $("#isCall").addEventListener("change", () => { if ($("#isCall").checked) $("#attendees").value = 2; });
+const SRC_TIPS = {
+  plaud: ["내보낼 때 「시간」과 「화자」를 켜 두세요 — 화자 맞히기의 기준이 됩니다.",
+    "Plaud에서 화자 이름을 몇 명이라도 붙여 두면 그 사람의 목소리 기준이 정확해집니다.",
+    "음원(MP3)은 전사와 같은 녹음의 원본을 받으세요."],
+  sony: ["녹음 방식은 MP3 192kbps 이상 또는 LPCM(WAV)으로 두세요.",
+    "저역 차단(LOW CUT)을 켜면 에어컨·책상 울림이 줄어 말소리 찾기가 정확해집니다.",
+    "녹음기는 탁자 가운데, 모든 사람에게서 비슷한 거리에 두세요.",
+    "잠깐 쉴 때는 일시정지 대신 트랙 마크를 쓰면 파일이 잘게 나뉘지 않습니다."],
+  phone: ["녹음 앱의 음질을 「높음」(또는 48kHz)으로 두세요.",
+    "통화 녹음은 전화 음질(8kHz)이라 대면 녹음보다 전사·화자 구분이 덜 정확합니다.",
+    "휴대폰은 화면을 아래로 해 탁자 가운데에 두고, 알림·진동은 꺼 두세요.",
+    "녹음 중 다른 앱으로 오래 넘어가면 기종에 따라 녹음이 끊길 수 있습니다."],
+};
 function applyMode() {
   const src = source(), m = mode(), dev = src && src !== "plaud";
   $("#fsTask").classList.toggle("hidden", !src);
   $$("#fsTask .mode").forEach((l) => l.classList.toggle("hidden", !src || l.dataset.src !== (dev ? "dev" : "plaud")));
   $$("#newJob .after-src").forEach((f) => f.classList.toggle("hidden", !src));
   $("#callWrap").classList.toggle("hidden", !(src === "phone" && isDiar(m)));
+  $("#srcTip").classList.toggle("hidden", !src);
+  if (src) $("#srcTip").innerHTML = `<summary>녹음 요령 — ${SOURCE_LABEL[src]} (전사·화자 정확도 높이기)</summary><ul class="tips">${SRC_TIPS[src].map((t) => `<li>${t}</li>`).join("")}</ul>`;
   if (!src) return;
   $("#audioFiles").multiple = MULTI(m);
   $("#audioHint").textContent = src === "sony" ? "MP3·WAV 여러 개 가능 — 파일 이름의 녹음 시각 순으로 자동 정렬"
@@ -296,6 +311,19 @@ $("#newJob").addEventListener("submit", async (ev) => {
 
 /* ================================================================== 작업 목록 */
 let JOBS = [];
+// 오래 돌리는 작업은 충전기에 꽂아 두는 편이 빠르고 안전하다(배터리 절약 모드가 CPU를 늦춤). 지원하는 브라우저에서만.
+const BATT = { warn: "" };
+(async () => {
+  try {
+    if (!navigator.getBattery) return;
+    const b = await navigator.getBattery();
+    const upd = () => {
+      const pct = Math.round(b.level * 100);
+      BATT.warn = b.charging ? "" : `충전기가 연결되어 있지 않습니다(배터리 ${pct}%). 긴 녹음은 충전하면서 처리하면 느려지거나 멈추지 않습니다.`;
+    };
+    upd(); b.addEventListener("chargingchange", upd); b.addEventListener("levelchange", upd);
+  } catch { /* 지원 안 함 */ }
+})();
 async function jobsList() {
   const rows = await S.all("jobs");
   const res = new Set((await S.all("results")).map(([k]) => k));
@@ -334,6 +362,7 @@ async function loadJobs() {
         ${!busy && !j.audioDeleted ? '<button type="button" data-a="delaudio">음원 지우기</button>' : ""}
         ${!busy || j.status === "준비" ? '<button type="button" data-a="del">삭제</button>' : ""}
       </div>
+      ${busy && j.status === "처리중" && BATT.warn ? `<p class="note batt">${BATT.warn}</p>` : ""}
       ${busy ? `<div class="prog"><span class="pbar"><i data-w="${p.pct || 0}"></i></span><span>${p.pct || 0}% · ${esc(p.msg || "")}</span></div>` : ""}
     </div>`;
   }).join("");

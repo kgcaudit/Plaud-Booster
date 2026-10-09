@@ -2,6 +2,7 @@
 // 화면과는 postMessage로만 이야기하고, 결과는 IndexedDB에 바로 쓴다.
 import * as S from "./store.js";
 import { runJob, isGeneric } from "./engine.js";
+import { isDiar } from "./export.js";
 
 const FAKE = new URL(self.location.href).searchParams.get("fake") === "1";
 const post = (m) => self.postMessage(m);
@@ -83,15 +84,20 @@ async function cleanupOldCaches() {
   for (const k of await caches.keys()) if (k.startsWith(LEGACY) || (k.startsWith("pb-m-") && !keep.has(k))) await caches.delete(k);
 }
 
-async function ensureModels() {
+/**
+ * 모델 불러오기. need = "diar"(화자 묶기 단계: Silero·CAM++ 약 30MB만) | "all"(전사까지: Whisper 포함).
+ * 휴대폰에서 「이름 대기」까지는 Whisper(약 0.8GB)를 메모리에 올리지 않아 빨리 시작하고 가볍게 돈다.
+ */
+async function ensureModels(need = "all") {
   if (FAKE) {
     whisper = whisper || { transcribe: async (a) => `가짜 전사 ${(a.length / 16000).toFixed(1)}초` };
     camp = camp || { embed: async (a) => fakeEmbed(a) };
     vad = vad || { probs: async (x) => { const n = Math.floor(x.length / 512), p = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let k = i * 512; k < (i + 1) * 512; k++) s += x[k] * x[k]; p[i] = Math.sqrt(s / 512) > 0.01 ? 0.9 : 0.02; } return p; } };
     return;
   }
-  if (whisper && camp && (vad || !manifest?.files?.vad)) return;
   const m = await getManifest();
+  const haveDiar = camp && (vad || !m.files.vad);
+  if (haveDiar && (need === "diar" || whisper)) return;
   if (!ort) {
     ort = await import("../vendor/ort/ort.wasm.min.mjs");
     const set = (await S.get("kv", "settings")) || {};
@@ -99,23 +105,29 @@ async function ensureModels() {
     ort.env.wasm.numThreads = set.threads || Math.min(16, hc > 2 ? hc - 1 : hc); // 화면용으로 하나 남긴다(2코어 이하는 전부)
   }
   const st = await modelStatus();
-  let got = st.cachedBytes;
-  const tick = (n) => { got += n; post({ type: "models", phase: "download", got, total: st.totalBytes }); };
-  // 이미 캐시에 있는 조각은 tick이 다시 세지 않도록 0부터 센다
-  got = 0;
-  const { Whisper, CamPlus } = await import("./models.js");
-  const tokens = new TextDecoder().decode(await loadFile(m.files.tokens, tick));
-  const vadBytes = m.files.vad ? await loadFile(m.files.vad, tick) : null;
-  const campBytes = await loadFile(m.files.campplus, tick);
-  const decBytes = await loadFile(m.files.decoder, tick);
-  const encBytes = await loadFile(m.files.encoder, tick);
-  await cleanupOldCaches();
-  post({ type: "models", phase: "load" });
-  const { SileroVad } = await import("./models.js");
-  if (vadBytes) vad = await SileroVad.create(ort, vadBytes);
-  camp = await CamPlus.create(ort, campBytes);
-  whisper = await Whisper.create(ort, encBytes, decBytes, tokens);
-  post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads });
+
+  let got = 0; // 이번에 읽는 양만 센다(이미 캐시에 있는 조각도 읽으면서 센다)
+  const toLoad = [...(haveDiar ? [] : [m.files.vad, m.files.campplus]), ...(need === "all" && !whisper ? [m.files.tokens, m.files.decoder, m.files.encoder] : [])].filter(Boolean);
+  const want = toLoad.reduce((x, f) => x + f.size, 0) || st.totalBytes;
+  const tick = (n) => { got += n; post({ type: "models", phase: "download", got, total: want }); };
+  const { Whisper, CamPlus, SileroVad } = await import("./models.js");
+  if (!haveDiar) {
+    const vadBytes = m.files.vad ? await loadFile(m.files.vad, tick) : null;
+    const campBytes = await loadFile(m.files.campplus, tick);
+    post({ type: "models", phase: "load" });
+    if (vadBytes) vad = await SileroVad.create(ort, vadBytes);
+    camp = await CamPlus.create(ort, campBytes);
+  }
+  if (need === "all" && !whisper) {
+    const tokens = new TextDecoder().decode(await loadFile(m.files.tokens, tick));
+    const decBytes = await loadFile(m.files.decoder, tick);
+    let encBytes = await loadFile(m.files.encoder, tick);
+    await cleanupOldCaches();
+    post({ type: "models", phase: "load" });
+    whisper = await Whisper.create(ort, encBytes, decBytes, tokens);
+    encBytes = null; // 세션을 만든 뒤에는 원본 바이트를 놓아 메모리를 돌려준다
+  }
+  post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads, partial: !whisper });
 }
 
 /* ------------------------------------------------------------------ 작업 */
@@ -129,7 +141,7 @@ async function processJob(job) {
   const id = job.id;
   await S.saveJob(id, { status: "처리중", error: null, startedAt: S.now(), progress: { pct: 1, msg: "모델 준비" } });
   post({ type: "job", id });
-  await ensureModels();
+  await ensureModels(isDiar(job.mode) && job.stage !== "transcribe" ? "diar" : "all");
   let last = 0;
   const progress = async (pct, msg) => {
     if (Date.now() - last < 1500 && pct < 99) return;
@@ -227,7 +239,7 @@ self.onmessage = async (ev) => {
     if (m.type === "kick" && owner) loop();
     if (m.type === "stop") stopId = m.id;
     if (m.type === "status") post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE });
-    if (m.type === "download") { await ensureModels(); post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE }); }
+    if (m.type === "download") { await ensureModels("all"); post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE }); }
   } catch (e) {
     post({ type: "error", message: String(e && e.message || e) });
   }
