@@ -34,7 +34,15 @@ input.wide { width: 100%; margin-bottom: 6px; }
 .sysline { color: var(--mute); font-size: 13px; }
 .sysline .bad { color: var(--bad); } .sysline .ok { color: var(--ok); }
 
-.tabs { display: flex; gap: 2px; padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto;
+.tabs .trow { display: flex; gap: 2px; overflow-x: auto; }
+/* 작업 단계 줄: 위 탭보다 한 단계 낮게(작게·옅은 바탕) — 작업 목록 › 검수·내보내기 */
+.tabs .trow.sub { gap: 4px; align-items: center; padding: 6px 0 8px; border-top: 1px solid var(--line); }
+.tabs .trow.sub button { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--mute); background: var(--bg); }
+.tabs .trow.sub button b { display: inline-block; min-width: 1.4em; margin-right: 4px; border-radius: 999px; background: var(--line); color: var(--ink); font-size: 11.5px; text-align: center; }
+.tabs .trow.sub button.on { border-color: var(--accent); color: var(--accent); background: var(--panel); font-weight: 600; }
+.tabs .trow.sub button.on b { background: var(--accent); color: var(--accent-ink); }
+.tabs .trow.sub .arrow { color: var(--mute); }
+.tabs { padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 6px rgba(0, 0, 0, .05); }
 .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 14px; background: none; white-space: nowrap; }
 .tabs button.on { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
@@ -267,7 +275,8 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
   .sysline { font-size: 12px; }
   .tabs { padding: 0 4px; gap: 0; }
   .tabs .lg { display: none; } .tabs .sm { display: inline; }
-  .tabs button { flex: 1 1 0; padding: 12px 4px; text-align: center; }
+  .tabs .trow:not(.sub) button { flex: 1 1 0; padding: 12px 4px; text-align: center; }
+  .tabs .trow.sub button { flex: 1 1 0; text-align: center; }
   #rvBar { gap: 6px; }
   #rvBar #rvJob { flex: 1 1 100%; }
   #rvBar .seg { flex: 1 1 auto; } #rvBar .seg button { flex: 1 1 0; padding-left: 6px; padding-right: 6px; }
@@ -312,3 +321,5 @@ dl.bench { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 4px 10
 dl.bench:empty { display: none; }
 dl.bench dt { color: var(--mute); }
 dl.bench dd { margin: 0; min-width: 0; overflow-wrap: break-word; }
+
+@media (pointer: coarse) { .tabs .trow.sub button { min-height: 44px; } }

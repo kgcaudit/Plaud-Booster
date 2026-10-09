@@ -52,7 +52,14 @@ function startWorker() {
       if (m.phase === "ready") { WSTATE.dl = null; WSTATE.threads = m.threads; if (m.device) WSTATE.device = m.device; if (m.gpuError) toast("그래픽 칩 가속을 켜지 못해 CPU로 전사합니다"); worker.postMessage({ type: "status" }); }
       renderSys();
     }
-    if (m.type === "job") { wakeLock(true); if ($("#tab-jobs").classList.contains("on")) loadJobs(); if (m.done) toast("작업이 끝났습니다"); }
+    if (m.type === "job") {
+      wakeLock(true);
+      // 진행률만 바뀐 알림은 그 작업 카드의 진행 막대만 고친다(목록 전체를 다시 그리지 않음)
+      const card = m.pct != null && !m.done && !m.naming ? document.querySelector(`.job[data-id="${CSS.escape(m.id)}"] .prog`) : null;
+      if (card) { const i = card.querySelector(".pbar i"); if (i) { i.dataset.w = m.pct; applyGeom(card); } const t = card.querySelector("span:last-child"); if (t) t.textContent = `${m.pct}% · ${m.msg || ""}`; }
+      else if ($("#tab-jobs").classList.contains("on")) loadJobs();
+      if (m.done) toast("작업이 끝났습니다");
+    }
     if (m.type === "idle") { wakeLock(false); loadJobs(); }
     if (m.type === "bench") onBench(m);
     if (m.type === "error") toast(m.message);
@@ -87,9 +94,15 @@ function renderSys() {
 }
 
 /* ================================================================== 탭 */
-$$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+$$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab || b.dataset.sub)));
 function showTab(name) {
-  $$(".tabs button").forEach((x) => x.classList.toggle("on", x.dataset.tab === name));
+  // 위 줄: 작업(작업 목록·검수 모두 여기 속함)·목소리·사전·설정 / 아래 줄: 작업 단계(작업 목록 › 검수)
+  const work = name === "jobs" || name === "review";
+  $$(".tabs .trow:not(.sub) button").forEach((x) => x.classList.toggle("on", x.dataset.tab === name || (work && x.dataset.tab === "jobs")));
+  $$("#subTabs button").forEach((x) => x.classList.toggle("on", (x.dataset.sub || x.dataset.tab) === name));
+  $("#subTabs").classList.toggle("hidden", !work);
+  // 검수를 떠나면 재생을 멈춘다(재생 막대는 검수 화면에만 있어 다른 화면에서는 멈출 방법이 없음)
+  if (name !== "review" && !player.paused) player.pause();
   $$(".tab").forEach((x) => x.classList.toggle("on", x.id === "tab-" + name));
   history.replaceState(null, "", location.pathname + location.search + "#" + name);
   syncSticky();
@@ -108,6 +121,7 @@ const mode = () => ($('input[name="mode"]:checked') || {}).value || "";
 const DEFAULT_TASK = { plaud: "gap", sony: "diar", phone: "diar" };
 
 $("#btnNew").addEventListener("click", async () => {
+  if (!player.paused) player.pause();
   resetForm();
   $("#newJob").classList.remove("hidden");
   $("#btnNew").classList.add("hidden");
@@ -333,14 +347,15 @@ const BATT = { warn: "" };
 })();
 async function jobsList() {
   const rows = await S.all("jobs");
-  const res = new Set((await S.all("results")).map(([k]) => k));
+  // 결과(전사문 전체)는 읽지 않고 키만 본다 — 전사 중 5초·1.5초마다 모든 작업의 전사문을 읽어 화면이 굼떴다
+  const res = new Set(await S.keys("results"));
   return rows.map(([id, j]) => ({ ...j, id, hasResult: res.has(id) })).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 async function loadJobs() {
   JOBS = await jobsList();
   const el = $("#jobList");
-  if (!JOBS.length) { el.innerHTML = '<p class="empty">아직 작업이 없습니다. 「새 작업」으로 시작하세요.</p>'; return; }
-  el.innerHTML = JOBS.map((j) => {
+  if (!JOBS.length) { el.dataset.last = ""; el.innerHTML = '<p class="empty">아직 작업이 없습니다. 「새 작업」으로 시작하세요.</p>'; return; }
+  const html = JOBS.map((j) => {
     const p = j.progress || {}, s = j.stats || {};
     const busy = j.status === "처리중" || j.status === "대기" || j.status === "준비";
     const naming = j.status === "이름 대기";
@@ -373,6 +388,9 @@ async function loadJobs() {
       ${busy ? `<div class="prog"><span class="pbar"><i data-w="${p.pct || 0}"></i></span><span>${p.pct || 0}% · ${esc(p.msg || "")}</span></div>` : ""}
     </div>`;
   }).join("");
+  if (html === el.dataset.last) return; // 바뀐 게 없으면 다시 그리지 않는다
+  el.dataset.last = html.length > 200000 ? "" : html;
+  el.innerHTML = html;
   applyGeom(el);
 }
 $("#jobList").addEventListener("click", async (ev) => {

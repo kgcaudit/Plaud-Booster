@@ -41,6 +41,11 @@ export async function all(store) {
   const [keys, vals] = await Promise.all([req(s.getAllKeys()), req(s.getAll())]);
   return keys.map((k, i) => [k, vals[i]]);
 }
+/** 키만(값은 읽지 않음) — 결과처럼 큰 값이 있는 저장소에서 「있는지」만 볼 때 */
+export async function keys(store) {
+  const d = await db();
+  return req(d.transaction(store).objectStore(store).getAllKeys());
+}
 /** 읽고-고치고-쓰기를 한 트랜잭션으로 */
 export async function update(store, key, fn) {
   const d = await db();

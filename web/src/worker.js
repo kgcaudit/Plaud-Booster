@@ -148,7 +148,8 @@ async function ensureModels(need = "all") {
     useGpu = !!adapter;
     ort = useGpu ? await import("../vendor/ort/ort.webgpu.min.mjs") : await import("../vendor/ort/ort.wasm.min.mjs");
     const hc = self.navigator.hardwareConcurrency || 4;
-    ort.env.wasm.numThreads = set.threads || Math.min(16, hc > 2 ? hc - 1 : hc); // 화면용으로 하나 남긴다(2코어 이하는 전부)
+    // 화면용으로 하나 남긴다(2코어 이하는 전부). 그래픽 칩이 인코더를 맡으면 CPU는 디코더만 하므로 둘을 남겨 화면이 덜 굼뜨게
+    ort.env.wasm.numThreads = set.threads || Math.min(16, hc > 2 ? hc - (useGpu && hc > 4 ? 2 : 1) : hc);
   }
   const st = await modelStatus();
 

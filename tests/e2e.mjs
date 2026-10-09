@@ -58,6 +58,8 @@ const errors = [], foreign = [];
 try {
   const ctx = await browser.newContext({ acceptDownloads: true });
   const page = await ctx.newPage();
+// 검수는 작업에 딸린 단계: 위 탭 「작업」 → 아래 단계 줄 「검수·내보내기」
+const goReview = async () => { await page.click(".tabs button[data-tab='jobs']"); await page.click("#subTabs button[data-tab='review']"); };
   errors.length = 0; foreign.length = 0;
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
@@ -95,7 +97,7 @@ try {
   await page.fill("#glBody tr:first-child .f", "가짜");
   await page.fill("#glBody tr:first-child .t", "진짜");
   await page.click("#glSave");
-  await page.click(".tabs button[data-tab='review']");
+  await goReview();
   await page.click(".seg button[data-f='all']");
   const first = page.locator("#rvBody tr[data-i='1']");
   await first.locator("select.spk").selectOption("배소정");
@@ -131,8 +133,13 @@ try {
 
   // ---- 소니 녹음: 화자 먼저 묶기 → 이름 붙이기 → 전사 → 발언별 수정·되돌리기 → 목소리 기준 저장
   page.on("dialog", (d) => d.accept());
+  // 검수에서 재생하던 중에 작업 탭으로 가도 재생은 멈추고 새 작업을 만들 수 있다
+  await page.click("#tlPlay");
+  await page.waitForFunction(() => !document.getElementById("player").paused);
   await page.click(".tabs button[data-tab='jobs']");
+  assert.ok(await page.evaluate(() => document.getElementById("player").paused), "작업 탭으로 갔는데 재생이 계속됨");
   await page.click("#btnNew");
+  assert.ok(await page.locator("#newJob").isVisible());
   // Plaud 출처에도 화자 나누기·전사가 있고, 고르면 Plaud 전사 파일 칸은 숨는다
   await page.check("input[name='source'][value='plaud']");
   assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible());
@@ -214,14 +221,15 @@ try {
   // 휴대폰 폭(접은 폴드 화면 412px)에서 어느 탭도 가로로 넘치지 않는다(긴 발언·긴 이름 포함)
   await page.setViewportSize({ width: 412, height: 900 });
   for (const tab of ["review", "jobs", "voices", "glossary", "settings"]) {
-    await page.click(`.tabs button[data-tab='${tab}']`);
+    if (tab === "review") await goReview(); else await page.click(`.tabs button[data-tab='${tab}']`);
     await page.waitForTimeout(300);
     const [sw, cw] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
     assert.ok(sw <= cw, `${tab} 탭이 ${sw - cw}px 넘침`);
     // 낱말이 줄 끝에서 쪼개지지 않는다(「고태\n준」·「합치\n기」 같은 꼴), 버튼 글은 한 줄
     const broken = await page.evaluate(() => {
       const bad = [], rng = document.createRange();
-      const lines = (r) => new Set([...r.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top))).size;
+      // 줄 수: 위치(top)가 8px 넘게 다른 덩어리를 다른 줄로 본다(작은 글자 배지 같은 몇 px 차이는 같은 줄)
+      const lines = (r) => { const ts = [...r.getClientRects()].filter((x) => x.width > 0).map((x) => x.top).sort((a, b) => a - b); let n = ts.length ? 1 : 0; for (let i = 1; i < ts.length; i++) if (ts[i] - ts[i - 1] > 8) n++; return n; };
       const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (tw.nextNode()) {
         const t = tw.currentNode, el = t.parentElement;
