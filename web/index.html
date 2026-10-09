@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>감사 녹취 작업대</title>
@@ -20,10 +20,10 @@
 
 <nav class="tabs" role="tablist">
   <button type="button" role="tab" data-tab="jobs" class="on">작업</button>
-  <button type="button" role="tab" data-tab="review">검수·내보내기</button>
-  <button type="button" role="tab" data-tab="voices">목소리 기준</button>
-  <button type="button" role="tab" data-tab="glossary">인명·용어 사전</button>
-  <button type="button" role="tab" data-tab="settings">설정·백업</button>
+  <button type="button" role="tab" data-tab="review"><span class="lg">검수·내보내기</span><span class="sm">검수</span></button>
+  <button type="button" role="tab" data-tab="voices"><span class="lg">목소리 기준</span><span class="sm">목소리</span></button>
+  <button type="button" role="tab" data-tab="glossary"><span class="lg">인명·용어 사전</span><span class="sm">사전</span></button>
+  <button type="button" role="tab" data-tab="settings"><span class="lg">설정·백업</span><span class="sm">설정</span></button>
 </nav>
 
 <main>
@@ -111,7 +111,7 @@
 
 <!-- ======================= 검수 ======================= -->
 <section id="tab-review" class="tab">
-  <div class="bar">
+  <div class="bar" id="rvBar">
     <select id="rvJob" aria-label="작업 선택"></select>
     <div class="seg" role="group" aria-label="보기">
       <button type="button" data-f="need" class="on">확인 필요</button>
@@ -139,15 +139,16 @@
   <p id="rvEmpty" class="empty hidden">표시할 발언이 없습니다.</p>
   </div>
   <div id="tl" class="tl hidden" aria-label="전체 녹음 재생">
-    <div class="tl-top"><select id="tlFile" aria-label="파일"></select><button type="button" id="tlTime" class="link" title="지금 발언으로 이동">0:00 / 0:00</button><span id="tlNow" class="tl-now"></span></div>
+    <div class="tl-top"><select id="tlFile" aria-label="파일"></select><button type="button" id="tlTime" class="link" title="지금 발언으로 이동">0:00 / 0:00</button><span id="tlNow" class="tl-now"></span><span class="spacer"></span>
+      <select id="tlRate" aria-label="재생 속도"><option value="1">1배</option><option value="1.25">1.25배</option><option value="1.5">1.5배</option><option value="2">2배</option></select>
+      <label class="chk" title="재생 중인 발언으로 화면을 따라 내립니다"><input type="checkbox" id="tlFollow" checked> 따라가기</label>
+      <button type="button" id="tlFold" class="link" aria-expanded="true">접기</button></div>
     <canvas id="tlZoom" class="tl-zoom" aria-label="지금 위치 앞뒤 45초 — 끌어서 옮기기"></canvas>
     <canvas id="tlAll" class="tl-all" aria-label="녹음 전체 — 눌러서 이동"></canvas>
     <div class="tl-ctl">
       <button type="button" data-j="-15">−15초</button><button type="button" data-j="-5">−5초</button>
       <button type="button" id="tlPlay" class="primary">▶</button>
       <button type="button" data-j="5">+5초</button><button type="button" data-j="15">+15초</button>
-      <select id="tlRate" aria-label="재생 속도"><option value="1">1배</option><option value="1.25">1.25배</option><option value="1.5">1.5배</option><option value="2">2배</option></select>
-      <label class="chk"><input type="checkbox" id="tlFollow" checked> 발언 따라가기</label>
     </div>
   </div>
   <audio id="player" preload="none"></audio>

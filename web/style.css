@@ -31,7 +31,8 @@ input.wide { width: 100%; margin-bottom: 6px; }
 .sysline { color: var(--mute); font-size: 13px; }
 .sysline .bad { color: var(--bad); } .sysline .ok { color: var(--ok); }
 
-.tabs { display: flex; gap: 2px; padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs { display: flex; gap: 2px; padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto;
+  position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 6px rgba(0, 0, 0, .05); }
 .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 14px; background: none; white-space: nowrap; }
 .tabs button.on { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
 main { padding: 18px 24px 60px; max-width: 1280px; margin: 0 auto; }
@@ -110,6 +111,7 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
 th { font-size: 12.5px; color: var(--mute); font-weight: 600; background: color-mix(in srgb, var(--line) 35%, var(--panel)); position: sticky; top: 0; z-index: 1; }
+.rv th { top: calc(var(--tabs-h, 0px) + var(--rvbar-h, 0px)); z-index: 4; }
 .rv .c-t { width: 76px; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--mute); }
 .rv .c-p { width: 34px; } .rv .c-s { width: 150px; } .rv .c-k { width: 110px; } .rv .c-ok { width: 46px; text-align: center; }
 .rv td.c-ok { text-align: center; }
@@ -133,7 +135,7 @@ th { font-size: 12.5px; color: var(--mute); font-weight: 600; background: color-
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
   padding: 8px 16px; border-radius: 8px; opacity: 0; pointer-events: none; transition: opacity .2s; font-size: 13px; }
 .toast.on { opacity: .95; }
-.tablewrap { overflow-x: auto; }
+.tablewrap { overflow: visible; } /* 표 머리 고정이 화면 기준으로 걸리게(좁은 화면은 카드로 바뀌어 가로 스크롤이 필요 없음) */
 @media (max-width: 720px) {
   main { padding: 12px; } .top, .tabs { padding-left: 12px; padding-right: 12px; }
 }
@@ -227,3 +229,58 @@ input, select, textarea, button { max-width: 100%; }
 .tl-ctl button { padding: 4px 10px; font-size: 13px; }
 .tl-ctl #tlPlay { min-width: 52px; }
 .tl-ctl select { font-size: 13px; }
+
+/* ================================================================ 틀 고정 · 접근성(2026-10 정리)
+ * 위 고정: 탭 줄(모든 탭) + 검수 화면의 [작업 선택 · 보기] 줄. 머리글(제목)은 위로 밀려 올라가 화면을 아낀다.
+ * 아래 고정: 검수 화면의 전체 재생 막대(접기 가능). 스크롤로 행을 맞출 때 고정 영역 높이만큼 비켜 선다.
+ * 손가락 조작(pointer: coarse): 누르는 곳은 최소 44px(WCAG 2.5.5 권고·NN/g 약 1cm), 입력 글자 16px. */
+:root { --tabs-h: 44px; --rvbar-h: 0px; --tl-h: 0px; }
+html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-padding-bottom: calc(var(--tl-h) + 8px); }
+#rvBar { position: sticky; top: var(--tabs-h); z-index: 9; background: var(--bg); padding: 8px 0; margin: -8px 0 8px;
+  border-bottom: 1px solid var(--line); }
+.rv tr { scroll-margin-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-margin-bottom: calc(var(--tl-h) + 8px); }
+.tabs .sm { display: none; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.tl { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+.tl.folded .tl-zoom { display: none; }
+.tl-top .link { white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+@media (max-width: 720px) {
+  .top { padding: 8px 12px; gap: 4px 12px; }
+  .brand strong { font-size: 16px; }
+  .brand .sub { display: none; }
+  .sysline { font-size: 12px; }
+  .tabs { padding: 0 4px; gap: 0; }
+  .tabs .lg { display: none; } .tabs .sm { display: inline; }
+  .tabs button { flex: 1 1 0; padding: 12px 4px; text-align: center; }
+  #rvBar { gap: 6px; }
+  #rvBar #rvJob { flex: 1 1 100%; }
+  #rvBar .seg { flex: 1 1 auto; } #rvBar .seg button { flex: 1 1 0; padding-left: 6px; padding-right: 6px; }
+  .seg { display: flex; }
+  /* 발언 화자 창 → 아래에서 올라오는 시트(엄지가 닿는 자리) */
+  .spkpop { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: 100%; border-radius: 14px 14px 0 0; border-width: 2px 0 0;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); max-height: 80vh; overflow-y: auto; z-index: 30;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, .22); }
+}
+
+@media (pointer: coarse) {
+  body { font-size: 15px; }
+  button, .button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { min-height: 44px; }
+  button.link { min-height: 36px; }
+  input, select, textarea { font-size: 16px; }
+  input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; }
+  .chk { gap: 8px; min-height: 36px; }
+  .play { width: 44px; height: 44px; font-size: 13px; }
+  .chip { padding: 8px 12px; }
+  .job .acts button { font-size: 14px; padding: 6px 12px; }
+  .rv .spkbtn { min-height: 40px; }
+  .tl-ctl button { padding: 6px 12px; }
+  .tl .tl-all { height: 28px; }
+  .spkpop .opt { min-height: 44px; }
+}
+.tl-top select { flex: 0 0 auto; }
+.tl-top #tlFile { flex: 0 1 220px; }
+.tl-ctl button { flex: 1 1 0; max-width: 120px; }
+.tl-ctl #tlPlay { flex: 1.4 1 0; }
+@media (max-width: 720px) { .tl-top #tlNow { display: none; } .tl-ctl button { max-width: none; } }

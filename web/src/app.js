@@ -88,6 +88,7 @@ function showTab(name) {
   $$(".tabs button").forEach((x) => x.classList.toggle("on", x.dataset.tab === name));
   $$(".tab").forEach((x) => x.classList.toggle("on", x.id === "tab-" + name));
   history.replaceState(null, "", location.pathname + location.search + "#" + name);
+  syncSticky();
   if (name === "jobs") loadJobs();
   if (name === "review") loadReviewJobs();
   if (name === "voices") loadVoices();
@@ -504,6 +505,28 @@ function saveEdits() {
     catch (e) { $("#rvSave").textContent = "저장 실패: " + e.message; }
   }, 400);
 }
+/* ================================================================== 고정 영역(틀 고정) 높이 */
+// 위: 탭 줄(모든 화면) + 검수 화면의 작업 선택·보기 줄, 아래: 전체 재생 막대. 높이가 바뀌면(접힘·화면 회전·폴드 펼침)
+// CSS 변수로 알려 표 머리·스크롤 여백이 가려지지 않게 한다.
+const REDUCE_MOTION = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function syncSticky() {
+  const root = document.documentElement.style;
+  root.setProperty("--tabs-h", $(".tabs").offsetHeight + "px");
+  root.setProperty("--rvbar-h", ($("#tab-review").classList.contains("on") ? $("#rvBar").offsetHeight : 0) + "px");
+  root.setProperty("--tl-h", ($("#tab-review").classList.contains("on") && !$("#tl").classList.contains("hidden") ? $("#tl").offsetHeight : 0) + "px");
+}
+if (window.ResizeObserver) { const ro = new ResizeObserver(syncSticky); [".tabs", "#rvBar", "#tl"].forEach((q) => ro.observe($(q))); }
+window.addEventListener("resize", syncSticky);
+let tlFolded = false;
+try { tlFolded = localStorage.getItem("pb-tl-folded") === "1"; } catch { /* 저장 불가 */ }
+function applyFold() {
+  $("#tl").classList.toggle("folded", tlFolded);
+  $("#tlFold").textContent = tlFolded ? "펼치기" : "접기";
+  $("#tlFold").setAttribute("aria-expanded", String(!tlFolded));
+  syncSticky(); tlDraw();
+}
+$("#tlFold").addEventListener("click", () => { tlFolded = !tlFolded; try { localStorage.setItem("pb-tl-folded", tlFolded ? "1" : "0"); } catch { /* 저장 불가 */ } applyFold(); });
+
 /* ================================================================== 전체 음원 재생 막대 */
 // 검수 화면 아래에 녹음 전체를 펼쳐 둔다. 위 띠는 지금 위치 앞뒤 ±45초(화자별 색·발언 경계·소리 크기),
 // 아래 띠는 녹음 전체. 발언의 ▶는 그 발언 2초 앞부터 이어서 재생해 문맥을 듣게 하고, 띠를 끌면 앞뒤로 옮겨진다.
@@ -546,7 +569,7 @@ function tlOpen() {
   $("#tlFile").classList.toggle("hidden", files.length < 2);
   $("#tlFile").value = String(TL.file);
   TL.items = tlItems();
-  tlDraw();
+  applyFold();
 }
 
 async function tlLoad(fi) {
@@ -598,7 +621,7 @@ function canvasCtx(c) {
 }
 
 function tlDraw(scrollToCur = false) {
-  if ($("#tl").classList.contains("hidden")) return;
+  if ($("#tl").classList.contains("hidden") || !REVIEW.data) return;
   const fi = TL.file, dur = fileDur(fi) || 1;
   const t = TL.loaded === fi ? player.currentTime : TL.t;
   TL.t = t;
@@ -644,7 +667,8 @@ function tlDraw(scrollToCur = false) {
     if (row) {
       row.classList.add("playing");
       const r = row.getBoundingClientRect(), bottom = window.innerHeight - $("#tl").offsetHeight;
-      if ((scrollToCur || (!player.paused && $("#tlFollow").checked)) && (r.top < 60 || r.bottom > bottom)) row.scrollIntoView({ block: "center", behavior: "smooth" });
+      const topLim = $(".tabs").offsetHeight + $("#rvBar").offsetHeight;
+      if ((scrollToCur || (!player.paused && $("#tlFollow").checked)) && (r.top < topLim || r.bottom > bottom)) row.scrollIntoView({ block: "center", behavior: REDUCE_MOTION ? "auto" : "smooth" });
     }
   }
 }
