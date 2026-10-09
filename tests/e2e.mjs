@@ -201,7 +201,7 @@ try {
     await page.fill("#jobTitle", "조각 시험");
     await page.click("#btnSubmit");
     await page.waitForSelector(".job:has-text('조각 시험') .badge.st-완료", { timeout: 90000 });
-    const meta = await page.locator(".job:has-text('조각 시험') .meta").first().textContent();
+    const meta = await page.locator(".job:has-text('조각 시험') .info").first().textContent();
     assert.match(meta, /조각\.mp3 \(2:30\)/, meta);
     assert.match(meta, /휴대폰·기타 기기 · 저장된 목소리로 바로 맞히기/, meta);
     const d2 = page.waitForEvent("download");

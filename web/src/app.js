@@ -310,14 +310,20 @@ async function loadJobs() {
     const naming = j.status === "이름 대기";
     const result = isDiar(j.mode) ? (s.clusters ? `화자 묶음 ${s.clusters}개` + (s.segments != null ? ` · 발언 ${s.segments} · 확인 필요 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : ` · 전사할 발언 ${s.units ?? "-"}`) : "")
       : j.hasResult && j.mode !== "enroll" ? `발언 ${s.segments ?? "-"} · 혼재 ${s.mixed ?? 0} · 미상 ${s.unknown ?? 0} · 저신뢰 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : "";
-    const enrolled = s.enrolled && Object.keys(s.enrolled).length ? (result ? " · " : "") + "기준 등록 " + Object.keys(s.enrolled).join(", ") : "";
+    const enrolled = !!(s.enrolled && Object.keys(s.enrolled).length);
     const files = (j.audioFiles || []).map((f) => f.name + (f.dur ? ` (${hms(f.dur)})` : "")).join(", ");
+    // 카드 구성: [제목·상태 | 버튼] 위 한 줄, 아래는 전체 폭 정보표(항목명 열 + 내용 열), 맨 아래 진행 막대
+    const info = [
+      ["유형", esc(jobKind(j))],
+      ["음원", esc(files) + (j.range ? ` · 구간 ${hms(j.range.from)}~${hms(j.range.to)}` : "") + (j.audioDeleted ? " · 음원 지움" : "")],
+      ["등록", esc((j.createdAt || "").replace("T", " ").slice(0, 16))],
+      ...(result ? [["결과", result]] : []),
+      ...(enrolled ? [["목소리 기준", esc(Object.keys(s.enrolled).join(", ")) + " 등록"]] : []),
+      ...(j.error ? [["오류", `<span class="err">${esc(j.error)}</span>`]] : []),
+    ];
     return `<div class="job" data-id="${esc(j.id)}">
-      <div><span class="t">${esc(j.title)}</span><span class="badge st-${esc(String(j.status).replace(/\s/g, ""))}">${esc(j.status)}</span>
-        <div class="meta">${esc(jobKind(j))} · ${esc(files)}${j.range ? " · " + hms(j.range.from) + "~" + hms(j.range.to) : ""} · ${esc((j.createdAt || "").replace("T", " ").slice(0, 16))}${j.audioDeleted ? " · 음원 지움" : ""}</div>
-        ${result || enrolled ? `<div class="meta">${result}${enrolled}</div>` : ""}
-        ${j.error ? `<div class="meta err">${esc(j.error)}</div>` : ""}
-      </div>
+      <div class="hd"><span class="t">${esc(j.title)}</span><span class="badge st-${esc(String(j.status).replace(/\s/g, ""))}">${esc(j.status)}</span></div>
+      <dl class="info">${info.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
       <div class="acts">
         ${naming ? '<button type="button" data-a="review" class="primary">화자 이름 붙이기</button>' : ""}
         ${j.hasResult && j.mode !== "enroll" ? '<button type="button" data-a="review" class="primary">검수</button>' : ""}
