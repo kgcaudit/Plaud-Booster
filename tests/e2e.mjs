@@ -218,6 +218,30 @@ try {
     await page.waitForTimeout(300);
     const [sw, cw] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
     assert.ok(sw <= cw, `${tab} 탭이 ${sw - cw}px 넘침`);
+    // 낱말이 줄 끝에서 쪼개지지 않는다(「고태\n준」·「합치\n기」 같은 꼴), 버튼 글은 한 줄
+    const broken = await page.evaluate(() => {
+      const bad = [], rng = document.createRange();
+      const lines = (r) => new Set([...r.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top))).size;
+      const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (tw.nextNode()) {
+        const t = tw.currentNode, el = t.parentElement;
+        if (!el || !el.getClientRects().length || el.closest("textarea, select, option, script, style, .tx, .tl-now")) continue;
+        const re = /[^\s()（）·\/,「」\[\]—-]+/g; let m; // 괄호·가운뎃점 등에서 넘기는 건 정상
+        while ((m = re.exec(t.data))) {
+          if (m[0].length < 2 || m[0].length > 16) continue; // 파일 이름 같은 아주 긴 덩어리는 쪼개져도 된다
+          rng.setStart(t, m.index); rng.setEnd(t, m.index + m[0].length);
+          if (lines(rng) > 1) bad.push(`「${m[0]}」 ${el.tagName.toLowerCase()}.${el.className}`);
+        }
+      }
+      for (const b of document.querySelectorAll("button")) {
+        if (!b.getClientRects().length || b.closest(".sug, .merged") || b.matches(".sug, .merged")) continue;
+        rng.selectNodeContents(b);
+        if (lines(rng) > 1) bad.push(`버튼 두 줄: 「${b.textContent.trim()}」`);
+      }
+      return bad;
+    });
+    assert.deepEqual(broken, [], `${tab} 탭 글자 쪼개짐:\n${broken.join("\n")}`);
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/${tab}.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 720 });
   console.log("✓ 휴대폰 폭(412px) 모든 탭 가로 넘침 없음");

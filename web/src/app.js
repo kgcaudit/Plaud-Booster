@@ -990,7 +990,7 @@ async function loadVoices() {
     const items = Object.entries(v.items || {});
     const n = items.reduce((m, [, it]) => m + it.n, 0);
     return `<tr data-n="${esc(name)}"><td><b>${esc(name)}</b></td><td>${n}</td>
-      <td class="src">${items.map(([src, it]) => `<div>${esc(src)} (${it.n})<button type="button" data-src="${esc(src)}" title="이 출처만 빼기">빼기</button></div>`).join("")}</td>
+      <td class="src">${items.map(([src, it]) => `<div><span>${esc(src)} (${it.n})</span><button type="button" data-src="${esc(src)}" title="이 출처만 빼기">빼기</button></div>`).join("")}</td>
       <td class="nowrap"><button type="button" data-a="ren">이름 바꾸기·합치기</button> <button type="button" data-a="del">지우기</button></td></tr>`;
   }).join("") : '<tr><td colspan="4" class="empty">저장된 목소리 기준이 없습니다. Plaud 녹음 작업을 처리하거나, 화자 나누기 검수에서 「목소리 기준 저장」을 누르면 쌓입니다.</td></tr>';
 }
@@ -1074,7 +1074,7 @@ function renderBench(r, gpu) {
     row("그래픽 칩", gpu ? (gpu.ok ? `WebGPU 사용 가능 · 16비트 연산 ${gpu.f16 ? "지원" : "없음"} · ${esc(gpu.name)}` : esc(gpu.why)) : "-"),
     row("처리 스레드", r.threads || "-"),
     row("전사 계산", r.device === "gpu" ? "그래픽 칩(WebGPU)" : "CPU"),
-    row("모델 올리기", sec(r.load)),
+    row("모델 올리기", r.load < 100 ? "이미 올라가 있음" : sec(r.load)),
     row("말소리 찾기", r.vadMin != null ? `음성 1분에 ${sec(r.vadMin)}` : "-"),
     row("목소리 특징", `3초 창 하나에 ${sec(r.emb)}`),
     row("전사 30초 창", `${enc}` + (r.decStep[0] ? ` · 글자 조각 하나 ${sec(r.decStep.reduce((a, b) => a + b, 0) / r.decStep.length)}` : "")),

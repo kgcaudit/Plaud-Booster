@@ -14,7 +14,10 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
   font: 14px/1.55 "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif; }
+/* 한글 줄바꿈: 낱말(띄어쓰기) 단위로만 넘기고, 한 낱말이 칸보다 길 때만 쪼갠다 — 「고태\n준」 같은 꼴을 막는다 */
+body { word-break: keep-all; overflow-wrap: break-word; line-break: strict; }
 button, input, select, textarea { font: inherit; color: inherit; }
+button, .button { white-space: nowrap; }
 button, .button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 12px;
   cursor: pointer; display: inline-block; text-decoration: none; color: var(--ink); }
 button:hover, .button:hover { border-color: var(--accent); }
@@ -80,13 +83,13 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 .job { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; display: grid;
   grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "hd acts" "info info" "batt batt" "prog prog"; gap: 8px 16px; }
 .job .hd { grid-area: hd; align-self: center; min-width: 0; }
-.job .t { font-weight: 600; overflow-wrap: anywhere; }
+.job .t { font-weight: 600; overflow-wrap: break-word; }
 .job .acts { grid-area: acts; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: start; }
 .job .acts button { font-size: 12.5px; padding: 3px 9px; white-space: nowrap; }
 .job .info { grid-area: info; display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 2px 10px; margin: 0;
   font-size: 12.5px; border-top: 1px dashed var(--line); padding-top: 8px; }
 .job .info dt { color: var(--mute); }
-.job .info dd { margin: 0; overflow-wrap: anywhere; }
+.job .info dd { margin: 0; overflow-wrap: break-word; }
 .job .prog { grid-area: prog; display: flex; gap: 10px; align-items: center; font-size: 12.5px; color: var(--mute); }
 @media (max-width: 720px) {
   .job { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hd" "acts" "info" "batt" "prog"; }
@@ -190,15 +193,26 @@ input, select, textarea, button { max-width: 100%; }
 .cl .smp > div { min-width: 0; }
 .cl .merged, button.sug { white-space: normal; text-align: left; }
 .uplist li { flex-wrap: wrap; }
-.uplist li > span:not(.pbar), .trinfo, .spkmap > span, .note, .msg, .banner, .mode span, legend small { overflow-wrap: anywhere; }
+.uplist li > span:not(.pbar), .trinfo, .spkmap > span, .note, .msg, .banner, .mode span, legend small { overflow-wrap: break-word; }
 #rvJob { flex: 1 1 260px; min-width: 0; text-overflow: ellipsis; }
 .brand { min-width: 0; }
-.brand .sub { overflow-wrap: anywhere; }
+.brand .sub { overflow-wrap: break-word; }
 
 @media (max-width: 720px) {
+  /* 목소리 기준 표 → 사람 카드: [이름 · 기준 n] / 출처 목록 / [이름 바꾸기·합치기][지우기] */
+  table.vp, .vp tbody { display: block; }
+  .vp thead { display: none; }
+  .vp tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n c" "s s" "a a";
+    gap: 6px 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .vp td { display: block; border: 0; padding: 0; min-width: 0; }
+  .vp td:nth-child(1) { grid-area: n; font-size: 15px; } .vp td:nth-child(2) { grid-area: c; color: var(--mute); align-self: center; }
+  .vp td:nth-child(2)::before { content: "기준 창 "; }
+  .vp td:nth-child(3) { grid-area: s; } .vp td:nth-child(4) { grid-area: a; display: flex; flex-wrap: wrap; gap: 6px; }
+  .vp td.empty { grid-column: 1 / -1; }
+  .vp .src > div { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .vp .src > div > span { flex: 1; min-width: 0; }
   .brand .sub { display: block; margin: 2px 0 0; }
   .nowrap { white-space: normal; }
-  .vp .nowrap button { margin: 2px 0; }
   /* 검수 표 → 발언 카드: [시각 ▶ 화자 … 확인] / 발언 / 판정 */
   .tablewrap { overflow: visible; }
   table.rv, .rv tbody { display: block; }
@@ -287,14 +301,14 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
 
 /* 출처별 녹음 요령 · 충전 안내 */
 .srctip { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 4px 0 8px; min-width: 0; }
-.srctip summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.srctip summary { cursor: pointer; font-weight: 600; overflow-wrap: break-word; }
 .srctip .tips { margin-top: 8px; }
-.srctip li { overflow-wrap: anywhere; }
-.job .note.batt { grid-area: batt; margin: 0; color: var(--warn, #b45309); overflow-wrap: anywhere; }
+.srctip li { overflow-wrap: break-word; }
+.job .note.batt { grid-area: batt; margin: 0; color: var(--warn, #b45309); overflow-wrap: break-word; }
 @media (pointer: coarse) { .srctip summary { min-height: 44px; display: flex; align-items: center; } }
 
 /* 기기 성능 시험 결과 */
 dl.bench { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 4px 10px; margin: 8px 0; }
 dl.bench:empty { display: none; }
 dl.bench dt { color: var(--mute); }
-dl.bench dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+dl.bench dd { margin: 0; min-width: 0; overflow-wrap: break-word; }
