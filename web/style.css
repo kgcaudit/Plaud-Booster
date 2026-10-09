@@ -45,14 +45,14 @@ h2 { font-size: 16px; margin: 0; } h3 { font-size: 15px; margin: 0 0 10px; }
 .msg.err { color: var(--bad); }
 .note { color: var(--mute); font-size: 13px; margin: 0 0 12px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
 .grid2 .card { margin: 0; }
 .tips { padding-left: 18px; margin: 0; } .tips li { margin-bottom: 6px; }
 
 fieldset { border: 0; border-top: 1px solid var(--line); margin: 0; padding: 12px 0; }
 legend { font-weight: 600; padding-right: 8px; }
 legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
-.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 8px; }
 .mode { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: block; cursor: pointer; }
 .mode:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .mode input { margin-right: 6px; }
@@ -68,7 +68,7 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 .tape .cov { position: absolute; top: 0; bottom: 0; left: 0; background: color-mix(in srgb, var(--accent) 35%, transparent); }
 .tape .gap { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, var(--warn-bg), var(--warn-bg) 6px, transparent 6px, transparent 12px); border-left: 2px solid var(--warn); }
 .tape span { position: absolute; top: 4px; font-size: 12px; padding: 0 6px; white-space: nowrap; }
-.spkmap { display: grid; grid-template-columns: max-content 1fr max-content; gap: 6px 10px; align-items: center; margin-top: 10px; max-width: 560px; font-size: 13px; }
+.spkmap { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr) max-content; gap: 6px 10px; align-items: center; margin-top: 10px; max-width: 560px; font-size: 13px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer; user-select: none; font-size: 13px; }
 .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -136,7 +136,6 @@ th { font-size: 12.5px; color: var(--mute); font-weight: 600; background: color-
 .tablewrap { overflow-x: auto; }
 @media (max-width: 720px) {
   main { padding: 12px; } .top, .tabs { padding-left: 12px; padding-right: 12px; }
-  .rv { min-width: 680px; }
 }
 .tape .gap { right: 0; }
 .tape .lbl { left: 0; }
@@ -149,12 +148,12 @@ th { font-size: 12.5px; color: var(--mute); font-weight: 600; background: color-
 
 /* 화자 패널·발언별 화자 창(소니 녹음) */
 .spkpanel .bar h3 { margin: 0; }
-.clgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 10px; }
+.clgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; }
 .cl { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
 .cl.focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .cl.skipped { opacity: .55; }
 .cl .hd, .cl .nm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.cl .nm input { flex: 1 1 160px; min-width: 140px; }
+.cl .nm input { flex: 1 1 12em; min-width: 0; }
 .cl .smp > div { display: flex; gap: 6px; align-items: baseline; font-size: 13px; padding: 2px 0; }
 .cl .smp .tx { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .cl .smp .playing { outline: 2px solid var(--accent); border-radius: 4px; }
@@ -167,7 +166,7 @@ button.link { border: 0; background: none; color: var(--accent); padding: 0 4px;
 .chip[class*="cc"] { background: var(--cc); color: #fff; border-color: var(--cc); cursor: default; font-weight: 600; }
 .spkbtn { width: 100%; text-align: left; font-size: 13px; padding: 3px 8px; border-left: 4px solid var(--cc); }
 .spkbtn.own { background: var(--mark); }
-.spkpop { position: fixed; z-index: 20; width: 340px; background: var(--panel); border: 2px solid var(--accent); border-radius: 10px;
+.spkpop { position: fixed; z-index: 20; width: min(340px, calc(100vw - 16px)); background: var(--panel); border: 2px solid var(--accent); border-radius: 10px;
   padding: 12px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.18); display: grid; gap: 6px; font-size: 13.5px; }
 .spkpop input#popName { width: 100%; }
 .spkpop .chips { margin: 0; max-height: 84px; overflow-y: auto; }
@@ -178,3 +177,39 @@ button.link { border: 0; background: none; color: var(--accent); padding: 0 4px;
 .mode b em { font-style: normal; font-size: 11.5px; color: var(--ok); background: var(--ok-bg); border-radius: 4px; padding: 0 5px; margin-left: 4px; font-weight: 600; }
 .srcs .mode:has(input:checked) { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
 .banner.info { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); font-size: 13px; padding: 7px 12px; margin: 0 0 8px; }
+
+/* ---------------------------------------------------------------- 폭 체계(모든 화면 공통)
+ * 원칙: 화면 밖으로 밀어내는 요소를 두지 않는다.
+ * - 격자·가로줄의 칸은 내용이 길어도 칸 폭을 넘지 않게 최소 폭 0(min-width:0)
+ * - 입력칸·선택칸은 부모 폭을 넘지 않음, 긴 파일 이름·문장은 어디서든 줄바꿈
+ * - 표는 넓은 화면에서만 표, 좁은 화면(720px 이하)에서는 줄마다 카드로 쌓음 */
+input, select, textarea, button { max-width: 100%; }
+.bar > *, .row > *, .cl > *, .cl .hd > *, .cl .nm > *, .uplist li > *, .modes > *, .grid2 > *, .stats > * { min-width: 0; }
+.cl { min-width: 0; }
+.cl .smp > div { min-width: 0; }
+.cl .merged, button.sug { white-space: normal; text-align: left; }
+.uplist li { flex-wrap: wrap; }
+.uplist li > span:not(.pbar), .trinfo, .spkmap > span, .note, .msg, .banner, .mode span, legend small { overflow-wrap: anywhere; }
+#rvJob { flex: 1 1 260px; min-width: 0; text-overflow: ellipsis; }
+.brand { min-width: 0; }
+.brand .sub { overflow-wrap: anywhere; }
+
+@media (max-width: 720px) {
+  .brand .sub { display: block; margin: 2px 0 0; }
+  .nowrap { white-space: normal; }
+  .vp .nowrap button { margin: 2px 0; }
+  /* 검수 표 → 발언 카드: [시각 ▶ 화자 … 확인] / 발언 / 판정 */
+  .tablewrap { overflow: visible; }
+  table.rv, .rv tbody { display: block; }
+  .rv thead { display: none; }
+  .rv tr { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "t p s ok" "x x x x" "k k k k";
+    gap: 4px 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); align-items: center; }
+  .rv td { display: block; border: 0; padding: 0; min-width: 0; width: auto; }
+  .rv td:nth-child(1) { grid-area: t; } .rv td:nth-child(2) { grid-area: p; } .rv td:nth-child(3) { grid-area: s; }
+  .rv td:nth-child(4) { grid-area: x; } .rv td:nth-child(5) { grid-area: k; } .rv td:nth-child(6) { grid-area: ok; }
+  .rv td:nth-child(5) .votes { display: inline; margin-left: 6px; }
+  .rv textarea { border-color: var(--line); background: var(--panel); }
+  .rv tr.plaud td:nth-child(3) { font-weight: 600; }
+}
+.chk.notice { display: flex; flex-wrap: wrap; align-items: center; }
+.chk.notice small { flex-basis: 100%; padding-left: 22px; }

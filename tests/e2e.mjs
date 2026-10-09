@@ -186,6 +186,17 @@ try {
   await page.waitForSelector("#vpBody tr[data-n='정']");
   console.log("✓ 통합본(묶음 이름·녹음 시각)·목소리 기준 저장");
 
+  // 휴대폰 폭(접은 폴드 화면 412px)에서 어느 탭도 가로로 넘치지 않는다(긴 발언·긴 이름 포함)
+  await page.setViewportSize({ width: 412, height: 900 });
+  for (const tab of ["review", "jobs", "voices", "glossary", "settings"]) {
+    await page.click(`.tabs button[data-tab='${tab}']`);
+    await page.waitForTimeout(300);
+    const [sw, cw] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+    assert.ok(sw <= cw, `${tab} 탭이 ${sw - cw}px 넘침`);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  console.log("✓ 휴대폰 폭(412px) 모든 탭 가로 넘침 없음");
+
   // ---- 조각 음원(MP3 프레임 단위 풀기)
   if (mp3Path) {
     await page.click(".tabs button[data-tab='jobs']");
