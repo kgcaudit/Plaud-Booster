@@ -282,10 +282,11 @@ async function bench() {
     if (whisper.bench) { const b = await whisper.bench(a); r.enc.push(b.enc); r.decStep.push(b.decStep); }
     else { t = now(); await whisper.transcribe(a); r.enc.push(now() - t); r.decStep.push(0); }
   }
-  // 1시간 회의 어림(10-08 회의 기준: 시간당 발언 약 330개·창 약 2,000개·발언당 약 30토큰)
+  // 1시간 회의 어림(10-08 회의 기준: 시간당 발언 약 330개·목소리 창 약 2,000개·발언당 약 30토큰,
+  // 같은 화자의 짧은 발언을 묶어 전사 창은 발언의 약 60%(641→381) — 시간당 약 200창)
   const enc = r.enc.reduce((x, y) => x + y, 0) / r.enc.length, dec = r.decStep.reduce((x, y) => x + y, 0) / r.decStep.length;
   r.estDiar = 60 * (r.vadMin || 0) + 2000 * r.emb;
-  r.estTr = 330 * (enc + 30 * dec);
+  r.estTr = 200 * enc + 330 * 30 * dec;
   r.slow = r.enc[r.enc.length - 1] / r.enc[0];
   return r;
 }
