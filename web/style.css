@@ -176,7 +176,6 @@ button.link { border: 0; background: none; color: var(--accent); padding: 0 4px;
 .modes .span { grid-column: 1 / -1; margin: 2px 0 0; }
 .mode b em { font-style: normal; font-size: 11.5px; color: var(--ok); background: var(--ok-bg); border-radius: 4px; padding: 0 5px; margin-left: 4px; font-weight: 600; }
 .srcs .mode:has(input:checked) { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
-.banner.info { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); font-size: 13px; padding: 7px 12px; margin: 0 0 8px; }
 
 /* ---------------------------------------------------------------- 폭 체계(모든 화면 공통)
  * 원칙: 화면 밖으로 밀어내는 요소를 두지 않는다.
