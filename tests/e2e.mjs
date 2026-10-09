@@ -73,7 +73,7 @@ try {
   assert.ok(await page.locator("#fsTask").isHidden()); // 출처를 고르기 전에는 할 일이 안 보임
   await page.check("input[name='source'][value='plaud']");
   assert.ok(await page.locator("input[name='mode'][value='gap']").isChecked());
-  assert.ok(await page.locator("input[name='mode'][value='diar']").isHidden());
+  assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible()); // Plaud에도 화자 나누기·전사
   await page.setInputFiles("#audioFiles", asFile(audioPath, "audio/wav"));
   await page.setInputFiles("#trFile", asFile(trPath, "text/plain"));
   await page.waitForSelector("#trInfo:has-text('7개 발언')");
@@ -113,6 +113,12 @@ try {
   await page.click("#tl button[data-j='15']");
   const t1 = await page.evaluate(() => document.getElementById("player").currentTime);
   assert.ok(Math.abs(t1 - t0 - 15) < 1, `${t0} → ${t1}`);
+  // 휴대폰 알림의 재생 카드 제목(Media Session): 앱 이름·작업 제목·파일 이름
+  const ms = await page.evaluate(() => { const m = navigator.mediaSession && navigator.mediaSession.metadata; return m ? { title: m.title, artist: m.artist, album: m.album, art: m.artwork.length } : null; });
+  assert.ok(ms, "재생 카드 정보 없음");
+  assert.equal(ms.album, "Diarized Transcription");
+  assert.match(ms.title, /\.(mp3|wav)/);
+  assert.ok(ms.art >= 1 && !/chrome-native/.test(ms.title));
   console.log("✓ 검수 수정·자동 저장·전체 녹음 재생 막대(발언 앞 2초부터·±이동)");
 
   const dl = page.waitForEvent("download");
@@ -127,7 +133,16 @@ try {
   page.on("dialog", (d) => d.accept());
   await page.click(".tabs button[data-tab='jobs']");
   await page.click("#btnNew");
+  // Plaud 출처에도 화자 나누기·전사가 있고, 고르면 Plaud 전사 파일 칸은 숨는다
+  await page.check("input[name='source'][value='plaud']");
+  assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible());
+  await page.check("input[name='mode'][value='diar']");
+  assert.ok(await page.locator("#fsTranscript").isHidden());
+  assert.ok(await page.locator("#audioFiles").evaluate((e) => e.multiple));
+  await page.check("input[name='mode'][value='gap']");
+  assert.ok(await page.locator("#fsTranscript").isVisible());
   await page.check("input[name='source'][value='sony']");
+  assert.ok(await page.locator("input[name='mode'][value='gap']").isHidden());
   assert.ok(await page.locator("input[name='mode'][value='diar']").isChecked());
   assert.ok(await page.locator("#fsTranscript").isHidden());
   assert.ok(await page.locator("#callWrap").isHidden());

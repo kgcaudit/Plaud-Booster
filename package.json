@@ -2,7 +2,7 @@
   "name": "plaud-booster",
   "private": true,
   "type": "module",
-  "description": "감사 녹취 작업대 — Plaud·소니 녹음기·휴대폰 녹음을 브라우저 안에서만 화자별 녹취록으로 (GitHub Pages)",
+  "description": "Diarized Transcription — Plaud·소니 녹음기·휴대폰 녹음을 브라우저 안에서만 화자별 녹취록으로 (GitHub Pages)",
   "scripts": {
     "vendor": "node tools/vendor.mjs",
     "serve": "node tools/serve.mjs web 8080",

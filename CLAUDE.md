@@ -1,6 +1,6 @@
 # 이 저장소에서 일하는 방식
 
-「감사 녹취 작업대」 — 감사 면담·회의 녹음(출처: Plaud · 소니 녹음기 · 휴대폰·기타)을 화자별 녹취록으로 만드는 개인 웹앱입니다(저장소 이름은 예전 Plaud-Booster). **GitHub Pages 정적 사이트**이고, 전사·화자 맞히기는 브라우저 안
+「Diarized Transcription」 — 감사 면담·회의 녹음(출처: Plaud · 소니 녹음기 · 휴대폰·기타)을 화자별 녹취록으로 만드는 개인 웹앱입니다(저장소 이름은 예전 Plaud-Booster). **GitHub Pages 정적 사이트**이고, 전사·화자 맞히기는 브라우저 안
 (onnxruntime-web, WebAssembly)에서 돕니다. 서버는 없습니다. 빌드 과정도 없습니다(모듈 그대로 배포).
 
 ```
@@ -55,7 +55,7 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
   상한으로만(그대로 걸면 닮은 두 사람이 합쳐짐 93.7%). 저장된 기준은 묶은 뒤 **추천만**(먼저 떼어 두면 97.8%→96.6%로 낮아짐).
   기준값을 바꾸면 10-08 회의(Plaud 이름 숨김)로 다시 재서 98% 안팎·5명 모두 따로인지 확인합니다(실제 음원은 저장소 밖).
 - 새 작업은 **출처(job.source: plaud·sony·phone) → 할 일(job.mode)**. 소니·휴대폰의 화자 나누기는 mode `diar`(예전 작업의 `sony`도 같은 것으로 읽음, isDiar).
-  Plaud 출처만 gap·range·enroll, 다른 출처는 diar·fragment. 출처가 없는 예전 작업은 sourceOf()로 짐작합니다.
+  Plaud 출처는 gap·range·enroll(Plaud 전사 파일 사용)에 diar·fragment까지, 다른 출처는 diar·fragment(data-src="plaud dev"). 출처가 없는 예전 작업은 sourceOf()로 짐작합니다.
 - 테스트용 Chromium은 AAC를 못 풀어 m4a는 e2e로 못 돌립니다. m4a→ADTS 변환은 tests/unit/audio.test.mjs에서 ffmpeg로 확인하고, 실제 풀이는 Chrome에서 확인합니다.
 - 소니 발언 번호 `i`는 단위 번호 + 1로 고정입니다(묶음을 빼고 넣어도 검수 수정이 그대로 붙게). 이름은 edits.names(묶음 → 이름),
   발언별 수정은 edits.e[i].speaker — 우선순위는 발언별 > 묶음 이름 > Speaker N. 소니 목소리 기준은 사람이 「목소리 기준 저장」을 눌렀을 때만 저장합니다.

@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
-<title>감사 녹취 작업대</title>
-<link rel="icon" href="data:,">
+<title>Diarized Transcription</title>
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
-    <strong>감사 녹취 작업대</strong>
+    <strong>Diarized Transcription</strong>
     <span class="sub">Plaud · 소니 녹음기 · 휴대폰 녹음을 화자별 녹취록으로 — 음원과 전사는 이 기기 브라우저 밖으로 나가지 않습니다</span>
   </div>
   <div id="sysline" class="sysline">준비 중…</div>
@@ -59,9 +60,9 @@
         <b>잘못된 구간 다시 전사</b><span>잘못 전사된 구간(시작~끝)만 다시 전사하고 화자를 맞힙니다.</span></label>
       <label class="mode" data-src="plaud"><input type="radio" name="mode" value="enroll">
         <b>목소리 기준만 등록</b><span>Plaud에 이름이 붙은 사람의 목소리를 저장해, 다른 녹음에서 이름을 추천·판정하는 데 씁니다.</span></label>
-      <label class="mode" data-src="dev"><input type="radio" name="mode" value="diar">
+      <label class="mode" data-src="plaud dev"><input type="radio" name="mode" value="diar">
         <b>화자 나누기 · 전사 <em>권장</em></b><span>비슷한 목소리를 먼저 묶고(Speaker 1, 2…), 대표 구간을 들어 이름을 붙인 뒤 전사합니다.</span></label>
-      <label class="mode" data-src="dev"><input type="radio" name="mode" value="fragment">
+      <label class="mode" data-src="plaud dev"><input type="radio" name="mode" value="fragment">
         <b>저장된 목소리로 바로 맞히기</b><span>이름 붙이기 없이, 저장된 목소리 기준 중 가장 닮은 사람으로 바로 판정합니다(아는 사람만 있을 때).</span></label>
       <label class="chk span hidden" id="callWrap"><input type="checkbox" id="isCall"> 통화 녹음(두 사람) — 인원을 2명으로 두고 묶습니다</label>
     </fieldset>

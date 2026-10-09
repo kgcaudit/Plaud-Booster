@@ -1,4 +1,4 @@
-// 감사 녹취 작업대 — 화면 (빌드 없음). 처리는 worker.js, 저장은 store.js.
+// Diarized Transcription — 화면 (빌드 없음). 처리는 worker.js, 저장은 store.js.
 import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
 import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
@@ -122,7 +122,7 @@ function resetForm() {
 function setMsg(t, err = false) { $("#formMsg").textContent = t; $("#formMsg").classList.toggle("err", err); }
 $$('input[name="source"]').forEach((r) => r.addEventListener("change", () => {
   const src = source(), cur = $('input[name="mode"]:checked');
-  const ok = cur && cur.closest(".mode").dataset.src === (src === "plaud" ? "plaud" : "dev");
+  const ok = cur && srcOk(cur.closest(".mode"), src);
   if (!ok) $(`input[name="mode"][value="${DEFAULT_TASK[src]}"]`).checked = true;
   applyMode();
 }));
@@ -141,10 +141,13 @@ const SRC_TIPS = {
     "휴대폰은 화면을 아래로 해 탁자 가운데에 두고, 알림·진동은 꺼 두세요.",
     "녹음 중 다른 앱으로 오래 넘어가면 기종에 따라 녹음이 끊길 수 있습니다."],
 };
+// 할 일 카드의 data-src: "plaud"(Plaud만) · "plaud dev"(모든 출처). dev = 소니·휴대폰
+const srcOk = (label, src) => (label.dataset.src || "").split(" ").includes(src === "plaud" ? "plaud" : "dev");
+const NEEDS_TR = (m) => m === "gap" || m === "range" || m === "enroll"; // Plaud 전사 파일을 쓰는 할 일
 function applyMode() {
-  const src = source(), m = mode(), dev = src && src !== "plaud";
+  const src = source(), m = mode(), dev = src && !NEEDS_TR(m);
   $("#fsTask").classList.toggle("hidden", !src);
-  $$("#fsTask .mode").forEach((l) => l.classList.toggle("hidden", !src || l.dataset.src !== (dev ? "dev" : "plaud")));
+  $$("#fsTask .mode").forEach((l) => l.classList.toggle("hidden", !src || !srcOk(l, src)));
   $$("#newJob .after-src").forEach((f) => f.classList.toggle("hidden", !src));
   $("#callWrap").classList.toggle("hidden", !(src === "phone" && isDiar(m)));
   $("#srcTip").classList.toggle("hidden", !src);
@@ -153,7 +156,7 @@ function applyMode() {
   $("#audioFiles").multiple = MULTI(m);
   $("#audioHint").textContent = src === "sony" ? "MP3·WAV 여러 개 가능 — 파일 이름의 녹음 시각 순으로 자동 정렬"
     : src === "phone" ? "m4a·mp3·wav 등 여러 개 가능 — 녹음 시각(파일 이름 → 파일 정보 → 저장 시각) 순으로 자동 정렬"
-      : "Plaud에서 내려받은 음원(MP3) 1개";
+      : MULTI(m) ? "Plaud에서 내려받은 음원(MP3·WAV) — 여러 개 가능, 녹음 시각 순으로 자동 정렬" : "Plaud에서 내려받은 음원(MP3) 1개";
   $("#fsRange").classList.toggle("hidden", m !== "range");
   $("#fsSpeakers").classList.toggle("hidden", m === "enroll");
   $("#fsTranscript").classList.toggle("hidden", dev);
@@ -162,7 +165,7 @@ function applyMode() {
     : m === "fragment" ? "고르지 않으면 저장된 사람 전원 중에서 맞힙니다" : "고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다";
   $("#attWrap").classList.toggle("hidden", !isDiar(m));
   $("#useVpWrap").classList.toggle("hidden", isDiar(m));
-  // 단계 번호: Plaud는 4번이 전사 파일, 다른 출처는 전사 파일 단계가 없다
+  // 단계 번호: Plaud 전사를 쓰는 할 일은 4번이 전사 파일, 그 밖에는 전사 파일 단계가 없다
   const nums = $$("#newJob legend .num");
   nums.forEach((n, i) => { n.textContent = (i < 3 ? i + 1 : dev && i >= 4 ? i : i + 1) + "."; });
   if (MULTI(m) && F.audio.length > 1) { F.audio = orderFiles(F.audio); renderAudioList(); }
@@ -198,7 +201,7 @@ $("#audioFiles").addEventListener("change", async (ev) => {
   F.audio = [...ev.target.files].map((file) => ({ file, dur: null, name: file.name }));
   renderAudioList();
   for (const a of F.audio) { a.dur = await mediaDuration(a.file); renderAudioList(); }
-  if (source() !== "plaud") { await stampTimes(); if (MULTI(mode())) F.audio = orderFiles(F.audio); renderAudioList(); }
+  if (source() !== "plaud" || MULTI(mode())) { await stampTimes(); if (MULTI(mode())) F.audio = orderFiles(F.audio); renderAudioList(); }
   drawTape();
 });
 /** 앞 파일 녹음 끝과 이 파일 녹음 시작 사이(초). 시각을 모르면 null */
@@ -562,6 +565,36 @@ $("#tlFold").addEventListener("click", () => { tlFolded = !tlFolded; try { local
 // 아래 띠는 녹음 전체. 발언의 ▶는 그 발언 2초 앞부터 이어서 재생해 문맥을 듣게 하고, 띠를 끌면 앞뒤로 옮겨진다.
 // 음원은 메모리에 올리지 않고 저장된 파일(16kHz)에 WAV 머리만 붙여 가리킨다(2시간 녹음도 휴대폰에서 가볍게).
 const player = $("#player");
+/* 휴대폰 알림·잠금 화면의 재생 카드(Media Session): 앱 이름·작업 제목·지금 말하는 사람을 보여 준다.
+   이 정보가 없으면 안드로이드 크롬은 「chrome-native://newtab」 같은 엉뚱한 제목을 띄운다. */
+const APP_NAME = "Diarized Transcription";
+const MS = "mediaSession" in navigator ? navigator.mediaSession : null;
+let msTitle = "";
+function mediaMeta(force = false) {
+  if (!MS || typeof MediaMetadata === "undefined") return;
+  const d = REVIEW.data, t = player.currentTime || 0, fi = TL.loaded >= 0 ? TL.loaded : TL.file;
+  const it = (TL.items || []).find((x) => x.f === fi && !x.plaud && x.s <= t && t < x.e);
+  const file = ((d && d.job.audioFiles) || [])[fi];
+  const title = (it ? `${it.name} · ` : "") + (file ? file.name : "녹음") + ` · ${hms(t)}`;
+  const key = (it ? it.name : "") + "|" + (file ? file.name : "") + "|" + (d ? d.job.title : "");
+  if (force || key !== msTitle) {
+    msTitle = key;
+    const art = (n) => ({ src: new URL(`icons/icon-${n}.png`, location.href).href, sizes: `${n}x${n}`, type: "image/png" });
+    try { MS.metadata = new MediaMetadata({ title, artist: d ? d.job.title || APP_NAME : APP_NAME, album: APP_NAME, artwork: [art(192), art(512)] }); } catch { /* 지원 안 함 */ }
+  }
+  try { if (player.duration && isFinite(player.duration)) MS.setPositionState({ duration: player.duration, playbackRate: player.playbackRate || 1, position: Math.min(t, player.duration) }); } catch { /* 지원 안 함 */ }
+}
+if (MS) {
+  const on = (a, f) => { try { MS.setActionHandler(a, f); } catch { /* 지원 안 함 */ } };
+  on("play", () => player.play());
+  on("pause", () => player.pause());
+  on("seekbackward", (e) => { player.currentTime = Math.max(0, player.currentTime - (e.seekOffset || 10)); mediaMeta(); });
+  on("seekforward", (e) => { player.currentTime = Math.min(player.duration || 0, player.currentTime + (e.seekOffset || 10)); mediaMeta(); });
+  on("seekto", (e) => { player.currentTime = e.seekTime; mediaMeta(); });
+  player.addEventListener("play", () => { mediaMeta(true); MS.playbackState = "playing"; });
+  player.addEventListener("pause", () => { MS.playbackState = "paused"; mediaMeta(); });
+  player.addEventListener("timeupdate", () => mediaMeta());
+}
 const PAL = ["#2f6fa8", "#1b7f74", "#a2620a", "#6a43a8", "#b3261e", "#4a7a1e", "#8a5a44", "#3d5a80"];
 const TL = { id: null, file: 0, loaded: -1, t: 0, env: {}, items: [], Z: 45, drag: null, cur: null, raf: 0 };
 const PRE = 2; // ▶를 누르면 발언 2초 앞부터

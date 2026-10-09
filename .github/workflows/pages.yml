@@ -96,7 +96,7 @@ jobs:
           set -e
           mkdir -p _site
           cp web/index.html web/style.css web/sw.js _site/
-          cp -r web/src web/vendor _site/
+          cp -r web/src web/vendor web/icons _site/
           cp -r _models _site/models
           touch _site/.nojekyll
           size=$(du -sb _site | cut -f1)
