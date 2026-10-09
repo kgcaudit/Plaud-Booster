@@ -3,7 +3,7 @@
 Plaud 녹음의 빈 곳을 메우는 개인용 웹앱입니다. **GitHub Pages 주소를 열면 바로 쓰고, 음원과 전사는 PC 밖으로 나가지 않습니다.**
 전사(Whisper turbo)와 화자 맞히기(CAM++)가 모두 브라우저 안(WebAssembly)에서 돌아갑니다.
 
-**주소:** https://kgcaudit.github.io/plaud-booster/
+**주소:** https://kgcaudit.github.io/Plaud-Booster/
 
 | 작업 | 하는 일 |
 |---|---|
