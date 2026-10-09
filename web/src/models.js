@@ -83,6 +83,82 @@ export class Whisper {
   }
 }
 
+/**
+ * 시각 토큰을 켜고 전사한다(짧은 발언 여러 개를 한 창에 묶어 넣을 때). 돌려주는 값: [{s, e, text}] (초, 창 안 기준)
+ * Whisper 규칙: 첫 토큰은 1초 이하 시각, 시각은 「여는 시각·글·닫는 시각」 짝, 뒤로 가지 않음,
+ * 시각 토큰 확률의 합이 가장 큰 글자 토큰보다 크면 시각을 고른다.
+ */
+Whisper.prototype.transcribeTs = async function (audio) {
+  const { ort } = this;
+  const TS0 = Number(this.NOTS) + 1, EOT = this.EOT, SOT = Number(this.SOT);
+  const dur = audio.length / 16000, maxTs = TS0 + Math.min(1500, Math.floor(dur / 0.02) + 1);
+  const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
+  const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.enc.run({ mel });
+  const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
+  const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
+  const prompt = [this.SOT, this.KO, this.TRANSCRIBE];
+  let out = await this.dec.run({ tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
+    n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]) });
+  const res = [];
+  let off = prompt.length;
+  for (let step = 0; step < this.maxTokens; step++) {
+    const L = out.logits, V = L.dims[2], base = (L.dims[1] - 1) * V, d = L.data;
+    const last = res.length ? res[res.length - 1] : -1, prev = res.length > 1 ? res[res.length - 2] : -1;
+    const isT = (t) => t >= TS0;
+    const closing = isT(last) && prev >= 0 && !isT(prev);
+    const lastTs = res.reduce((m, t) => (isT(t) ? t : m), -1);
+    const allowText = res.length > 0 && !closing; // 닫는 시각 뒤에는 시각(다음 여는 시각)이나 끝만
+    // 허용 범위 정하기
+    const tsLo = res.length === 0 ? TS0 : lastTs < 0 ? TS0 : lastTs + (closing ? 0 : 1);
+    const tsHi = res.length === 0 ? TS0 + 50 : maxTs;
+    const tsOk = !(res.length > 0 && isT(last) && (prev < 0 || isT(prev))); // 시각 두 개(또는 첫 시각) 뒤에는 글
+    let bestT = -Infinity, bt = -1, bestX = -Infinity, bx = -1;
+    if (tsOk) for (let i = tsLo; i <= Math.min(tsHi, V - 1); i++) if (d[base + i] > bestT) { bestT = d[base + i]; bt = i; }
+    if (res.length > 0) {
+      for (let i = 0; i < SOT; i++) {
+        if (i !== EOT && !allowText) continue;
+        if (d[base + i] > bestX) { bestX = d[base + i]; bx = i; }
+      }
+    }
+    let pick;
+    if (bt < 0) pick = bx;
+    else if (bx < 0) pick = bt;
+    else {
+      // 시각 확률 합(log-sum-exp) 대 가장 큰 글자 확률
+      let lse = 0;
+      for (let i = tsLo; i <= Math.min(tsHi, V - 1); i++) lse += Math.exp(d[base + i] - bestT);
+      pick = bestT + Math.log(lse) > bestX ? bt : bx;
+    }
+    if (pick < 0 || pick === EOT) break;
+    res.push(pick);
+    if (!isT(pick) && Whisper.looping(res.filter((t) => !isT(t)))) break;
+    const p = out;
+    out = await this.dec.run({ tokens: i64([BigInt(pick)], [1, 1]), in_n_layer_self_k_cache: p.out_n_layer_self_k_cache,
+      in_n_layer_self_v_cache: p.out_n_layer_self_v_cache, n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([BigInt(off)], [1]) });
+    for (const t of Object.values(p)) t.dispose?.();
+    off++;
+  }
+  for (const t of Object.values(out)) t.dispose?.();
+  ck.dispose?.(); cv.dispose?.();
+  return tsSegments(res, TS0, dur, (ids) => this.detok(ids));
+};
+
+/** 토큰 열 → [{s, e, text}] (닫는 시각이 없으면 창 끝까지) */
+export function tsSegments(ids, TS0, dur, detok) {
+  const segs = [];
+  let cur = [], t0 = null;
+  for (const t of ids) {
+    if (t >= TS0) {
+      const tt = (t - TS0) * 0.02;
+      if (t0 === null) t0 = tt;
+      else if (cur.length) { segs.push({ s: t0, e: tt, text: detok(cur) }); cur = []; t0 = null; }
+      else t0 = tt;
+    } else cur.push(t);
+  }
+  if (cur.length) segs.push({ s: t0 ?? 0, e: dur, text: detok(cur) });
+  return segs.filter((g) => g.text);
+}
+
 /** 기기 성능 시험: 30초 창 인코더 1번 + 디코더 steps걸음(고정 토큰) 시간을 잰다. 결과 글자는 버린다 */
 Whisper.prototype.bench = async function (audio, steps = 24) {
   const { ort } = this;

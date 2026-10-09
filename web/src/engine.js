@@ -108,6 +108,44 @@ export async function match(embedAt, s, e, C) {
  * 처리 속도 감시: 한 건 처리 시간이 처음 8건의 가운데값보다 1.8배 넘게 느려지면(휴대폰 발열로 성능을 낮춘 경우 등)
  * 진행 문구에 안내를 붙인다. ctx.now가 있으면 그것을 시계로 쓴다(시험용).
  */
+/**
+ * 짧은 발언 묶기(전사 창 아끼기): 같은 묶음(화자)의 maxLen초 이하 발언을 시간 순으로 win초까지 한 창에 넣는다.
+ * 같은 화자끼리만 묶으므로 글이 이웃 발언으로 밀려도 다른 사람 말로 붙지 않는다.
+ * 10-08 회의: 창 641 → 381, 글자 오류율은 그대로이거나 조금 나음(31.8→30.8%, 43.2→35.5%). 사이 0.6초(1.2초는 더 나빴음).
+ * @returns 발언 번호 배열의 배열
+ */
+export function packGroups(units, todo, { maxLen = 10, win = 24, gap = 0.6 } = {}) {
+  const order = [...todo].sort((a, b) => units[a].c - units[b].c || units[a].f - units[b].f || units[a].s - units[b].s);
+  const out = [];
+  let cur = [], len = 0;
+  const flush = () => { if (cur.length) out.push(cur); cur = []; len = 0; };
+  for (const k of order) {
+    const u = units[k], d = u.e - u.s;
+    if (cur.length && units[cur[0]].c !== u.c) flush();
+    if (d > maxLen) { flush(); out.push([k]); continue; }
+    if (cur.length && len + gap + d > win) flush();
+    len += (cur.length ? gap : 0) + d;
+    cur.push(k);
+  }
+  flush();
+  return out;
+}
+
+/** 묶은 창의 시각 구간([{s,e,text}])을 발언 자리(spans: [[a,b]])에 나눠 붙인다 — 가장 많이 겹치는 자리, 안 겹치면 가장 가까운 자리 */
+export function assignPack(spans, segs) {
+  const texts = spans.map(() => []);
+  for (const g of segs) {
+    let best = -1, bv = 0;
+    spans.forEach(([a, b], j) => { const v = Math.min(g.e, b) - Math.max(g.s, a); if (v > bv) { bv = v; best = j; } });
+    if (best < 0) {
+      let bd = Infinity;
+      spans.forEach(([a, b], j) => { const dd = Math.min(Math.abs(g.s - b), Math.abs(g.e - a), g.s >= a && g.s <= b ? 0 : Infinity); if (dd < bd) { bd = dd; best = j; } });
+    }
+    texts[best].push(g.text);
+  }
+  return texts.map((t) => t.join(" ").trim());
+}
+
 export function pacer(now = () => Date.now()) {
   const d = [];
   let t = now();
@@ -225,24 +263,41 @@ export async function runSony(job, files, ctx) {
   const done = await ctx.loadPartial();
   const tic = Date.now(), pace = pacer(ctx.now);
   let nNew = 0;
-  for (const k of todo) {
-    if (done[k]) continue;
+  const PAD = 0.15, GAP = 0.6;
+  const groups = ctx.transcribeTs ? packGroups(diar.units, todo.filter((k) => !done[k]), { gap: GAP }) : todo.filter((k) => !done[k]).map((k) => [k]);
+  for (const g of groups) {
     if (ctx.shouldStop()) return { result: null, fresh: {} };
-    const u = diar.units[k];
-    const text = await ctx.transcribe(await ctx.readAudio(u.f, Math.max(0, u.s - 0.15), u.e + 0.15));
-    const rec = { k, text };
-    if (isHallu(text)) rec.hallu = true;
-    await ctx.savePartial(rec);
-    done[k] = rec;
-    nNew++;
+    const clips = [];
+    for (const k of g) { const u = diar.units[k]; clips.push(await ctx.readAudio(u.f, Math.max(0, u.s - PAD), u.e + PAD)); }
+    let texts;
+    if (g.length === 1) texts = [await ctx.transcribe(clips[0])];
+    else {
+      const gapN = Math.round(GAP * 16000), all = new Float32Array(clips.reduce((n, c) => n + c.length, 0) + gapN * (clips.length - 1));
+      const spans = [];
+      let o = 0;
+      clips.forEach((c, j) => { all.set(c, o); spans.push([o / 16000, (o + c.length) / 16000]); o += c.length + (j < clips.length - 1 ? gapN : 0); });
+      texts = assignPack(spans, await ctx.transcribeTs(all));
+    }
+    for (let j = 0; j < g.length; j++) {
+      const rec = { k: g[j], text: texts[j] };
+      if (g.length > 1) rec.pack = g.length;
+      if (!rec.text) rec.empty = true; // 같은 창의 이웃(같은 화자) 발언으로 글이 옮겨 간 경우
+      else if (isHallu(rec.text)) rec.hallu = true;
+      await ctx.savePartial(rec);
+      done[g[j]] = rec;
+    }
+    nNew += g.length;
     const n = todo.filter((q) => done[q]).length;
     const left = ((todo.length - n) * (Date.now() - tic)) / nNew / 60000;
     ctx.progress(Math.floor((n / Math.max(1, todo.length)) * 99), `${n}/${todo.length} 발언 전사 · 남은 시간 약 ${Math.ceil(left)}분${pace()}`);
   }
   const segs = [];
   let dropped = 0;
+  let merged = 0, packed = 0;
   for (const k of todo) {
     const r = done[k], u = diar.units[k], c = diar.clusters[u.c];
+    if (r.pack) packed++;
+    if (r.empty) { merged++; continue; }
     if (r.hallu) { dropped++; continue; }
     segs.push({ i: k + 1, u: k, file: u.f, start: u.s, end: u.e, text: r.text, cluster: c.id, speaker: c.label, kind: "단일", conf: u.sim, margin: u.margin });
   }
@@ -250,7 +305,7 @@ export async function runSony(job, files, ctx) {
   const stats = {
     segments: segs.length, single: segs.length, mixed: 0, unknown: 0,
     lowConf: segs.filter((g) => g.conf < 0.5 || g.margin < 0.1).length, droppedHallucination: dropped,
-    clusters: diar.clusters.length, skipped: diar.units.length - todo.length,
+    clusters: diar.clusters.length, skipped: diar.units.length - todo.length, packed, merged,
     narrow: !!diar.narrow, band: diar.band ?? null, vadFallback: diar.vadFallback || 0,
     targetSec: r1(files.reduce((m, f) => m + f.dur, 0)),
     targets: files.map((f, i) => ({ file: i, from: 0, to: r1(f.dur) })),

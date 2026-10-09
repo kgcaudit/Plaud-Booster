@@ -237,3 +237,59 @@ test("말소리 구간: Silero가 거의 못 찾으면(전화 음질 등) 그 10
   const ok = await regionsOf({ ...ctx, vadProbs: async (a) => Float32Array.from({ length: Math.floor(a.length / 512) }, (_, i) => (Math.abs(a[i * 512 + 200]) > 0.01 ? 0.9 : 0)) }, 0, 0, 60);
   assert.equal(ok.fallback, 0);
 });
+
+// ---- 짧은 발언 묶어 전사(같은 화자끼리만, 시각 토큰으로 다시 나눔)
+test("발언 묶기: 같은 묶음끼리, 10초 넘는 발언은 따로, 창은 24초까지", async () => {
+  const { packGroups, assignPack } = await import("../../web/src/engine.js");
+  const U = [
+    { c: 0, f: 0, s: 0, e: 4 }, { c: 1, f: 0, s: 5, e: 8 }, { c: 0, f: 0, s: 9, e: 13 },
+    { c: 0, f: 0, s: 14, e: 30 }, { c: 1, f: 0, s: 31, e: 33 }, { c: 0, f: 0, s: 40, e: 49 }, { c: 0, f: 0, s: 50, e: 59 },
+  ];
+  const g = packGroups(U, [0, 1, 2, 3, 4, 5, 6]);
+  for (const p of g) assert.ok(p.every((k) => U[k].c === U[p[0]].c)); // 다른 화자와 섞이지 않음
+  assert.ok(g.some((p) => p.length === 1 && p[0] === 3)); // 16초 발언은 혼자
+  assert.ok(g.some((p) => p.includes(1) && p.includes(4)));
+  for (const p of g) assert.ok(p.reduce((n, k) => n + U[k].e - U[k].s, 0) + 0.6 * (p.length - 1) <= 24);
+  assert.equal(g.flat().sort((a, b) => a - b).join(), "0,1,2,3,4,5,6");
+  // 시각 구간 → 자리: 많이 겹치는 곳, 안 겹치면 가까운 곳
+  assert.deepEqual(assignPack([[0, 4], [4.6, 8]], [{ s: 0, e: 3.9, text: "가" }, { s: 4.4, e: 7, text: "나" }, { s: 8.3, e: 8.6, text: "다" }]), ["가", "나 다"]);
+  assert.deepEqual(assignPack([[0, 4], [4.6, 8]], [{ s: 0, e: 8, text: "모두" }]), ["모두", ""]); // 더 많이 겹친 앞자리
+});
+
+test("시각 토큰 열 나누기", async () => {
+  const { tsSegments } = await import("../../web/src/models.js");
+  const T = 50365, dt = (ids) => ids.join("/");
+  assert.deepEqual(tsSegments([T, 1, 2, T + 100, T + 100, 3, T + 150], T, 5, dt), [{ s: 0, e: 2, text: "1/2" }, { s: 2, e: 3, text: "3" }]);
+  assert.deepEqual(tsSegments([T + 10, 7, 8], T, 5, dt), [{ s: 0.2, e: 5, text: "7/8" }]); // 닫는 시각 없으면 끝까지
+});
+
+test("소니 녹음 전사: 짧은 발언을 묶어 창 수를 줄이고, 글은 제 발언에, 멈췄다 이어도 된다", async () => {
+  const ctx = sonyCtx(120);
+  const files = [{ name: "a.mp3", dur: 120 }];
+  const r1 = await runJob({ mode: "diar", stage: "diar" }, files, ctx);
+  const nu = r1.diar.units.length;
+  let calls = 0, ts = 0, stop = 2;
+  ctx.transcribe = async (a) => { calls++; return `한 발언 ${a.length}`; };
+  ctx.transcribeTs = async (a) => { // 조용한 0.3초 넘는 곳으로 나눠 구간마다 글 하나
+    ts++;
+    const segs = []; let s0 = -1, q = 0;
+    for (let i = 0; i + 160 <= a.length; i += 160) {
+      const loud = Math.abs(a[i + 7]) > 0.001 || Math.abs(a[i + 81]) > 0.001;
+      if (loud) { if (s0 < 0) s0 = i; q = 0; } else if (s0 >= 0 && ++q > 30) { segs.push([s0, i]); s0 = -1; }
+    }
+    if (s0 >= 0) segs.push([s0, a.length]);
+    return segs.map(([x, y]) => ({ s: x / SR, e: y / SR, text: `구간 ${(x / SR).toFixed(1)}` }));
+  };
+  ctx.shouldStop = () => ts >= stop;
+  const half = await runJob({ mode: "diar", stage: "transcribe" }, files, ctx);
+  assert.equal(half.result, null);
+  const saved = Object.keys(ctx.store.partial).length;
+  assert.ok(saved > 0 && saved < nu);
+  stop = Infinity;
+  const r = await runJob({ mode: "diar", stage: "transcribe" }, files, ctx);
+  assert.ok(ts + calls < nu / 2, `창 ${ts + calls} / 발언 ${nu}`);
+  assert.equal(r.result.segs.length + r.result.stats.merged, nu);
+  assert.ok(r.result.stats.packed > 0);
+  assert.ok(r.result.segs.every((g) => g.text)); // 빈 발언은 결과에 없음
+  for (const g of r.result.segs) assert.equal(g.cluster, r1.diar.clusters[r1.diar.units[g.u].c].id);
+});

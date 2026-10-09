@@ -90,7 +90,20 @@ async function cleanupOldCaches() {
  */
 async function ensureModels(need = "all") {
   if (FAKE) {
-    whisper = whisper || { transcribe: async (a) => `가짜 전사 ${(a.length / 16000).toFixed(1)}초` };
+    whisper = whisper || {
+      transcribe: async (a) => `가짜 전사 ${(a.length / 16000).toFixed(1)}초`,
+      // 묶은 창: 0.3초 넘게 조용한 곳으로 나눠 구간마다 글 하나
+      transcribeTs: async (a) => {
+        const segs = [], F = 160; let s0 = -1, quiet = 0;
+        for (let i = 0; i + F <= a.length; i += F) {
+          let e = 0; for (let k = i; k < i + F; k++) e += a[k] * a[k];
+          const loud = Math.sqrt(e / F) > 0.01;
+          if (loud) { if (s0 < 0) s0 = i; quiet = 0; } else if (s0 >= 0 && ++quiet > 30) { segs.push([s0, i]); s0 = -1; }
+        }
+        if (s0 >= 0) segs.push([s0, a.length]);
+        return segs.map(([x, y]) => ({ s: x / 16000, e: y / 16000, text: `가짜 전사 ${((y - x) / 16000).toFixed(1)}초` }));
+      },
+    };
     camp = camp || { embed: async (a) => fakeEmbed(a) };
     vad = vad || { probs: async (x) => { const n = Math.floor(x.length / 512), p = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let k = i * 512; k < (i + 1) * 512; k++) s += x[k] * x[k]; p[i] = Math.sqrt(s / 512) > 0.01 ? 0.9 : 0.02; } return p; } };
     return;
@@ -153,6 +166,7 @@ async function processJob(job) {
   const ctx = {
     readAudio: (fi, s, e) => S.readAudio(id, fi, s, e),
     transcribe: (a) => whisper.transcribe(a),
+    transcribeTs: whisper && whisper.transcribeTs ? (a) => whisper.transcribeTs(a) : undefined,
     embed: (a) => camp.embed(a),
     vadProbs: vad ? (x) => vad.probs(x) : undefined,
     clearPartial: () => S.del("partials", id),
