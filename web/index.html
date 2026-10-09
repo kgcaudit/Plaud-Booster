@@ -183,6 +183,13 @@
       <button type="button" id="btnThreads">적용</button>
     </div>
     <div class="card">
+      <h3>기기 성능 시험</h3>
+      <p class="note">이 기기에서 각 단계가 얼마나 걸리는지 잽니다(합성 음원만 씀, 1~5분). 충전기를 연결하고, 처리 중인 작업이 없을 때 누르세요. 결과는 더 빠른 처리 방식(그래픽 칩 가속 등)을 고르는 근거로 씁니다.</p>
+      <p class="row"><button type="button" id="btnBench">시험 시작</button> <span id="benchMsg" class="msg"></span></p>
+      <dl id="benchOut" class="info bench"></dl>
+      <p id="benchPrev" class="note"></p>
+    </div>
+    <div class="card">
       <h3>저장 공간·백업</h3>
       <p id="storeState" class="note">-</p>
       <p class="note">작업 결과·검수·목소리 기준은 <b>이 브라우저에만</b> 저장됩니다. 브라우저 데이터를 지우면 함께 사라지므로, 작업이 끝날 때마다 백업을 받아 두세요(음원은 빠집니다).</p>

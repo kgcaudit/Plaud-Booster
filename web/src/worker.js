@@ -233,12 +233,63 @@ async function loop() {
   }
 }
 
+/* ------------------------------------------------------------------ 기기 성능 시험 */
+// 실제 회의 음원은 쓰지 않는다 — 말소리 비슷한 합성 신호(높낮이·세기가 바뀌는 배음)로만 잰다.
+function synth(sec) {
+  const n = sec * 16000, x = new Float32Array(n);
+  let seed = 7; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296 - 0.5);
+  let ph = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / 16000, f0 = 130 + 40 * Math.sin(2 * Math.PI * 0.7 * t), env = Math.max(0, Math.sin(2 * Math.PI * 1.3 * t));
+    ph += 2 * Math.PI * f0 / 16000;
+    x[i] = env * (0.25 * Math.sin(ph) + 0.12 * Math.sin(2 * ph) + 0.06 * Math.sin(3 * ph)) + 0.01 * rnd();
+  }
+  return x;
+}
+async function bench() {
+  const say = (msg) => post({ type: "bench", msg });
+  const now = () => performance.now();
+  const r = { threads: ort?.env?.wasm?.numThreads || 0 };
+  say("모델 준비");
+  let t = now();
+  await ensureModels("all");
+  r.threads = FAKE ? 0 : ort.env.wasm.numThreads;
+  r.load = now() - t;
+  const a60 = synth(60);
+  if (vad) { say("말소리 찾기(Silero) 1분"); t = now(); await vad.probs(a60); r.vadMin = now() - t; }
+  say("목소리 특징(CAM++) 3초 × 10");
+  t = now();
+  for (let k = 0; k < 10; k++) await camp.embed(a60.subarray(k * 48000, k * 48000 + 48000));
+  r.emb = (now() - t) / 10;
+  r.enc = []; r.decStep = [];
+  for (let k = 0; k < 3; k++) {
+    say(`전사(Whisper) 30초 창 ${k + 1}/3`);
+    const a = a60.subarray(k * 8000, k * 8000 + 480000);
+    if (whisper.bench) { const b = await whisper.bench(a); r.enc.push(b.enc); r.decStep.push(b.decStep); }
+    else { t = now(); await whisper.transcribe(a); r.enc.push(now() - t); r.decStep.push(0); }
+  }
+  // 1시간 회의 어림(10-08 회의 기준: 시간당 발언 약 330개·창 약 2,000개·발언당 약 30토큰)
+  const enc = r.enc.reduce((x, y) => x + y, 0) / r.enc.length, dec = r.decStep.reduce((x, y) => x + y, 0) / r.decStep.length;
+  r.estDiar = 60 * (r.vadMin || 0) + 2000 * r.emb;
+  r.estTr = 330 * (enc + 30 * dec);
+  r.slow = r.enc[r.enc.length - 1] / r.enc[0];
+  return r;
+}
+
 self.onmessage = async (ev) => {
   const m = ev.data;
   try {
     if (m.type === "kick" && owner) loop();
     if (m.type === "stop") stopId = m.id;
     if (m.type === "status") post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE });
+    if (m.type === "bench") {
+      if (busy) { post({ type: "bench", error: "작업을 처리하는 중에는 시험할 수 없습니다. 작업이 끝난 뒤 다시 누르세요." }); return; }
+      busy = true;
+      try { post({ type: "bench", result: await bench() }); }
+      catch (e) { post({ type: "bench", error: String((e && e.message) || e) }); }
+      finally { busy = false; if (owner) loop(); }
+      return;
+    }
     if (m.type === "download") { await ensureModels("all"); post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE }); }
   } catch (e) {
     post({ type: "error", message: String(e && e.message || e) });

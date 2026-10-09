@@ -234,6 +234,19 @@ try {
     console.log("✓ 조각 음원 2개(MP3 2:30 + WAV) 처리·파일별 내보내기");
   }
 
+  // ---- 기기 성능 시험(가짜 엔진) — 결과표가 나오고 휴대폰 폭에서도 넘치지 않는다
+  await page.click(".tabs button[data-tab='settings']");
+  await page.click("#btnBench");
+  await page.waitForSelector("#benchMsg:has-text('끝났습니다')", { timeout: 60000 });
+  const bt = await page.locator("#benchOut").textContent();
+  assert.match(bt, /그래픽 칩/); assert.match(bt, /1시간 회의 어림/);
+  await page.waitForSelector("#benchPrev:has-text('지난 시험')");
+  const vp0 = page.viewportSize();
+  await page.setViewportSize({ width: 412, height: 900 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 412), "성능 시험 결과가 가로로 넘침");
+  await page.setViewportSize(vp0);
+  console.log("✓ 기기 성능 시험(결과표·지난 기록)");
+
   // ---- 백업 → 모두 지우기 → 복원
   await page.click(".tabs button[data-tab='settings']");
   const d3 = page.waitForEvent("download");

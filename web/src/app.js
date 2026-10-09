@@ -53,6 +53,7 @@ function startWorker() {
     }
     if (m.type === "job") { wakeLock(true); if ($("#tab-jobs").classList.contains("on")) loadJobs(); if (m.done) toast("작업이 끝났습니다"); }
     if (m.type === "idle") { wakeLock(false); loadJobs(); }
+    if (m.type === "bench") onBench(m);
     if (m.type === "error") toast(m.message);
   };
 }
@@ -1006,6 +1007,7 @@ $("#glSave").addEventListener("click", async () => {
 async function loadSettings() {
   const set = (await S.get("kv", "settings")) || {};
   $("#threads").value = set.threads || 0;
+  showBenchPrev().catch(() => {});
   worker.postMessage({ type: "status" });
   try {
     const est = await navigator.storage.estimate();
@@ -1018,6 +1020,54 @@ $("#btnClearModels").addEventListener("click", async () => {
   if (!confirm("받아 둔 모델을 지울까요? 다음 처리 때 다시 받습니다.")) return;
   for (const k of await caches.keys()) if (k.startsWith("pb-models") || k.startsWith("pb-m-")) await caches.delete(k);
   worker.terminate(); startWorker(); toast("모델을 지웠습니다");
+});
+/* 기기 성능 시험: 그래픽 칩(WebGPU) 지원은 화면 쪽에서, 단계별 속도는 일꾼에서 잰다 */
+async function gpuInfo() {
+  try {
+    if (!navigator.gpu) return { ok: false, why: "이 브라우저에 WebGPU 없음" };
+    const ad = await navigator.gpu.requestAdapter();
+    if (!ad) return { ok: false, why: "그래픽 칩을 쓸 수 없음" };
+    const info = ad.info || {};
+    return { ok: true, f16: ad.features.has("shader-f16"), name: [info.vendor, info.architecture, info.description].filter(Boolean).join(" ") || "알 수 없음" };
+  } catch (e) { return { ok: false, why: String(e.message || e) }; }
+}
+const sec = (ms) => (ms >= 3600000 ? `${Math.floor(ms / 3600000)}시간 ${Math.round((ms % 3600000) / 60000)}분` : ms >= 60000 ? `${Math.floor(ms / 60000)}분 ${Math.round((ms % 60000) / 1000)}초` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}초`);
+let BENCH_GPU = null;
+function renderBench(r, gpu) {
+  const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+  const enc = r.enc.map(sec).join(" → ");
+  $("#benchOut").innerHTML = [
+    row("그래픽 칩", gpu ? (gpu.ok ? `WebGPU 사용 가능 · 16비트 연산 ${gpu.f16 ? "지원" : "없음"} · ${esc(gpu.name)}` : esc(gpu.why)) : "-"),
+    row("처리 스레드", r.threads || "-"),
+    row("모델 올리기", sec(r.load)),
+    row("말소리 찾기", r.vadMin != null ? `음성 1분에 ${sec(r.vadMin)}` : "-"),
+    row("목소리 특징", `3초 창 하나에 ${sec(r.emb)}`),
+    row("전사 30초 창", `${enc}` + (r.decStep[0] ? ` · 글자 조각 하나 ${sec(r.decStep.reduce((a, b) => a + b, 0) / r.decStep.length)}` : "")),
+    row("느려짐", r.slow > 1.3 ? `<span class="err">세 번째가 첫 번째보다 ${r.slow.toFixed(1)}배 느림 — 발열로 속도가 떨어지는 기기입니다</span>` : `없음(${r.slow.toFixed(2)}배)`),
+    row("1시간 회의 어림", `화자 나누기 약 ${sec(r.estDiar)} · 전사 약 ${sec(r.estTr)}`),
+  ].join("");
+}
+function onBench(m) {
+  if (m.msg) { $("#benchMsg").textContent = m.msg + " …"; return; }
+  $("#btnBench").disabled = false;
+  if (m.error) { $("#benchMsg").textContent = m.error; $("#benchMsg").classList.add("err"); return; }
+  $("#benchMsg").textContent = "끝났습니다"; $("#benchMsg").classList.remove("err");
+  const rec = { at: S.now(), gpu: BENCH_GPU, ...m.result };
+  renderBench(m.result, BENCH_GPU);
+  S.update("kv", "bench", (h) => [rec, ...((h && Array.isArray(h) ? h : []))].slice(0, 5)).then(showBenchPrev).catch(() => {});
+}
+async function showBenchPrev() {
+  const h = (await S.get("kv", "bench")) || [];
+  if (!Array.isArray(h) || !h.length) { $("#benchPrev").textContent = ""; return; }
+  if (!$("#benchOut").innerHTML) renderBench(h[0], h[0].gpu);
+  $("#benchPrev").textContent = "지난 시험: " + h.map((r) => { const d = new Date(r.at); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} 전사 창 ${sec(r.enc[0])}`; }).join(" · ");
+}
+$("#btnBench").addEventListener("click", async () => {
+  if (WSTATE.busy) { $("#benchMsg").textContent = "작업을 처리하는 중에는 시험할 수 없습니다."; return; }
+  $("#btnBench").disabled = true; $("#benchMsg").classList.remove("err");
+  $("#benchMsg").textContent = "그래픽 칩 확인 …";
+  BENCH_GPU = await gpuInfo();
+  worker.postMessage({ type: "bench" });
 });
 $("#btnThreads").addEventListener("click", async () => {
   await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), threads: Math.max(0, Math.min(32, +$("#threads").value || 0)) });

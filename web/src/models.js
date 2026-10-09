@@ -83,6 +83,32 @@ export class Whisper {
   }
 }
 
+/** 기기 성능 시험: 30초 창 인코더 1번 + 디코더 steps걸음(고정 토큰) 시간을 잰다. 결과 글자는 버린다 */
+Whisper.prototype.bench = async function (audio, steps = 24) {
+  const { ort } = this;
+  const now = () => performance.now();
+  let t = now();
+  const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
+  const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.enc.run({ mel });
+  const enc = now() - t;
+  const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
+  const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
+  const prompt = [this.SOT, this.KO, this.TRANSCRIBE, this.NOTS];
+  let out = await this.dec.run({ tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
+    n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]) });
+  t = now();
+  for (let k = 0; k < steps; k++) {
+    const prev = out;
+    out = await this.dec.run({ tokens: i64([220n], [1, 1]), in_n_layer_self_k_cache: prev.out_n_layer_self_k_cache,
+      in_n_layer_self_v_cache: prev.out_n_layer_self_v_cache, n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([BigInt(prompt.length + k)], [1]) });
+    for (const x of Object.values(prev)) x.dispose?.();
+  }
+  const decStep = (now() - t) / steps;
+  for (const x of Object.values(out)) x.dispose?.();
+  ck.dispose?.(); cv.dispose?.();
+  return { enc, decStep };
+};
+
 export class CamPlus {
   static async create(ort, bytes, opts = {}) {
     const s = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"], graphOptimizationLevel: "all", ...opts });

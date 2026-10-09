@@ -292,3 +292,9 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
 .srctip li { overflow-wrap: anywhere; }
 .job .note.batt { grid-area: batt; margin: 0; color: var(--warn, #b45309); overflow-wrap: anywhere; }
 @media (pointer: coarse) { .srctip summary { min-height: 44px; display: flex; align-items: center; } }
+
+/* 기기 성능 시험 결과 */
+dl.bench { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 4px 10px; margin: 8px 0; }
+dl.bench:empty { display: none; }
+dl.bench dt { color: var(--mute); }
+dl.bench dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
