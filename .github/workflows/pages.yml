@@ -19,7 +19,7 @@ concurrency:
 
 env:
   SHERPA_REL: https://github.com/k2-fsa/sherpa-onnx/releases/download
-  MODEL_REV: turbo-int8-v2-vad
+  MODEL_REV: turbo-nbits8-v3-vad
   SILERO_SHA16: 9e2449e1087496d8
 
 jobs:
@@ -74,7 +74,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: _models
-          key: models-${{ env.MODEL_REV }}-${{ hashFiles('tools/prepare_models.py', 'tools/shrink_decoder.py') }}
+          key: models-${{ env.MODEL_REV }}-${{ hashFiles('tools/prepare_models.py', 'tools/shrink_decoder.py', 'tools/to_nbits.py') }}
 
       - name: 모델 받기·줄이기·나누기
         if: steps.models.outputs.cache-hit != 'true'
@@ -87,7 +87,7 @@ jobs:
           curl -sSL -o silero_vad.onnx "$SHERPA_REL/asr-models/silero_vad.onnx"
           test "$(sha256sum silero_vad.onnx | cut -c1-16)" = "$SILERO_SHA16" || (echo "silero_vad.onnx 해시가 다릅니다" && exit 1)
           cd ..
-          pip install -q onnx numpy
+          pip install -q onnx numpy onnxruntime
           python tools/prepare_models.py _dl/sherpa-onnx-whisper-turbo _dl/campplus.onnx _models _dl/silero_vad.onnx
           rm -rf _dl
 

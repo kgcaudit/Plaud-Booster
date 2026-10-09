@@ -48,7 +48,7 @@ function startWorker() {
     if (m.type === "models") {
       if (m.phase === "download") WSTATE.dl = m;
       if (m.phase === "load") WSTATE.dl = { ...(WSTATE.dl || {}), loading: true };
-      if (m.phase === "ready") { WSTATE.dl = null; WSTATE.threads = m.threads; worker.postMessage({ type: "status" }); }
+      if (m.phase === "ready") { WSTATE.dl = null; WSTATE.threads = m.threads; if (m.device) WSTATE.device = m.device; if (m.gpuError) toast("그래픽 칩 가속을 켜지 못해 CPU로 전사합니다"); worker.postMessage({ type: "status" }); }
       renderSys();
     }
     if (m.type === "job") { wakeLock(true); if ($("#tab-jobs").classList.contains("on")) loadJobs(); if (m.done) toast("작업이 끝났습니다"); }
@@ -75,7 +75,7 @@ function renderSys() {
   else if (WSTATE.dl && WSTATE.dl.loading) eng = "모델 여는 중";
   else if (m.ready) eng = '<span class="ok">엔진 준비됨</span>';
   else eng = `<span class="bad">모델 없음</span> (받은 양 ${Math.round((m.cachedBytes / Math.max(1, m.totalBytes)) * 100)}%)`;
-  const th = WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "";
+  const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? " · 그래픽 칩 가속" : "");
   $("#sysline").innerHTML = `${eng}${th}` + (WSTATE.coi ? "" : ' · <span class="bad">스레드 꺼짐(느림)</span>') + (WSTATE.owner ? "" : ' · <span class="bad">다른 탭에서 처리 중</span>');
   $("#engState").innerHTML = eng + (m && !m.ready && !WSTATE.fake ? "<br><small>모델을 받아 두면 대기 중인 작업이 바로 시작됩니다. 작업을 등록하면 자동으로 받습니다.</small>" : "");
   const pct = WSTATE.dl && WSTATE.dl.total ? (WSTATE.dl.got / WSTATE.dl.total) * 100 : m ? (m.cachedBytes / Math.max(1, m.totalBytes)) * 100 : 0;
@@ -1040,6 +1040,7 @@ $("#glSave").addEventListener("click", async () => {
 async function loadSettings() {
   const set = (await S.get("kv", "settings")) || {};
   $("#threads").value = set.threads || 0;
+  $("#useGpu").checked = set.gpu !== false;
   showBenchPrev().catch(() => {});
   worker.postMessage({ type: "status" });
   try {
@@ -1072,6 +1073,7 @@ function renderBench(r, gpu) {
   $("#benchOut").innerHTML = [
     row("그래픽 칩", gpu ? (gpu.ok ? `WebGPU 사용 가능 · 16비트 연산 ${gpu.f16 ? "지원" : "없음"} · ${esc(gpu.name)}` : esc(gpu.why)) : "-"),
     row("처리 스레드", r.threads || "-"),
+    row("전사 계산", r.device === "gpu" ? "그래픽 칩(WebGPU)" : "CPU"),
     row("모델 올리기", sec(r.load)),
     row("말소리 찾기", r.vadMin != null ? `음성 1분에 ${sec(r.vadMin)}` : "-"),
     row("목소리 특징", `3초 창 하나에 ${sec(r.emb)}`),
@@ -1101,6 +1103,10 @@ $("#btnBench").addEventListener("click", async () => {
   $("#benchMsg").textContent = "그래픽 칩 확인 …";
   BENCH_GPU = await gpuInfo();
   worker.postMessage({ type: "bench" });
+});
+$("#useGpu").addEventListener("change", async () => {
+  await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpu: $("#useGpu").checked });
+  toast("페이지를 새로 고친 뒤부터 적용됩니다");
 });
 $("#btnThreads").addEventListener("click", async () => {
   await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), threads: Math.max(0, Math.min(32, +$("#threads").value || 0)) });

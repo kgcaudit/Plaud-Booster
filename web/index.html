@@ -180,6 +180,7 @@
       <div class="pbar big"><i id="dlBar"></i></div>
       <p class="row"><button type="button" id="btnModels" class="primary">모델 받기</button> <button type="button" id="btnClearModels">받은 모델 지우기</button></p>
       <p class="note">처음 한 번 Whisper turbo·CAM++·Silero 모델(약 0.9GB)을 이 사이트에서 받아 브라우저에 보관합니다. 회사망에서 받는 데 몇 분 걸릴 수 있습니다.</p>
+      <label class="chk"><input type="checkbox" id="useGpu" checked> 그래픽 칩 가속(WebGPU) — 되는 기기에서 전사 인코더를 그래픽 칩으로 돌립니다. 느리거나 결과가 이상하면 끄고 성능 시험으로 비교하세요(새로 고친 뒤 적용).</label>
       <label>처리 스레드 <input type="number" id="threads" min="0" max="32" class="num"> <small>0 = 자동(CPU 수 − 1)</small></label>
       <button type="button" id="btnThreads">적용</button>
     </div>

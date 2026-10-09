@@ -70,4 +70,7 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
   (packGroups·assignPack·Whisper.transcribeTs). 다른 화자와 섞어 묶으면 글이 이웃 화자 발언으로 옮겨 갑니다. 사이 1.2초는 더 나빴습니다.
   10-08: 창 641→381, 글자 오류율 31.8→30.8%·43.2→35.5%. 글이 이웃으로 옮겨 가 빈 발언은 결과에서 빼고 stats.merged로 셉니다.
 - 화자 나누기 단계(이름 대기까지)는 Silero·CAM++만 올리고 Whisper는 전사 단계에서 올립니다(ensureModels("diar"|"all")).
-- WASM에서는 int8(MatMulInteger) 인코더가 4비트(MatMulNBits)보다 빨랐습니다(2스레드 30초 창: 60초 vs 100초).
+- 인코더는 **8비트 블록 양자화(MatMulNBits, 블록 128, 약 700MB)** 입니다(tools/to_nbits.py, 배포 때 int8에서 변환). 그래픽 칩(WebGPU)이 있으면
+  인코더만 WebGPU로, 디코더·CAM++·Silero는 wasm으로 돕니다(설정 「그래픽 칩 가속」, settings.gpu). 10-08 두 구간 글자 오류율(묶어 전사):
+  int8 30.8%·35.5% → 8비트 28.9%·32.7%. 4비트(444MB)는 반복 헛말이 늘어 40~45분 구간 44.0%로 나빠 쓰지 않았습니다.
+  WASM에서는 int8(MatMulInteger) 인코더가 4비트(MatMulNBits)보다 빨랐습니다(2스레드 30초 창: 60초 vs 100초) — CPU만 있는 기기는 조금 느려질 수 있습니다.

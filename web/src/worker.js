@@ -6,6 +6,7 @@ import { isDiar } from "./export.js";
 
 const FAKE = new URL(self.location.href).searchParams.get("fake") === "1";
 const post = (m) => self.postMessage(m);
+let useGpu = false;
 let ort = null, whisper = null, camp = null, vad = null, busy = false, stopId = null, manifest = null;
 
 /* ------------------------------------------------------------------ 모델 */
@@ -112,8 +113,14 @@ async function ensureModels(need = "all") {
   const haveDiar = camp && (vad || !m.files.vad);
   if (haveDiar && (need === "diar" || whisper)) return;
   if (!ort) {
-    ort = await import("../vendor/ort/ort.wasm.min.mjs");
     const set = (await S.get("kv", "settings")) || {};
+    // 그래픽 칩 가속: 설정에서 끄지 않았고, 인코더가 그래픽 칩용 형식(MatMulNBits)이고, 이 기기에 WebGPU가 있을 때만
+    let adapter = null;
+    if (set.gpu !== false && /^nbits/.test(m.files.encoder.format || "") && self.navigator.gpu) {
+      try { adapter = await self.navigator.gpu.requestAdapter(); } catch { adapter = null; }
+    }
+    useGpu = !!adapter;
+    ort = useGpu ? await import("../vendor/ort/ort.webgpu.min.mjs") : await import("../vendor/ort/ort.wasm.min.mjs");
     const hc = self.navigator.hardwareConcurrency || 4;
     ort.env.wasm.numThreads = set.threads || Math.min(16, hc > 2 ? hc - 1 : hc); // 화면용으로 하나 남긴다(2코어 이하는 전부)
   }
@@ -137,10 +144,10 @@ async function ensureModels(need = "all") {
     let encBytes = await loadFile(m.files.encoder, tick);
     await cleanupOldCaches();
     post({ type: "models", phase: "load" });
-    whisper = await Whisper.create(ort, encBytes, decBytes, tokens);
+    whisper = await Whisper.create(ort, encBytes, decBytes, tokens, {}, { gpu: useGpu });
     encBytes = null; // 세션을 만든 뒤에는 원본 바이트를 놓아 메모리를 돌려준다
   }
-  post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads, partial: !whisper });
+  post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads, partial: !whisper, device: whisper ? whisper.device : null, gpuError: whisper ? whisper.gpuError : null });
 }
 
 /* ------------------------------------------------------------------ 작업 */
@@ -268,6 +275,7 @@ async function bench() {
   let t = now();
   await ensureModels("all");
   r.threads = FAKE ? 0 : ort.env.wasm.numThreads;
+  r.device = whisper.device || "cpu";
   r.load = now() - t;
   const a60 = synth(60);
   if (vad) { say("말소리 찾기(Silero) 1분"); t = now(); await vad.probs(a60); r.vadMin = now() - t; }

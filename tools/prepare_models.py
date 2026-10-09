@@ -3,6 +3,8 @@
 입력: sherpa-onnx-whisper-turbo 폴더(int8 인코더·디코더·토큰), CAM++ onnx, (선택) Silero VAD onnx
 출력: <out>/ 아래 조각 파일들과 manifest.json
   - 디코더는 토큰 임베딩(fp32 265MB)을 행별 int8로 줄인다(shrink_decoder.py) — 전사 결과는 사실상 같다
+  - 인코더는 MatMulInteger(int8)를 MatMulNBits(블록 양자화)로 바꾼다(to_nbits.py) — 그래픽 칩(WebGPU)에서 돌 수 있는 형식.
+    비트·블록은 환경 변수 ENC_BITS(기본 8)·ENC_BLOCK(기본 128). 8비트·128블록이면 약 700MB(사이트 1GB 한도 안)
   - GitHub Pages 한 파일 크기 걱정이 없도록 45MB 조각으로 나눈다
 
 사용: python tools/prepare_models.py <turbo_dir> <campplus.onnx> <out_dir> [silero_vad.onnx]
@@ -43,8 +45,11 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     small = os.path.join(out, "_decoder.tmp.onnx")
     subprocess.run([sys.executable, os.path.join(here, "shrink_decoder.py"), os.path.join(turbo, "turbo-decoder.int8.onnx"), small], check=True)
+    bits, block = os.environ.get("ENC_BITS", "8"), os.environ.get("ENC_BLOCK", "128")
+    enc = os.path.join(out, "_encoder.tmp.onnx")
+    subprocess.run([sys.executable, os.path.join(here, "to_nbits.py"), os.path.join(turbo, "turbo-encoder.int8.onnx"), enc, bits, block, "4"], check=True)
     files = {
-        "encoder": split(os.path.join(turbo, "turbo-encoder.int8.onnx"), out, "whisper-encoder.onnx"),
+        "encoder": {**split(enc, out, "whisper-encoder.onnx"), "format": f"nbits{bits}-b{block}"},
         "decoder": split(small, out, "whisper-decoder.onnx"),
         "campplus": split(camp, out, "campplus.onnx"),
         "tokens": split(os.path.join(turbo, "turbo-tokens.txt"), out, "tokens.txt"),
@@ -52,6 +57,7 @@ def main():
     if vad:
         files["vad"] = split(vad, out, "silero-vad.onnx")
     os.remove(small)
+    os.remove(enc)
     version = hashlib.sha256("".join(f["sha256"] for f in files.values()).encode()).hexdigest()[:12]
     with open(os.path.join(out, "manifest.json"), "w") as f:
         json.dump({"version": version, "files": files}, f, indent=1)

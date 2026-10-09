@@ -6,11 +6,19 @@ import { agcGains } from "./diar.js";
 
 export class Whisper {
   /** @param ort onnxruntime-web 모듈, encBytes/decBytes: Uint8Array, tokensText: tokens.txt 내용 */
-  static async create(ort, encBytes, decBytes, tokensText, opts = {}) {
+  static async create(ort, encBytes, decBytes, tokensText, opts = {}, { gpu = false } = {}) {
     const so = { executionProviders: ["wasm"], graphOptimizationLevel: "all", ...opts };
-    const enc = await ort.InferenceSession.create(encBytes, so);
+    // 인코더(시간 대부분)는 그래픽 칩이 되면 WebGPU로, 안 되면 CPU(wasm)로. 디코더는 한 걸음이 짧아 CPU가 낫다
+    let enc = null, device = "cpu", gpuError = null;
+    if (gpu) {
+      try { enc = await ort.InferenceSession.create(encBytes, { ...so, executionProviders: ["webgpu"] }); device = "gpu"; }
+      catch (e) { gpuError = String((e && e.message) || e).slice(0, 200); }
+    }
+    if (!enc) enc = await ort.InferenceSession.create(encBytes, so);
     const dec = await ort.InferenceSession.create(decBytes, so);
-    return new Whisper(ort, enc, dec, tokensText);
+    const w = new Whisper(ort, enc, dec, tokensText);
+    w.device = device; w.gpuError = gpuError;
+    return w;
   }
 
   constructor(ort, enc, dec, tokensText) {
