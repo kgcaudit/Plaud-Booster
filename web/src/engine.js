@@ -239,7 +239,7 @@ export async function planTargets(job, files, plaudEnd, readAudio) {
  * 반환: { result, fresh } — 멈췄으면 result=null
  */
 export async function runJob(job, files, ctx) {
-  if (job.mode === "sony") return runSony(job, files, ctx);
+  if (job.mode === "diar" || job.mode === "sony") return runSony(job, files, ctx); // sony = 예전 이름
   const smap = job.speakerMap || {};
   const plaud = (ctx.plaud || []).map((g) => ({ ...g, speaker: (smap[g.speaker] || g.speaker || "").trim() }));
   const plaudEnd = plaud.reduce((m, g) => Math.max(m, g.end), 0) || null;

@@ -68,8 +68,12 @@ try {
   await page.waitForSelector("#sysline:has-text('가짜 엔진')");
   console.log("✓ 서비스 워커로 교차 출처 격리(스레드 사용 가능)");
 
-  // ---- 누락 구간 보충
+  // ---- 누락 구간 보충(출처 Plaud → 할 일 기본값 「빠진 구간 채우기」)
   await page.click("#btnNew");
+  assert.ok(await page.locator("#fsTask").isHidden()); // 출처를 고르기 전에는 할 일이 안 보임
+  await page.check("input[name='source'][value='plaud']");
+  assert.ok(await page.locator("input[name='mode'][value='gap']").isChecked());
+  assert.ok(await page.locator("input[name='mode'][value='diar']").isHidden());
   await page.setInputFiles("#audioFiles", asFile(audioPath, "audio/wav"));
   await page.setInputFiles("#trFile", asFile(trPath, "text/plain"));
   await page.waitForSelector("#trInfo:has-text('7개 발언')");
@@ -115,12 +119,16 @@ try {
   page.on("dialog", (d) => d.accept());
   await page.click(".tabs button[data-tab='jobs']");
   await page.click("#btnNew");
-  await page.check("input[name='mode'][value='sony']");
+  await page.check("input[name='source'][value='sony']");
+  assert.ok(await page.locator("input[name='mode'][value='diar']").isChecked());
+  assert.ok(await page.locator("#fsTranscript").isHidden());
+  assert.ok(await page.locator("#callWrap").isHidden());
   await page.setInputFiles("#audioFiles", [asFile(sony2, "audio/wav"), asFile(sony1, "audio/wav")]); // 거꾸로 골라도
   await page.waitForSelector("#audioList li:first-child:has-text('251009_1430.wav')"); // 녹음 시각 순
   await page.waitForSelector("#audioList li:nth-child(2):has-text('앞 파일과')");
   await page.fill("#attendees", "2");
   await page.fill("#jobTitle", "소니 시험");
+  await page.check("#notice");
   await page.click("#btnSubmit");
   await page.waitForSelector(".job:has-text('소니 시험') .badge:has-text('이름 대기')", { timeout: 60000 });
   await page.click(".job:has-text('소니 시험') button[data-a='review']");
@@ -170,6 +178,8 @@ try {
   await page.click("#exTxt");
   const t4 = fs.readFileSync(await (await d4).path(), "utf8");
   assert.match(t4, /■ 251009_1430\.wav \(2025-10-09 14:30 녹음\)/);
+  assert.match(t4, /녹음 출처: 소니 녹음기 · 할 일: 화자 나누기·전사/);
+  assert.match(t4, /녹음 고지: 참석자에게 녹음 사실을 알림/);
   assert.match(t4, /\] 정: /);
   await page.click("#spkPanel button[data-a='vp']");
   await page.click(".tabs button[data-tab='voices']");
@@ -180,13 +190,20 @@ try {
   if (mp3Path) {
     await page.click(".tabs button[data-tab='jobs']");
     await page.click("#btnNew");
+    await page.check("input[name='source'][value='phone']");
+    await page.check("input[name='mode'][value='diar']");
+    assert.ok(await page.locator("#callWrap").isVisible()); // 휴대폰 + 화자 나누기면 「통화 녹음」 선택
+    await page.check("#isCall");
+    assert.equal(await page.inputValue("#attendees"), "2");
     await page.check("input[name='mode'][value='fragment']");
+    assert.ok(await page.locator("#callWrap").isHidden());
     await page.setInputFiles("#audioFiles", [asFile(mp3Path, "audio/mpeg"), asFile(audioPath, "audio/wav")]);
     await page.fill("#jobTitle", "조각 시험");
     await page.click("#btnSubmit");
     await page.waitForSelector(".job:has-text('조각 시험') .badge.st-완료", { timeout: 90000 });
     const meta = await page.locator(".job:has-text('조각 시험') .meta").first().textContent();
     assert.match(meta, /조각\.mp3 \(2:30\)/, meta);
+    assert.match(meta, /휴대폰·기타 기기 · 저장된 목소리로 바로 맞히기/, meta);
     const d2 = page.waitForEvent("download");
     await page.click(".job:has-text('조각 시험') button[data-a='review']");
     await page.click("#exTxt");

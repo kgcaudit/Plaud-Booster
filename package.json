@@ -2,7 +2,7 @@
   "name": "plaud-booster",
   "private": true,
   "type": "module",
-  "description": "Plaud 보강 작업대 — 브라우저 안에서만 도는 Plaud 녹음 보충·화자 매칭 도구 (GitHub Pages)",
+  "description": "감사 녹취 작업대 — Plaud·소니 녹음기·휴대폰 녹음을 브라우저 안에서만 화자별 녹취록으로 (GitHub Pages)",
   "scripts": {
     "vendor": "node tools/vendor.mjs",
     "serve": "node tools/serve.mjs web 8080",

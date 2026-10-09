@@ -62,6 +62,160 @@ export function mp3Frames(b) {
   return frames;
 }
 
+/* ---------------- AAC(m4a·mp4·aac) — 휴대폰 녹음 앱 대부분이 쓰는 형식
+ * m4a(MP4 상자)에서 AAC 프레임 위치를 읽고, 프레임마다 ADTS 머리(7바이트)를 붙여 60초씩 풀 수 있게 한다.
+ * 그래야 2시간짜리 휴대폰 녹음도 통째로 풀지 않아 메모리가 안전하다. */
+function u32(b, i) { return ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0; }
+function boxes(b, s, e) {
+  const out = [];
+  while (s + 8 <= e) {
+    let size = u32(b, s), hdr = 8;
+    const type = String.fromCharCode(b[s + 4], b[s + 5], b[s + 6], b[s + 7]);
+    if (size === 1) { size = u32(b, s + 8) * 4294967296 + u32(b, s + 12); hdr = 16; }
+    else if (size === 0) size = e - s;
+    if (size < hdr || s + size > e) break;
+    out.push({ type, s, d: s + hdr, e: s + size });
+    s += size;
+  }
+  return out;
+}
+const child = (b, box, type) => boxes(b, box.d, box.e).find((x) => x.type === type);
+const SFREQ = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+
+/** AudioSpecificConfig → { aot(ADTS용 기본 형식), sfi, sr, ch } */
+export function parseAsc(a) {
+  let bit = 0;
+  const rd = (n) => { let v = 0; for (let i = 0; i < n; i++, bit++) v = (v << 1) | ((a[bit >> 3] >> (7 - (bit & 7))) & 1); return v; };
+  let aot = rd(5); if (aot === 31) aot = 32 + rd(6);
+  let sfi = rd(4), sr = sfi === 15 ? rd(24) : SFREQ[sfi];
+  const ch = rd(4);
+  if (aot === 5 || aot === 29) { // HE-AAC: 바탕 형식(LC)과 바탕 표본율로 ADTS를 만든다(디코더가 SBR을 스스로 찾음)
+    rd(4); aot = rd(5); if (aot === 31) aot = 32 + rd(6);
+  }
+  return { aot, sfi, sr, ch };
+}
+
+/** m4a·mp4 안의 첫 AAC 소리 트랙: { asc, off(Float64Array), size(Uint32Array), createdAt } 또는 null */
+export function mp4Audio(b) {
+  const top = boxes(b, 0, b.length);
+  if (!top.length || top[0].type !== "ftyp") return null;
+  const moov = top.find((x) => x.type === "moov");
+  if (!moov) return null;
+  let createdAt = null;
+  const mvhd = child(b, moov, "mvhd");
+  if (mvhd) {
+    const v = b[mvhd.d], t = v === 1 ? u32(b, mvhd.d + 4) * 4294967296 + u32(b, mvhd.d + 8) : u32(b, mvhd.d + 4);
+    const ms = (t - 2082844800) * 1000; // 1904년 기준 → 1970년 기준
+    if (ms > Date.UTC(2005, 0, 1) && ms < Date.UTC(2100, 0, 1)) createdAt = new Date(ms);
+  }
+  for (const trak of boxes(b, moov.d, moov.e).filter((x) => x.type === "trak")) {
+    const mdia = child(b, trak, "mdia"); if (!mdia) continue;
+    const hdlr = child(b, mdia, "hdlr");
+    if (!hdlr || String.fromCharCode(...b.subarray(hdlr.d + 8, hdlr.d + 12)) !== "soun") continue;
+    const stbl = (() => { const minf = child(b, mdia, "minf"); return minf && child(b, minf, "stbl"); })();
+    if (!stbl) continue;
+    const stsd = child(b, stbl, "stsd");
+    if (!stsd) continue;
+    const ent = boxes(b, stsd.d + 8, stsd.e)[0];
+    if (!ent || ent.type !== "mp4a") return null; // ALAC(무손실) 등은 통째로 푼다
+    const ver = (b[ent.d + 8] << 8) | b[ent.d + 9];
+    const sub = ent.d + 28 + (ver === 1 ? 16 : ver === 2 ? 36 : 0);
+    let esds = boxes(b, sub, ent.e).find((x) => x.type === "esds");
+    if (!esds) { const wave = boxes(b, sub, ent.e).find((x) => x.type === "wave"); esds = wave && child(b, wave, "esds"); }
+    if (!esds) return null;
+    // 기술자(descriptor) 따라가기: 03 ES → 04 DecoderConfig(0x40=AAC) → 05 DecoderSpecificInfo(=ASC)
+    let p = esds.d + 4, asc = null, oti = 0;
+    const len = () => { let n = 0, c; do { c = b[p++]; n = (n << 7) | (c & 0x7f); } while (c & 0x80); return n; };
+    while (p < esds.e) {
+      const tag = b[p++], n = len();
+      if (tag === 0x03) { const fl = b[p + 2]; p += 3 + (fl & 0x80 ? 2 : 0) + (fl & 0x40 ? 1 + b[p + 3] : 0) + (fl & 0x20 ? 2 : 0); }
+      else if (tag === 0x04) { oti = b[p]; p += 13; }
+      else if (tag === 0x05) { asc = parseAsc(b.subarray(p, p + n)); break; }
+      else p += n;
+    }
+    if (!asc || (oti !== 0x40 && oti !== 0x66 && oti !== 0x67) || asc.aot < 1 || asc.aot > 4 || !(asc.sfi < 13) || asc.ch < 1 || asc.ch > 7) return null;
+    const stsz = child(b, stbl, "stsz"), stsc = child(b, stbl, "stsc"), stco = child(b, stbl, "stco") || child(b, stbl, "co64");
+    if (!stsz || !stsc || !stco) return null;
+    const fixed = u32(b, stsz.d + 4), n = u32(b, stsz.d + 8);
+    const size = new Uint32Array(n);
+    for (let i = 0; i < n; i++) size[i] = fixed || u32(b, stsz.d + 12 + i * 4);
+    const big = stco.type === "co64", nc = u32(b, stco.d + 4);
+    const chunkOff = (k) => (big ? u32(b, stco.d + 8 + k * 8) * 4294967296 + u32(b, stco.d + 12 + k * 8) : u32(b, stco.d + 8 + k * 4));
+    const ns = u32(b, stsc.d + 4), runs = [];
+    for (let i = 0; i < ns; i++) runs.push([u32(b, stsc.d + 8 + i * 12) - 1, u32(b, stsc.d + 12 + i * 12)]);
+    const off = new Float64Array(n);
+    let si = 0;
+    for (let r = 0; r < runs.length && si < n; r++) {
+      const [first, per] = runs[r], last = r + 1 < runs.length ? runs[r + 1][0] : nc;
+      for (let c = first; c < last && si < n; c++) { let o = chunkOff(c); for (let k = 0; k < per && si < n; k++) { off[si] = o; o += size[si]; si++; } }
+    }
+    if (si !== n) return null;
+    return { asc, off, size, createdAt };
+  }
+  return null;
+}
+
+/** 날 AAC(ADTS, .aac) 프레임 목록 */
+export function adtsFrames(b) {
+  const off = [], size = [];
+  let i = 0, asc = null;
+  if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) i = 10 + (((b[6] & 0x7f) << 21) | ((b[7] & 0x7f) << 14) | ((b[8] & 0x7f) << 7) | (b[9] & 0x7f));
+  while (i + 7 <= b.length) {
+    if (b[i] !== 0xff || (b[i + 1] & 0xf6) !== 0xf0) { i++; continue; }
+    const len = ((b[i + 3] & 3) << 11) | (b[i + 4] << 3) | (b[i + 5] >> 5);
+    if (len < 7 || i + len > b.length) break;
+    if (!asc) { const sfi = (b[i + 2] >> 2) & 15; asc = { aot: ((b[i + 2] >> 6) & 3) + 1, sfi, sr: SFREQ[sfi], ch: ((b[i + 2] & 1) << 2) | (b[i + 3] >> 6) }; }
+    off.push(i); size.push(len); i += len;
+  }
+  return asc && off.length ? { asc, off: Float64Array.from(off), size: Uint32Array.from(size), adts: true } : null;
+}
+
+/** 프레임 [from, to)를 ADTS 바이트로(이미 ADTS면 그대로 이어 붙임) */
+export function adtsChunk(b, t, from, to) {
+  let n = 0;
+  for (let i = from; i < to; i++) n += t.size[i] + (t.adts ? 0 : 7);
+  const out = new Uint8Array(n);
+  let o = 0;
+  const { aot, sfi, ch } = t.asc;
+  for (let i = from; i < to; i++) {
+    const s = t.off[i], z = t.size[i];
+    if (!t.adts) {
+      const L = z + 7;
+      out[o] = 0xff; out[o + 1] = 0xf1;
+      out[o + 2] = (((aot - 1) & 3) << 6) | ((sfi & 15) << 2) | ((ch >> 2) & 1);
+      out[o + 3] = ((ch & 3) << 6) | ((L >> 11) & 3);
+      out[o + 4] = (L >> 3) & 0xff; out[o + 5] = ((L & 7) << 5) | 0x1f; out[o + 6] = 0xfc;
+      o += 7;
+    }
+    out.set(b.subarray(s, s + z), o); o += z;
+  }
+  return out;
+}
+
+/** 프레임 단위로 잘라 푸는 공통 부분: frames 개수, 프레임당 표본 수 spf·표본율 sr, chunkOf(from,to)→바이트 */
+async function decodeFramed(nFrames, spf, sr, chunkOf, onChunk, onProgress) {
+  const per = Math.max(1, Math.round((60 * sr) / spf)); // 약 60초
+  const WARM = 4;
+  let total = 0;
+  for (let k = 0; k < nFrames; k += per) {
+    const from = Math.max(0, k - WARM), to = Math.min(nFrames, k + per);
+    const pcm = await decodeTo16k(chunkOf(from, to).buffer);
+    const keep = Math.min(pcm.length, Math.round(((to - k) * spf * SR) / sr)); // 이 조각이 맡은 프레임 길이만큼 뒤쪽 기준으로
+    const part = k === 0 ? pcm.subarray(0, keep) : pcm.subarray(pcm.length - keep);
+    await onChunk(part);
+    total += part.length;
+    onProgress(to / nFrames);
+  }
+  return total / SR;
+}
+
+/** 녹음 시각 단서(파일 안 정보): m4a의 생성 시각. 없으면 null */
+export async function embeddedTime(file) {
+  const name = file.name.toLowerCase();
+  if (!/\.(m4a|mp4|3gp|aac)$/.test(name) || file.size > 400 * 1048576) return null;
+  try { const t = mp4Audio(new Uint8Array(await file.arrayBuffer())); return t && t.createdAt ? t.createdAt : null; } catch { return null; }
+}
+
 /**
  * 파일을 풀어 onChunk(Float32Array 16kHz)로 차례로 넘긴다. 반환: 길이(초)
  * @param {File} file
@@ -74,31 +228,20 @@ export async function decodeFile(file, onChunk, onProgress = () => {}) {
   if (isMp3) {
     const b = new Uint8Array(await file.arrayBuffer());
     const fr = mp3Frames(b);
-    if (fr.length > 100) {
-      const per = Math.max(1, Math.round((60 * fr[0][2]) / fr[0][3])); // 약 60초
-      const WARM = 4;
-      for (let k = 0; k < fr.length; k += per) {
-        const from = Math.max(0, k - WARM), to = Math.min(fr.length, k + per);
-        const s = fr[from][0], e = fr[to - 1][0] + fr[to - 1][1];
-        const pcm = await decodeTo16k(b.slice(s, e).buffer);
-        // 이 조각이 맡은 프레임만큼의 길이를 뒤쪽 기준으로 남긴다
-        let own = 0;
-        for (let q = k; q < to; q++) own += (fr[q][3] * SR) / fr[q][2];
-        const keep = Math.min(pcm.length, Math.round(own));
-        const part = k === 0 ? pcm.subarray(0, keep) : pcm.subarray(pcm.length - keep);
-        await onChunk(part);
-        total += part.length;
-        onProgress(to / fr.length);
-      }
-      return total / SR;
-    }
+    if (fr.length > 100) return decodeFramed(fr.length, fr[0][3], fr[0][2], (f, e) => b.slice(fr[f][0], fr[e - 1][0] + fr[e - 1][1]), onChunk, onProgress);
+  }
+  const isMp4 = head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70; // "ftyp"
+  if (isMp4 || name.endsWith(".aac")) {
+    const b = new Uint8Array(await file.arrayBuffer());
+    const t = isMp4 ? mp4Audio(b) : adtsFrames(b);
+    if (t && t.off.length > 50) return decodeFramed(t.off.length, 1024, t.asc.sr, (f, e) => adtsChunk(b, t, f, e), onChunk, onProgress);
   }
   if (name.endsWith(".wav")) {
     const r = await decodeWavStreaming(file, onChunk, onProgress);
     if (r != null) return r;
   }
   // 그 밖의 형식(m4a 등)은 통째로 푼다
-  if (file.size > 300 * 1024 * 1024) throw new Error("이 형식은 300MB 넘는 파일을 열 수 없습니다. MP3나 WAV로 바꿔 올려 주세요.");
+  if (file.size > 300 * 1024 * 1024) throw new Error("이 형식은 300MB 넘는 파일을 열 수 없습니다. MP3·M4A(AAC)·WAV로 바꿔 올려 주세요.");
   const pcm = await decodeTo16k(await file.arrayBuffer());
   for (let i = 0; i < pcm.length; i += SR * 60) await onChunk(pcm.subarray(i, Math.min(pcm.length, i + SR * 60)));
   onProgress(1);

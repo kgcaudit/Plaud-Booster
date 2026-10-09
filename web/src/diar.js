@@ -364,7 +364,7 @@ export function recordedAt(name) {
 
 /** 소니 파일 여러 개를 녹음 시각 순으로(시각을 못 읽으면 이름 순) */
 export function orderFiles(list) {
-  return [...list].map((x, i) => ({ x, i, r: recordedAt(x.name) })).sort((a, b) => {
+  return [...list].map((x, i) => ({ x, i, r: recordedAt(x.name) || (x.recordedAt ? { at: x.recordedAt, seq: 0 } : null) })).sort((a, b) => {
     if (a.r && b.r) return a.r.at < b.r.at ? -1 : a.r.at > b.r.at ? 1 : a.r.seq - b.r.seq;
     if (a.r || b.r) return a.r ? -1 : 1;
     return a.x.name.localeCompare(b.x.name, "ko", { numeric: true });

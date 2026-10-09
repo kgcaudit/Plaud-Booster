@@ -1,6 +1,6 @@
 # 이 저장소에서 일하는 방식
 
-Plaud 녹음 보강용 개인 웹앱입니다. **GitHub Pages 정적 사이트**이고, 전사·화자 맞히기는 브라우저 안
+「감사 녹취 작업대」 — 감사 면담·회의 녹음(출처: Plaud · 소니 녹음기 · 휴대폰·기타)을 화자별 녹취록으로 만드는 개인 웹앱입니다(저장소 이름은 예전 Plaud-Booster). **GitHub Pages 정적 사이트**이고, 전사·화자 맞히기는 브라우저 안
 (onnxruntime-web, WebAssembly)에서 돕니다. 서버는 없습니다. 빌드 과정도 없습니다(모듈 그대로 배포).
 
 ```
@@ -12,7 +12,7 @@ web/src/engine.js             작업 실행 논리(대상 구간·기준 만들�
 web/src/diar.js               화자 먼저 나누기(Silero 구간·음량 맞춤·창 묶기·발언 단위·이름 추천·목소리 기준 계산) — 순수 함수
 web/src/models.js             Whisper(인코더·디코더 탐욕 디코딩)·CAM++·Silero VAD 실행
 web/src/dsp.js                Whisper log-mel·kaldi fbank·말소리 구간 나누기
-web/src/audio.js              음원 풀기(MP3 프레임 단위 60초 조각) → 16kHz Int16 OPFS
+web/src/audio.js              음원 풀기(MP3·m4a/AAC 프레임 단위 60초 조각, m4a는 ADTS로) → 16kHz Int16 OPFS
 web/src/store.js              IndexedDB·OPFS
 web/src/plaud.js, zip.js      Plaud 내보내기 전사(TXT·SRT·DOCX·JSON) 읽기
 web/src/export.js             통합본(TXT·CSV)·백업 합치기 — 순수 함수
@@ -49,6 +49,9 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
 - Plaud 이름이 없는 소니 녹음은 **인원 수를 정하지 않는 임계값 묶기**(창마다 평균 연결, cut 0.35)를 씁니다. 인원 수는 「인원 + 2」
   상한으로만(그대로 걸면 닮은 두 사람이 합쳐짐 93.7%). 저장된 기준은 묶은 뒤 **추천만**(먼저 떼어 두면 97.8%→96.6%로 낮아짐).
   기준값을 바꾸면 10-08 회의(Plaud 이름 숨김)로 다시 재서 98% 안팎·5명 모두 따로인지 확인합니다(실제 음원은 저장소 밖).
+- 새 작업은 **출처(job.source: plaud·sony·phone) → 할 일(job.mode)**. 소니·휴대폰의 화자 나누기는 mode `diar`(예전 작업의 `sony`도 같은 것으로 읽음, isDiar).
+  Plaud 출처만 gap·range·enroll, 다른 출처는 diar·fragment. 출처가 없는 예전 작업은 sourceOf()로 짐작합니다.
+- 테스트용 Chromium은 AAC를 못 풀어 m4a는 e2e로 못 돌립니다. m4a→ADTS 변환은 tests/unit/audio.test.mjs에서 ffmpeg로 확인하고, 실제 풀이는 Chrome에서 확인합니다.
 - 소니 발언 번호 `i`는 단위 번호 + 1로 고정입니다(묶음을 빼고 넣어도 검수 수정이 그대로 붙게). 이름은 edits.names(묶음 → 이름),
   발언별 수정은 edits.e[i].speaker — 우선순위는 발언별 > 묶음 이름 > Speaker N. 소니 목소리 기준은 사람이 「목소리 기준 저장」을 눌렀을 때만 저장합니다.
 - 말소리 구간은 Silero에 **음량을 맞춰** 넣습니다(그냥 넣으면 멀리 앉은 사람 말을 놓침). 모델 캐시는 파일별(pb-m-<sha>)이라 모델을 더해도 나머지는 다시 받지 않습니다.

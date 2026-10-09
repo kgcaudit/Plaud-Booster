@@ -1,5 +1,16 @@
 // 통합본 만들기(Plaud 전사 + 보충 결과 + 검수 수정 + 사전)와 백업 합치기 — 순수 함수(시험 가능)
 
+/** 할 일 이름 — 「sony」는 예전 작업(지금은 「diar」)과 같은 화자 나누기 */
+export const MODE_LABEL = { diar: "화자 나누기·전사", sony: "화자 나누기·전사", gap: "빠진 구간 채우기", range: "잘못된 구간 다시 전사", fragment: "저장된 목소리로 바로 맞히기", enroll: "목소리 기준만 등록" };
+export const SOURCE_LABEL = { plaud: "Plaud 녹음", sony: "소니 녹음기", phone: "휴대폰·기타 기기", etc: "기타 녹음" };
+export const isDiar = (m) => m === "diar" || m === "sony";
+/** 녹음 출처(예전 작업은 할 일로 짐작) */
+export function sourceOf(job) {
+  if (job.source) return job.source;
+  if (job.mode === "sony") return "sony";
+  return job.mode === "fragment" ? "etc" : "plaud";
+}
+
 export function hms(t, long = true) {
   t = Math.max(0, Math.round(t || 0));
   const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
@@ -42,10 +53,12 @@ export function mergedLines({ job, result, edits, plaud, glossary }, { usePlaud 
 
 export function exportTxt(data, opts) {
   const { job } = data;
-  const files = (job.audioFiles || []).map((f) => f.name + (f.recordedAt ? ` (${f.recordedAt.replace("T", " ").slice(0, 16)} 녹음)` : ""));
+  const files = (job.audioFiles || []).map((f) => f.name + (f.recordedAt ? ` (${f.recordedAt.replace("T", " ").slice(0, 16)} 녹음${f.timeSrc === "saved" ? ", 저장 시각으로 추정" : ""})` : ""));
   const multi = files.length > 1;
   const d = new Date();
-  const out = [job.title, `내보낸 시각: ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`, ""];
+  const out = [job.title, `녹음 출처: ${SOURCE_LABEL[sourceOf(job)]} · 할 일: ${MODE_LABEL[job.mode] || job.mode}${job.call ? " · 통화 녹음" : ""}`];
+  if (job.notice) out.push("녹음 고지: 참석자에게 녹음 사실을 알림");
+  out.push(`내보낸 시각: ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`, "");
   let cur = null;
   for (const x of mergedLines(data, opts)) {
     if (multi && x.file !== cur) { cur = x.file; out.push("", `■ ${files[cur] ?? cur}`, ""); }

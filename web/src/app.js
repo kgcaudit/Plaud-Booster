@@ -1,16 +1,16 @@
-// Plaud 보강 작업대 — 화면 (빌드 없음). 처리는 worker.js, 저장은 store.js.
+// 감사 녹취 작업대 — 화면 (빌드 없음). 처리는 worker.js, 저장은 store.js.
 import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
-import { decodeFile, wavBlob } from "./audio.js";
-import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong } from "./export.js";
-import { orderFiles, printsFromReview } from "./diar.js";
+import { decodeFile, wavBlob, embeddedTime } from "./audio.js";
+import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, sourceOf, isDiar } from "./export.js";
+import { orderFiles, printsFromReview, recordedAt } from "./diar.js";
 import { isGeneric } from "./engine.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const MODE_LABEL = { sony: "소니 녹음(화자 먼저)", gap: "누락 구간 보충", range: "지정 구간 재전사", fragment: "조각 음원 화자 매칭", enroll: "목소리 기준 등록" };
-const MULTI = (m) => m === "fragment" || m === "sony";
+const MULTI = (m) => m === "fragment" || isDiar(m);
+const jobKind = (j) => `${SOURCE_LABEL[sourceOf(j)]} · ${MODE_LABEL[j.mode] || j.mode}`;
 const FAKE = new URLSearchParams(location.search).get("fake") === "1";
 const hms = (t) => hmsLong(t, false);
 const parseHms = (s) => { s = String(s || "").trim(); return s ? s.split(":").reduce((a, p) => a * 60 + Number(p), 0) : NaN; };
@@ -96,8 +96,11 @@ function showTab(name) {
 }
 
 /* ================================================================== 새 작업 */
+// 1. 녹음 출처(Plaud · 소니 녹음기 · 휴대폰·기타) → 2. 출처에 맞는 할 일 → 3. 파일 → 4. Plaud 전사(Plaud만) → 5. 참석자 → 6. 이름·고지
 const F = { audio: [], tr: null, voices: [], picked: new Set() };
-const mode = () => $('input[name="mode"]:checked').value;
+const source = () => ($('input[name="source"]:checked') || {}).value || "";
+const mode = () => ($('input[name="mode"]:checked') || {}).value || "";
+const DEFAULT_TASK = { plaud: "gap", sony: "diar", phone: "diar" };
 
 $("#btnNew").addEventListener("click", async () => {
   resetForm();
@@ -115,24 +118,54 @@ function resetForm() {
   applyMode();
 }
 function setMsg(t, err = false) { $("#formMsg").textContent = t; $("#formMsg").classList.toggle("err", err); }
+$$('input[name="source"]').forEach((r) => r.addEventListener("change", () => {
+  const src = source(), cur = $('input[name="mode"]:checked');
+  const ok = cur && cur.closest(".mode").dataset.src === (src === "plaud" ? "plaud" : "dev");
+  if (!ok) $(`input[name="mode"][value="${DEFAULT_TASK[src]}"]`).checked = true;
+  applyMode();
+}));
 $$('input[name="mode"]').forEach((r) => r.addEventListener("change", applyMode));
+$("#isCall").addEventListener("change", () => { if ($("#isCall").checked) $("#attendees").value = 2; });
 function applyMode() {
-  const m = mode();
+  const src = source(), m = mode(), dev = src && src !== "plaud";
+  $("#fsTask").classList.toggle("hidden", !src);
+  $$("#fsTask .mode").forEach((l) => l.classList.toggle("hidden", !src || l.dataset.src !== (dev ? "dev" : "plaud")));
+  $$("#newJob .after-src").forEach((f) => f.classList.toggle("hidden", !src));
+  $("#callWrap").classList.toggle("hidden", !(src === "phone" && isDiar(m)));
+  if (!src) return;
   $("#audioFiles").multiple = MULTI(m);
-  $("#audioHint").textContent = m === "sony" ? "소니 녹음기 MP3·WAV 여러 개 가능 — 파일 이름의 녹음 시각 순으로 자동 정렬"
-    : m === "fragment" ? "MP3·WAV·M4A 여러 개 가능 — 녹음 순서대로 고르세요" : "MP3·WAV·M4A 1개";
+  $("#audioHint").textContent = src === "sony" ? "MP3·WAV 여러 개 가능 — 파일 이름의 녹음 시각 순으로 자동 정렬"
+    : src === "phone" ? "m4a·mp3·wav 등 여러 개 가능 — 녹음 시각(파일 이름 → 파일 정보 → 저장 시각) 순으로 자동 정렬"
+      : "Plaud에서 내려받은 음원(MP3) 1개";
   $("#fsRange").classList.toggle("hidden", m !== "range");
   $("#fsSpeakers").classList.toggle("hidden", m === "enroll");
-  $("#fsTranscript").classList.toggle("hidden", MULTI(m));
-  $("#spkLegend").textContent = m === "sony" ? "4. 참석자(선택)" : "4. 화자 후보";
-  $("#spkHint").textContent = m === "sony" ? "고르면 그 사람들의 목소리 기준으로만 이름을 추천합니다. 인원 수는 묶음이 지나치게 많아지지 않게 하는 데만 씁니다."
-    : "고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다";
-  $("#attWrap").classList.toggle("hidden", m !== "sony");
-  $("#useVpWrap").classList.toggle("hidden", m === "sony");
-  if (m === "sony" && F.audio.length > 1) { F.audio = orderFiles(F.audio.map((a) => ({ ...a, name: a.file.name }))); renderAudioList(); }
+  $("#fsTranscript").classList.toggle("hidden", dev);
+  $("#spkLegend").textContent = isDiar(m) ? "참석자(선택)" : "화자 후보";
+  $("#spkHint").textContent = isDiar(m) ? "고르면 그 사람들의 목소리 기준으로만 이름을 추천합니다. 인원 수는 묶음이 지나치게 많아지지 않게 하는 데만 씁니다."
+    : m === "fragment" ? "고르지 않으면 저장된 사람 전원 중에서 맞힙니다" : "고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다";
+  $("#attWrap").classList.toggle("hidden", !isDiar(m));
+  $("#useVpWrap").classList.toggle("hidden", isDiar(m));
+  // 단계 번호: Plaud는 4번이 전사 파일, 다른 출처는 전사 파일 단계가 없다
+  const nums = $$("#newJob legend .num");
+  nums.forEach((n, i) => { n.textContent = (i < 3 ? i + 1 : dev && i >= 4 ? i : i + 1) + "."; });
+  if (MULTI(m) && F.audio.length > 1) { F.audio = orderFiles(F.audio); renderAudioList(); }
   $("#trHint").textContent = m === "gap" || m === "enroll" ? "필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(타임스탬프·화자 켜기)"
     : "권장 — 같은 녹음의 전사가 있으면 그 사람들 목소리로 화자를 맞힙니다";
   drawTape();
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const localIso = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+/** 녹음 시각: 파일 이름 → 파일 안 정보(m4a 생성 시각) → 저장 시각 − 길이(추정) */
+async function stampTimes() {
+  for (const a of F.audio) {
+    if (a.timeSrc) continue;
+    const r = recordedAt(a.file.name);
+    if (r) { a.recordedAt = r.at; a.timeSrc = "name"; continue; }
+    const t = await embeddedTime(a.file);
+    if (t) { a.recordedAt = localIso(t); a.timeSrc = "file"; continue; }
+    if (a.dur && a.file.lastModified) { a.recordedAt = localIso(new Date(a.file.lastModified - a.dur * 1000)); a.timeSrc = "saved"; }
+  }
 }
 
 function mediaDuration(file) {
@@ -146,9 +179,9 @@ function mediaDuration(file) {
 }
 $("#audioFiles").addEventListener("change", async (ev) => {
   F.audio = [...ev.target.files].map((file) => ({ file, dur: null, name: file.name }));
-  if (mode() === "sony") F.audio = orderFiles(F.audio);
   renderAudioList();
   for (const a of F.audio) { a.dur = await mediaDuration(a.file); renderAudioList(); }
+  if (source() !== "plaud") { await stampTimes(); if (MULTI(mode())) F.audio = orderFiles(F.audio); renderAudioList(); }
   drawTape();
 });
 /** 앞 파일 녹음 끝과 이 파일 녹음 시작 사이(초). 시각을 모르면 null */
@@ -162,7 +195,7 @@ function renderAudioList() {
     const g = gapBefore(i);
     const gap = g == null ? "" : g > 5 ? ` · 앞 파일과 ${hms(g)} 비어 있음` : g < -5 ? " · ⚠ 앞 파일과 시각이 겹칩니다" : " · 앞 파일에 이어짐";
     return `<li><span>${i + 1}. ${esc(a.file.name)}</span>
-    <span class="msg">${(a.file.size / 1048576).toFixed(1)}MB${a.dur ? " · 길이 " + hms(a.dur) : ""}${a.recordedAt ? " · " + a.recordedAt.replace("T", " ").slice(0, 16) + " 녹음" : ""}${gap}</span>
+    <span class="msg">${(a.file.size / 1048576).toFixed(1)}MB${a.dur ? " · 길이 " + hms(a.dur) : ""}${a.recordedAt ? " · " + a.recordedAt.replace("T", " ").slice(0, 16) + " 녹음" + ({ file: "(파일 정보)", saved: "(저장 시각으로 추정)" }[a.timeSrc] || "") : ""}${gap}</span>
     <span class="pbar"><i data-w="${Math.round((a.prog || 0) * 100)}"></i></span></li>`;
   }).join("");
   applyGeom($("#audioList"));
@@ -213,7 +246,9 @@ function drawTape() {
 
 $("#newJob").addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  const m = mode();
+  const m = mode(), src = source();
+  if (!src) return setMsg("녹음 출처를 골라 주세요.", true);
+  if (!m) return setMsg("할 일을 골라 주세요.", true);
   if (!F.audio.length) return setMsg("음원을 골라 주세요.", true);
   if (!MULTI(m) && F.audio.length !== 1) return setMsg("이 유형은 음원 1개만 받습니다.", true);
   if ((m === "gap" || m === "enroll") && !F.tr) return setMsg("Plaud 전사 파일이 필요합니다.", true);
@@ -228,11 +263,11 @@ $("#newJob").addEventListener("submit", async (ev) => {
   const att = Math.max(0, Math.min(30, Math.round(+$("#attendees").value || 0)));
   const job = {
     title: $("#jobTitle").value.trim() || F.audio[0].file.name.replace(/\.[^.]+$/, ""),
-    mode: m, status: "준비", createdAt: S.now(), audioFiles: [],
+    source: src, mode: m, status: "준비", notice: $("#notice").checked, createdAt: S.now(), audioFiles: [],
     transcript: tr ? { name: tr.name, count: tr.segs.length, endSec: tr.endSec } : null,
     transcriptEndSec: tr ? tr.endSec : 0, range, speakerMap: speakerMap(), speakers: [...F.picked],
     useVoiceprints: $("#useVp").checked, note: $("#jobNote").value.trim(), progress: { pct: 0, msg: "음원 준비 중" },
-    ...(m === "sony" ? { attendees: att || null, stage: "diar", skip: [] } : {}),
+    ...(isDiar(m) ? { attendees: ($("#isCall").checked && src === "phone" ? 2 : att) || null, call: $("#isCall").checked && src === "phone", stage: "diar", skip: [] } : {}),
   };
   $("#btnSubmit").disabled = true;
   try {
@@ -245,7 +280,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
       try {
         const dur = await decodeFile(a.file, (pcm) => w.write(pcm), (p) => { a.prog = p; renderAudioList(); });
         await w.close();
-        job.audioFiles.push({ name: a.file.name, dur, ...(a.recordedAt ? { recordedAt: a.recordedAt } : {}) });
+        job.audioFiles.push({ name: a.file.name, dur, ...(a.recordedAt ? { recordedAt: a.recordedAt, timeSrc: a.timeSrc } : {}) });
       } catch (e) { await w.abort(); throw new Error(`${a.file.name}: 음원을 열지 못했습니다 (${e.message})`); }
     }
     await S.saveJob(id, { audioFiles: job.audioFiles, status: "대기", progress: { pct: 0, msg: "대기" } });
@@ -273,13 +308,13 @@ async function loadJobs() {
     const p = j.progress || {}, s = j.stats || {};
     const busy = j.status === "처리중" || j.status === "대기" || j.status === "준비";
     const naming = j.status === "이름 대기";
-    const result = j.mode === "sony" ? (s.clusters ? `화자 묶음 ${s.clusters}개` + (s.segments != null ? ` · 발언 ${s.segments} · 확인 필요 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : ` · 전사할 발언 ${s.units ?? "-"}`) : "")
+    const result = isDiar(j.mode) ? (s.clusters ? `화자 묶음 ${s.clusters}개` + (s.segments != null ? ` · 발언 ${s.segments} · 확인 필요 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : ` · 전사할 발언 ${s.units ?? "-"}`) : "")
       : j.hasResult && j.mode !== "enroll" ? `발언 ${s.segments ?? "-"} · 혼재 ${s.mixed ?? 0} · 미상 ${s.unknown ?? 0} · 저신뢰 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : "";
     const enrolled = s.enrolled && Object.keys(s.enrolled).length ? (result ? " · " : "") + "기준 등록 " + Object.keys(s.enrolled).join(", ") : "";
     const files = (j.audioFiles || []).map((f) => f.name + (f.dur ? ` (${hms(f.dur)})` : "")).join(", ");
     return `<div class="job" data-id="${esc(j.id)}">
       <div><span class="t">${esc(j.title)}</span><span class="badge st-${esc(String(j.status).replace(/\s/g, ""))}">${esc(j.status)}</span>
-        <div class="meta">${MODE_LABEL[j.mode] || j.mode} · ${esc(files)}${j.range ? " · " + hms(j.range.from) + "~" + hms(j.range.to) : ""} · ${esc((j.createdAt || "").replace("T", " ").slice(0, 16))}${j.audioDeleted ? " · 음원 지움" : ""}</div>
+        <div class="meta">${esc(jobKind(j))} · ${esc(files)}${j.range ? " · " + hms(j.range.from) + "~" + hms(j.range.to) : ""} · ${esc((j.createdAt || "").replace("T", " ").slice(0, 16))}${j.audioDeleted ? " · 음원 지움" : ""}</div>
         ${result || enrolled ? `<div class="meta">${result}${enrolled}</div>` : ""}
         ${j.error ? `<div class="meta err">${esc(j.error)}</div>` : ""}
       </div>
@@ -311,12 +346,12 @@ $("#jobList").addEventListener("click", async (ev) => {
     if (a === "resume") { await S.saveJob(id, { status: "대기", error: null }); kick(); }
     if (a === "fresh") {
       const j = await S.get("jobs", id);
-      if (j.mode === "sony") {
+      if (isDiar(j.mode)) {
         if (!confirm("화자 묶기부터 다시 할까요? 붙여 둔 화자 이름과 검수 수정이 지워집니다.")) return;
         await S.del("edits", id);
       } else if (!confirm("결과를 지우고 처음부터 다시 처리할까요? 검수 수정 내용은 남지만 발언 번호가 바뀔 수 있습니다.")) return;
       await S.resetJob(id);
-      await S.saveJob(id, { status: "대기", error: null, stats: null, progress: { pct: 0, msg: "대기" }, ...(j.mode === "sony" ? { stage: "diar", skip: [] } : {}) }); kick();
+      await S.saveJob(id, { status: "대기", error: null, stats: null, progress: { pct: 0, msg: "대기" }, ...(isDiar(j.mode) ? { stage: "diar", skip: [] } : {}) }); kick();
     }
     if (a === "delaudio") { if (!confirm("이 작업의 음원을 지울까요? 결과는 남고, 검수 화면의 재생은 안 됩니다.")) return; await S.deleteAudio(id); await S.saveJob(id, { audioDeleted: true }); }
     if (a === "del") { if (!confirm("작업과 결과를 모두 지울까요? (목소리 기준은 남습니다)")) return; await S.deleteJob(id); }
@@ -330,7 +365,7 @@ async function loadReviewJobs() {
   JOBS = await jobsList();
   const done = JOBS.filter((j) => (j.hasResult && j.mode !== "enroll") || j.status === "이름 대기");
   const sel = $("#rvJob");
-  sel.innerHTML = done.length ? done.map((j) => `<option value="${esc(j.id)}">${esc(j.title)} (${MODE_LABEL[j.mode]}${j.status === "이름 대기" ? " · 이름 대기" : ""})</option>`).join("") : '<option value="">검수할 결과가 없습니다</option>';
+  sel.innerHTML = done.length ? done.map((j) => `<option value="${esc(j.id)}">${esc(j.title)} (${esc(jobKind(j))}${j.status === "이름 대기" ? " · 이름 대기" : ""})</option>`).join("") : '<option value="">검수할 결과가 없습니다</option>';
   const id = REVIEW.want && done.some((j) => j.id === REVIEW.want) ? REVIEW.want : REVIEW.id && done.some((j) => j.id === REVIEW.id) ? REVIEW.id : done[0]?.id;
   REVIEW.want = null;
   if (id) { sel.value = id; await openReview(id); } else { $("#rvBody").innerHTML = ""; $("#rvStats").innerHTML = ""; $("#spkPanel").classList.add("hidden"); }
@@ -349,7 +384,10 @@ async function openReview(id) {
   REVIEW.names = REVIEW.data.edits.names || {};
   REVIEW.gl = REVIEW.data.glossary;
   REVIEW.undo = [];
-  REVIEW.diar = REVIEW.data.job.mode === "sony" ? await S.get("chunks", id) : null;
+  REVIEW.diar = isDiar(REVIEW.data.job.mode) ? await S.get("chunks", id) : null;
+  const plaudish = REVIEW.data.job.mode === "gap" || REVIEW.data.job.mode === "range";
+  $("#rvPlaudWrap").classList.toggle("hidden", !plaudish);
+  $("#exPlaudWrap").classList.toggle("hidden", !plaudish);
   REVIEW.vpNames = (await S.all("voiceprints")).map(([n]) => n);
   REVIEW.page = {};
   $("#rvSave").textContent = "";
@@ -367,7 +405,7 @@ function renderReview() {
   const d = REVIEW.data;
   if (!d) return;
   renderPanel();
-  const sony = d.job.mode === "sony";
+  const sony = isDiar(d.job.mode);
   $("#rvMain").classList.toggle("hidden", !d.result);
   if (!d.result) { $("#rvStats").innerHTML = ""; $("#rvBody").innerHTML = ""; return; }
   const segs = d.result.segs, s = d.result.stats, job = d.job, smap = job.speakerMap || {};
@@ -524,7 +562,7 @@ function textNear(f, s) {
 
 function renderPanel() {
   const d = REVIEW.data, el = $("#spkPanel");
-  if (!d || d.job.mode !== "sony") { el.classList.add("hidden"); return; }
+  if (!d || !isDiar(d.job.mode)) { el.classList.add("hidden"); return; }
   el.classList.remove("hidden");
   const cl = clustersOf();
   const pending = !d.result;
@@ -692,7 +730,7 @@ async function loadVoices() {
     return `<tr data-n="${esc(name)}"><td><b>${esc(name)}</b></td><td>${n}</td>
       <td class="src">${items.map(([src, it]) => `<div>${esc(src)} (${it.n})<button type="button" data-src="${esc(src)}" title="이 출처만 빼기">빼기</button></div>`).join("")}</td>
       <td class="nowrap"><button type="button" data-a="ren">이름 바꾸기·합치기</button> <button type="button" data-a="del">지우기</button></td></tr>`;
-  }).join("") : '<tr><td colspan="4" class="empty">저장된 목소리 기준이 없습니다. Plaud 전사(화자 이름 포함)가 있는 작업을 처리하면 자동으로 쌓입니다.</td></tr>';
+  }).join("") : '<tr><td colspan="4" class="empty">저장된 목소리 기준이 없습니다. Plaud 녹음 작업을 처리하거나, 화자 나누기 검수에서 「목소리 기준 저장」을 누르면 쌓입니다.</td></tr>';
 }
 $("#vpBody").addEventListener("click", async (ev) => {
   const b = ev.target.closest("button");

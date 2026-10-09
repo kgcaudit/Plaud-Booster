@@ -5,15 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
-<title>Plaud 보강 작업대</title>
+<title>감사 녹취 작업대</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
   <div class="brand">
-    <strong>Plaud 보강 작업대</strong>
-    <span class="sub">소니 녹음 화자 나누기 · 누락 구간 보충 · 구간 재전사 · 조각 음원 화자 매칭 — 모든 처리는 이 기기 브라우저 안에서만</span>
+    <strong>감사 녹취 작업대</strong>
+    <span class="sub">Plaud · 소니 녹음기 · 휴대폰 녹음을 화자별 녹취록으로 — 음원과 전사는 이 기기 브라우저 밖으로 나가지 않습니다</span>
   </div>
   <div id="sysline" class="sysline">준비 중…</div>
 </header>
@@ -39,28 +39,40 @@
   <form id="newJob" class="card hidden" autocomplete="off">
     <h3>새 작업</h3>
 
-    <fieldset class="modes">
-      <legend>1. 무엇을 할까요</legend>
-      <label class="mode"><input type="radio" name="mode" value="sony">
-        <b>소니 녹음 화자 나누기</b><span>Plaud 없이 녹음기 파일만으로: 비슷한 목소리를 먼저 묶고(Speaker 1, 2…), 이름을 붙인 뒤 전사합니다.</span></label>
-      <label class="mode"><input type="radio" name="mode" value="gap" checked>
-        <b>누락 구간 보충</b><span>Plaud 전사가 중간에 끊겼을 때, 끊긴 뒤부터 녹음 끝까지 전사하고 화자를 붙입니다.</span></label>
-      <label class="mode"><input type="radio" name="mode" value="range">
-        <b>지정 구간 다시 전사</b><span>잘못 전사된 구간(시작~끝)만 다시 전사하고 화자를 붙입니다.</span></label>
-      <label class="mode"><input type="radio" name="mode" value="fragment">
-        <b>조각 음원 화자 매칭</b><span>Plaud에 없는 음성이나 여러 조각으로 나뉜 녹음을 전사하고, 저장된 목소리 기준으로 화자를 맞힙니다.</span></label>
-      <label class="mode"><input type="radio" name="mode" value="enroll">
-        <b>목소리 기준만 등록</b><span>Plaud 전사(화자 이름 포함)와 음원으로 사람별 목소리 기준만 만듭니다.</span></label>
+    <fieldset class="modes srcs">
+      <legend><span class="num">1.</span> 녹음 출처 <small>무엇으로 녹음했나요</small></legend>
+      <label class="mode"><input type="radio" name="source" value="plaud">
+        <b>Plaud 녹음</b><span>Plaud 앱·웹에서 내보낸 전사(TXT·SRT·DOCX, 시간·화자 포함)와 음원(MP3)</span></label>
+      <label class="mode"><input type="radio" name="source" value="sony">
+        <b>소니 녹음기</b><span>ICD-TX660 등 · MP3·WAV · 여러 파일은 파일 이름의 녹음 시각 순으로 자동 정렬</span></label>
+      <label class="mode"><input type="radio" name="source" value="phone">
+        <b>휴대폰 · 기타 기기</b><span>휴대폰 녹음 앱·통화 녹음(m4a·mp3·wav 등) · 녹음 시각은 파일 이름 → 파일 정보 → 저장 시각 순으로 찾음</span></label>
+      <p class="note span">같은 회의를 Plaud와 다른 기기로 함께 녹음했다면 — 두 녹음을 합치는 기능은 준비 중입니다. 지금은 출처별로 따로 작업하세요.</p>
     </fieldset>
 
-    <fieldset>
-      <legend>2. 음원 <small id="audioHint">MP3·WAV·M4A 1개</small></legend>
-      <input type="file" id="audioFiles" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm">
+    <fieldset id="fsTask" class="modes hidden">
+      <legend><span class="num">2.</span> 할 일</legend>
+      <label class="mode" data-src="plaud"><input type="radio" name="mode" value="gap">
+        <b>빠진 구간 채우기</b><span>Plaud 전사가 녹음 중간에 끊겼을 때, 끊긴 뒤부터 녹음 끝까지 전사하고 Plaud 이름으로 화자를 맞힙니다.</span></label>
+      <label class="mode" data-src="plaud"><input type="radio" name="mode" value="range">
+        <b>잘못된 구간 다시 전사</b><span>잘못 전사된 구간(시작~끝)만 다시 전사하고 화자를 맞힙니다.</span></label>
+      <label class="mode" data-src="plaud"><input type="radio" name="mode" value="enroll">
+        <b>목소리 기준만 등록</b><span>Plaud에 이름이 붙은 사람의 목소리를 저장해, 다른 녹음에서 이름을 추천·판정하는 데 씁니다.</span></label>
+      <label class="mode" data-src="dev"><input type="radio" name="mode" value="diar">
+        <b>화자 나누기 · 전사 <em>권장</em></b><span>비슷한 목소리를 먼저 묶고(Speaker 1, 2…), 대표 구간을 들어 이름을 붙인 뒤 전사합니다.</span></label>
+      <label class="mode" data-src="dev"><input type="radio" name="mode" value="fragment">
+        <b>저장된 목소리로 바로 맞히기</b><span>이름 붙이기 없이, 저장된 목소리 기준 중 가장 닮은 사람으로 바로 판정합니다(아는 사람만 있을 때).</span></label>
+      <label class="chk span hidden" id="callWrap"><input type="checkbox" id="isCall"> 통화 녹음(두 사람) — 인원을 2명으로 두고 묶습니다</label>
+    </fieldset>
+
+    <fieldset class="after-src hidden">
+      <legend><span class="num">3.</span> 음원 파일 <small id="audioHint">MP3·WAV·M4A 1개</small></legend>
+      <input type="file" id="audioFiles" accept="audio/*,.mp3,.wav,.m4a,.mp4,.aac,.3gp,.ogg,.opus,.flac,.webm">
       <ul id="audioList" class="uplist"></ul>
     </fieldset>
 
-    <fieldset id="fsTranscript">
-      <legend>3. Plaud 전사 파일 <small id="trHint">필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(타임스탬프·화자 켜기)</small></legend>
+    <fieldset id="fsTranscript" class="after-src hidden">
+      <legend><span class="num">4.</span> Plaud 전사 파일 <small id="trHint">필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(타임스탬프·화자 켜기)</small></legend>
       <input type="file" id="trFile" accept=".txt,.srt,.docx,.json">
       <div id="trInfo" class="trinfo"></div>
       <div id="gapTape" class="tape hidden"></div>
@@ -68,22 +80,23 @@
     </fieldset>
 
     <fieldset id="fsRange" class="hidden">
-      <legend>구간</legend>
+      <legend>다시 전사할 구간</legend>
       <label>시작 <input id="rFrom" placeholder="1:04:00" size="9"></label>
       <label>끝 <input id="rTo" placeholder="1:36:00" size="9"></label>
     </fieldset>
 
-    <fieldset id="fsSpeakers">
-      <legend><span id="spkLegend">4. 화자 후보</span> <small id="spkHint">고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다</small></legend>
+    <fieldset id="fsSpeakers" class="after-src hidden">
+      <legend><span class="num">5.</span> <span id="spkLegend">화자 후보</span> <small id="spkHint">고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다</small></legend>
       <div id="spkChips" class="chips"></div>
       <label class="chk" id="attWrap">참석 인원(선택) <input type="number" id="attendees" min="0" max="30" class="num" placeholder="모름"></label>
       <label class="chk" id="useVpWrap"><input type="checkbox" id="useVp" checked> 저장된 목소리 기준 함께 쓰기</label>
     </fieldset>
 
-    <fieldset>
-      <legend>5. 이름·메모</legend>
-      <input id="jobTitle" placeholder="예: 10-08 삼진 소송 전략회의 보충" class="wide">
+    <fieldset class="after-src hidden">
+      <legend><span class="num">6.</span> 작업 이름 · 녹음 고지</legend>
+      <input id="jobTitle" placeholder="예: 10-09 ○○현장 면담" class="wide">
       <input id="jobNote" placeholder="메모(선택)" class="wide">
+      <label class="chk"><input type="checkbox" id="notice"> 참석자에게 녹음 사실을 알렸음 <small class="msg">(통합본 머리에 적힘 · 동의 없는 녹음·배포는 음성권 침해가 될 수 있어 감사 면담은 고지를 권장)</small></label>
     </fieldset>
 
     <div class="row end">
@@ -106,7 +119,7 @@
       <button type="button" data-f="edited">수정함</button>
       <button type="button" data-f="todo">미검수</button>
     </div>
-    <label class="chk"><input type="checkbox" id="rvPlaud"> Plaud 전사 함께 보기</label>
+    <label class="chk" id="rvPlaudWrap"><input type="checkbox" id="rvPlaud"> Plaud 전사 함께 보기</label>
   </div>
   <div id="spkPanel" class="spkpanel card hidden"></div>
   <div id="rvMain">
@@ -114,7 +127,7 @@
   <div class="bar small">
     <span class="msg" id="rvSave"></span>
     <span class="spacer"></span>
-    <label class="chk"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
+    <label class="chk" id="exPlaudWrap"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
     <label class="chk"><input type="checkbox" id="exGl" checked> 사전 적용</label>
     <button type="button" id="exTxt">통합본 TXT</button>
     <button type="button" id="exCsv">CSV</button>
@@ -151,7 +164,7 @@
       <p id="engState">-</p>
       <div class="pbar big"><i id="dlBar"></i></div>
       <p class="row"><button type="button" id="btnModels" class="primary">모델 받기</button> <button type="button" id="btnClearModels">받은 모델 지우기</button></p>
-      <p class="note">처음 한 번 Whisper turbo·CAM++ 모델(약 0.9GB)을 이 사이트에서 받아 브라우저에 보관합니다. 회사망에서 받는 데 몇 분 걸릴 수 있습니다.</p>
+      <p class="note">처음 한 번 Whisper turbo·CAM++·Silero 모델(약 0.9GB)을 이 사이트에서 받아 브라우저에 보관합니다. 회사망에서 받는 데 몇 분 걸릴 수 있습니다.</p>
       <label>처리 스레드 <input type="number" id="threads" min="0" max="32" class="num"> <small>0 = 자동(CPU 수 − 1)</small></label>
       <button type="button" id="btnThreads">적용</button>
     </div>
@@ -168,6 +181,7 @@
       <ul class="tips">
         <li>처리는 이 탭에서 돌아갑니다. <b>처리하는 동안 탭을 닫지 마세요.</b> 닫았다가 다시 열면 끊긴 구간부터 이어서 합니다.</li>
         <li>음원과 전사는 인터넷으로 나가지 않습니다. 이 사이트가 받아 오는 것은 화면과 모델 파일뿐입니다.</li>
+        <li>휴대폰 녹음은 작업을 등록한 뒤 휴대폰에서 지워도 됩니다(이 브라우저에 16kHz로 보관 — 다 쓴 작업은 「음원 지우기」).</li>
         <li>처리 속도는 PC 성능에 따라 다릅니다. 시험(스레드 1개)에서는 음성 1분에 약 7분, 목소리 기준 만들기에 약 5분이 걸렸습니다. 스레드가 많을수록 빨라집니다(위 「처리 스레드」).</li>
         <li>다 쓴 작업은 「음원 지우기」로 음원만 지울 수 있습니다(결과는 남음).</li>
       </ul>
