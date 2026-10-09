@@ -105,7 +105,15 @@ try {
   // 재생(구간 음원 만들기)
   await first.locator("button.play").click();
   await page.waitForFunction(() => document.getElementById("player").currentSrc.startsWith("blob:"));
-  console.log("✓ 검수 수정·자동 저장·구간 재생");
+  // 전체 녹음 재생 막대: 발언 2초 앞부터 이어 재생, 녹음 전체 길이, ±5초 이동
+  assert.ok(await page.locator("#tl").isVisible());
+  await page.waitForFunction(() => document.getElementById("player").duration > 80); // 90초 음원 전체
+  await page.click("#tlPlay"); // 멈춤
+  const t0 = await page.evaluate(() => document.getElementById("player").currentTime);
+  await page.click("#tl button[data-j='15']");
+  const t1 = await page.evaluate(() => document.getElementById("player").currentTime);
+  assert.ok(Math.abs(t1 - t0 - 15) < 1, `${t0} → ${t1}`);
+  console.log("✓ 검수 수정·자동 저장·전체 녹음 재생 막대(발언 앞 2초부터·±이동)");
 
   const dl = page.waitForEvent("download");
   await page.click("#exTxt");

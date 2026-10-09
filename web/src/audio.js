@@ -279,6 +279,16 @@ async function decodeWavStreaming(file, onChunk, onProgress) {
   return total / SR;
 }
 
+/** 16kHz 모노 16비트 WAV 머리(44바이트) — 표본 n개 */
+export function wavHeader(n) {
+  const out = new DataView(new ArrayBuffer(44));
+  const w = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); out.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true); out.setUint32(24, SR, true);
+  out.setUint32(28, SR * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true); w(36, "data"); out.setUint32(40, n * 2, true);
+  return out.buffer;
+}
+
 /** 재생용 WAV(16비트) 만들기 */
 export function wavBlob(f32) {
   const out = new DataView(new ArrayBuffer(44 + f32.length * 2));

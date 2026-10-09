@@ -138,6 +138,18 @@
   </table></div>
   <p id="rvEmpty" class="empty hidden">표시할 발언이 없습니다.</p>
   </div>
+  <div id="tl" class="tl hidden" aria-label="전체 녹음 재생">
+    <div class="tl-top"><select id="tlFile" aria-label="파일"></select><button type="button" id="tlTime" class="link" title="지금 발언으로 이동">0:00 / 0:00</button><span id="tlNow" class="tl-now"></span></div>
+    <canvas id="tlZoom" class="tl-zoom" aria-label="지금 위치 앞뒤 45초 — 끌어서 옮기기"></canvas>
+    <canvas id="tlAll" class="tl-all" aria-label="녹음 전체 — 눌러서 이동"></canvas>
+    <div class="tl-ctl">
+      <button type="button" data-j="-15">−15초</button><button type="button" data-j="-5">−5초</button>
+      <button type="button" id="tlPlay" class="primary">▶</button>
+      <button type="button" data-j="5">+5초</button><button type="button" data-j="15">+15초</button>
+      <select id="tlRate" aria-label="재생 속도"><option value="1">1배</option><option value="1.25">1.25배</option><option value="1.5">1.5배</option><option value="2">2배</option></select>
+      <label class="chk"><input type="checkbox" id="tlFollow" checked> 발언 따라가기</label>
+    </div>
+  </div>
   <audio id="player" preload="none"></audio>
 </section>
 

@@ -213,3 +213,18 @@ input, select, textarea, button { max-width: 100%; }
 }
 .chk.notice { display: flex; flex-wrap: wrap; align-items: center; }
 .chk.notice small { flex-basis: 100%; padding-left: 22px; }
+
+/* 전체 녹음 재생 막대(검수 화면 아래에 붙어 있음) */
+.tl { position: sticky; bottom: 0; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 10px 10px 0 0;
+  padding: 6px 10px 8px; margin-top: 12px; box-shadow: 0 -4px 14px rgba(0, 0, 0, .08); display: grid; gap: 4px; }
+.tl-top { display: flex; gap: 8px; align-items: center; min-width: 0; font-size: 13px; }
+.tl-top select { flex: 0 1 220px; min-width: 0; font-size: 12.5px; }
+#tlTime { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink); }
+.tl-now { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tl canvas { display: block; width: 100%; touch-action: none; cursor: grab; border-radius: 4px; }
+.tl .tl-zoom { height: 64px; background: color-mix(in srgb, var(--line) 25%, var(--panel)); }
+.tl .tl-all { height: 20px; cursor: pointer; }
+.tl-ctl { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tl-ctl button { padding: 4px 10px; font-size: 13px; }
+.tl-ctl #tlPlay { min-width: 52px; }
+.tl-ctl select { font-size: 13px; }

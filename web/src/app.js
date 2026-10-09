@@ -1,7 +1,7 @@
 // 감사 녹취 작업대 — 화면 (빌드 없음). 처리는 worker.js, 저장은 store.js.
 import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
-import { decodeFile, wavBlob, embeddedTime } from "./audio.js";
+import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
 import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, sourceOf, isDiar } from "./export.js";
 import { orderFiles, printsFromReview, recordedAt } from "./diar.js";
 import { isGeneric } from "./engine.js";
@@ -411,6 +411,7 @@ function renderReview() {
   const d = REVIEW.data;
   if (!d) return;
   renderPanel();
+  tlOpen();
   const sony = isDiar(d.job.mode);
   $("#rvMain").classList.toggle("hidden", !d.result);
   if (!d.result) { $("#rvStats").innerHTML = ""; $("#rvBody").innerHTML = ""; return; }
@@ -472,6 +473,7 @@ function renderReview() {
       <td class="c-ok"><input type="checkbox" class="ok" ${e.ok ? "checked" : ""} title="검수 완료" aria-label="검수 완료"></td></tr>`;
   }).join("");
   $$("#rvBody textarea").forEach((t) => { t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; });
+  TL.cur = null; tlDraw();
 }
 const editOf = (i) => (REVIEW.edits[i] = REVIEW.edits[i] || {});
 $("#rvBody").addEventListener("change", (ev) => {
@@ -502,27 +504,194 @@ function saveEdits() {
     catch (e) { $("#rvSave").textContent = "저장 실패: " + e.message; }
   }, 400);
 }
+/* ================================================================== 전체 음원 재생 막대 */
+// 검수 화면 아래에 녹음 전체를 펼쳐 둔다. 위 띠는 지금 위치 앞뒤 ±45초(화자별 색·발언 경계·소리 크기),
+// 아래 띠는 녹음 전체. 발언의 ▶는 그 발언 2초 앞부터 이어서 재생해 문맥을 듣게 하고, 띠를 끌면 앞뒤로 옮겨진다.
+// 음원은 메모리에 올리지 않고 저장된 파일(16kHz)에 WAV 머리만 붙여 가리킨다(2시간 녹음도 휴대폰에서 가볍게).
 const player = $("#player");
-let playingRow = null;
-async function playClip(b, f, s, e) {
-  const row = b.closest("tr, .smp > div");
-  if (playingRow === row && !player.paused) { player.pause(); return; }
+const PAL = ["#2f6fa8", "#1b7f74", "#a2620a", "#6a43a8", "#b3261e", "#4a7a1e", "#8a5a44", "#3d5a80"];
+const TL = { id: null, file: 0, loaded: -1, t: 0, env: {}, items: [], Z: 45, drag: null, cur: null, raf: 0 };
+const PRE = 2; // ▶를 누르면 발언 2초 앞부터
+const fileDur = (fi) => ((REVIEW.data?.job.audioFiles || [])[fi] || {}).dur || 0;
+const hashColor = (n) => { let h = 0; for (const c of String(n)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PAL[h % PAL.length]; };
+
+/** 띠에 그릴 발언들 [{f,s,e,name,color,i,plaud}] */
+function tlItems() {
+  const d = REVIEW.data, out = [];
+  if (!d) return out;
+  const ed = { e: REVIEW.edits, names: REVIEW.names };
+  if (d.result) {
+    for (const g of d.result.segs) {
+      const name = speakerOf(g, ed);
+      const color = g.cluster && !(REVIEW.edits[g.i] && REVIEW.edits[g.i].speaker) ? PAL[clusterIndex(g.cluster) % 8] : g.kind === "단일" || g.cluster ? hashColor(name) : "#9aa0a8";
+      out.push({ f: g.file || 0, s: g.start, e: g.end, name, color, i: g.i });
+    }
+    if (d.job.mode === "gap" || d.job.mode === "range") {
+      const smap = d.job.speakerMap || {};
+      for (const p of d.plaud) out.push({ f: 0, s: p.start, e: p.end || p.start + 2, name: smap[p.speaker] || p.speaker, color: "#9aa0a8", plaud: true });
+    }
+  } else if (REVIEW.diar && REVIEW.diar.kind === "diar") {
+    const cl = REVIEW.diar.clusters;
+    for (const u of REVIEW.diar.units) out.push({ f: u.f, s: u.s, e: u.e, name: REVIEW.names[cl[u.c].id] || cl[u.c].label, color: PAL[u.c % 8] });
+  }
+  return out.sort((a, b) => a.f - b.f || a.s - b.s);
+}
+
+function tlOpen() {
+  const d = REVIEW.data, files = d.job.audioFiles || [];
+  const show = !d.job.audioDeleted && files.length > 0;
+  $("#tl").classList.toggle("hidden", !show);
+  if (TL.id !== REVIEW.id) { player.pause(); TL.id = REVIEW.id; TL.file = 0; TL.loaded = -1; TL.t = 0; TL.env = {}; }
+  $("#tlFile").innerHTML = files.map((f, i) => `<option value="${i}">${i + 1}번 ${esc(f.name)}</option>`).join("");
+  $("#tlFile").classList.toggle("hidden", files.length < 2);
+  $("#tlFile").value = String(TL.file);
+  TL.items = tlItems();
+  tlDraw();
+}
+
+async function tlLoad(fi) {
+  if (TL.loaded === fi && player.src) return;
+  const file = await S.audioFile(REVIEW.id, fi);
+  if (player.src) URL.revokeObjectURL(player.src);
+  player.src = URL.createObjectURL(new Blob([wavHeader(file.size / 2), file], { type: "audio/wav" }));
+  TL.loaded = fi; TL.file = fi; $("#tlFile").value = String(fi);
+  await new Promise((res) => { if (player.readyState >= 1) res(); else player.addEventListener("loadedmetadata", res, { once: true }); });
+  tlEnvelope(fi);
+}
+
+/** 소리 크기 윤곽(0.25초마다 최댓값) — 1분씩 읽어 조금씩 채운다 */
+async function tlEnvelope(fi) {
+  const key = REVIEW.id + "/" + fi;
+  if (TL.env[key]) return;
+  const dur = fileDur(fi), step = 0.25, env = (TL.env[key] = new Float32Array(Math.ceil(dur / step) + 1));
+  for (let t = 0; t < dur; t += 60) {
+    if (TL.id !== REVIEW.id) return;
+    const x = await S.readAudio(REVIEW.id, fi, t, Math.min(dur, t + 60));
+    const n = Math.floor(step * 16000);
+    for (let k = 0; k * n < x.length; k++) {
+      let m = 0;
+      for (let j = k * n; j < Math.min(x.length, (k + 1) * n); j += 4) { const v = Math.abs(x[j]); if (v > m) m = v; }
+      env[Math.floor(t / step) + k] = m;
+    }
+    if (player.paused) tlDraw();
+  }
+}
+
+async function seekPlay(fi, t, play = true) {
   if (REVIEW.data.job.audioDeleted) { toast("음원을 지운 작업입니다"); return; }
   try {
-    const pcm = await S.readAudio(REVIEW.id, f, Math.max(0, s - 0.3), e + 0.3);
-    if (player.src) URL.revokeObjectURL(player.src);
-    player.src = URL.createObjectURL(wavBlob(pcm));
-    await player.play();
-    $$(".playing").forEach((x) => x.classList.remove("playing"));
-    playingRow = row; row.classList.add("playing");
+    await tlLoad(fi);
+    player.currentTime = Math.max(0, Math.min(t, fileDur(fi) - 0.05));
+    TL.t = player.currentTime;
+    if (play) await player.play();
+    tlDraw(true);
   } catch (err) { toast("재생 실패: " + err.message); }
+}
+
+function canvasCtx(c) {
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  return [g, w, h];
+}
+
+function tlDraw(scrollToCur = false) {
+  if ($("#tl").classList.contains("hidden")) return;
+  const fi = TL.file, dur = fileDur(fi) || 1;
+  const t = TL.loaded === fi ? player.currentTime : TL.t;
+  TL.t = t;
+  const items = TL.items.filter((x) => x.f === fi);
+  const env = TL.env[REVIEW.id + "/" + fi];
+  const css = getComputedStyle(document.body), ink = css.color, mute = css.getPropertyValue("--mute") || "#888";
+  // 위 띠: t ± Z
+  const [g, w, h] = canvasCtx($("#tlZoom"));
+  const a = t - TL.Z, span = 2 * TL.Z, X = (sec) => ((sec - a) / span) * w;
+  if (env) {
+    g.fillStyle = "rgba(128,128,128,.35)";
+    const k0 = Math.max(0, Math.floor(a / 0.25)), k1 = Math.min(env.length, Math.ceil((a + span) / 0.25));
+    for (let k = k0; k < k1; k++) { const v = Math.min(1, env[k] * 2.2) * (h - 18); g.fillRect(X(k * 0.25), h - 4 - v, Math.max(1, w / (span / 0.25)), v); }
+  }
+  g.font = "11px system-ui, sans-serif"; g.textBaseline = "top";
+  for (const x of items) {
+    if (x.e < a || x.s > a + span) continue;
+    const x0 = Math.max(0, X(x.s)), x1 = Math.min(w, X(x.e));
+    g.globalAlpha = x.plaud ? 0.18 : 0.22; g.fillStyle = x.color; g.fillRect(x0, 14, x1 - x0, h - 18);
+    g.globalAlpha = 1; g.fillRect(x0, 14, x1 - x0, x.plaud ? 2 : 4);
+    if (x1 - x0 > 30) { g.fillStyle = x.plaud ? mute : x.color; g.fillText(x.name, x0 + 2, 1, x1 - x0 - 4); }
+  }
+  g.fillStyle = mute; g.globalAlpha = 0.8;
+  for (let s = Math.ceil(a / 10) * 10; s < a + span; s += 10) { if (s < 0) continue; g.fillRect(X(s), h - 4, 1, 4); }
+  g.globalAlpha = 1; g.fillStyle = "#d33"; g.fillRect(w / 2 - 1, 0, 2, h);
+  // 아래 띠: 녹음 전체
+  const [o, ow, oh] = canvasCtx($("#tlAll"));
+  const OX = (sec) => (sec / dur) * ow;
+  o.fillStyle = "rgba(128,128,128,.18)"; o.fillRect(0, 0, ow, oh);
+  for (const x of items) { o.globalAlpha = x.plaud ? 0.35 : 0.9; o.fillStyle = x.color; o.fillRect(OX(x.s), x.plaud ? oh - 4 : 3, Math.max(1, OX(x.e) - OX(x.s)), x.plaud ? 4 : oh - 6); }
+  o.globalAlpha = 1; o.strokeStyle = ink; o.lineWidth = 1; o.strokeRect(Math.max(0, OX(a)) + 0.5, 0.5, Math.max(2, OX(a + span) - Math.max(0, OX(a))), oh - 1);
+  o.fillStyle = "#d33"; o.fillRect(OX(t) - 1, 0, 2, oh);
+  // 지금 발언
+  const cur = items.find((x) => !x.plaud && x.s <= t && t < x.e) || items.find((x) => x.s <= t && t < x.e);
+  $("#tlTime").textContent = `${hms(t)} / ${hms(dur)}`;
+  $("#tlNow").textContent = cur ? cur.name : "";
+  $("#tlPlay").textContent = player.paused || TL.loaded !== fi ? "▶" : "❚❚";
+  const curI = cur && cur.i != null ? String(cur.i) : null;
+  if (curI !== TL.cur) {
+    TL.cur = curI;
+    $$("#rvBody tr.playing").forEach((r) => r.classList.remove("playing"));
+    const row = curI && $(`#rvBody tr[data-i="${curI}"]`);
+    if (row) {
+      row.classList.add("playing");
+      const r = row.getBoundingClientRect(), bottom = window.innerHeight - $("#tl").offsetHeight;
+      if ((scrollToCur || (!player.paused && $("#tlFollow").checked)) && (r.top < 60 || r.bottom > bottom)) row.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }
+}
+const tlLoop = () => { tlDraw(); if (!player.paused) TL.raf = requestAnimationFrame(tlLoop); };
+player.addEventListener("play", () => { cancelAnimationFrame(TL.raf); TL.raf = requestAnimationFrame(tlLoop); });
+player.addEventListener("pause", () => tlDraw());
+player.addEventListener("ended", () => tlDraw());
+window.addEventListener("resize", () => tlDraw());
+
+$("#tlPlay").addEventListener("click", () => (player.paused || TL.loaded !== TL.file ? seekPlay(TL.file, TL.t) : player.pause()));
+$$("#tl [data-j]").forEach((b) => b.addEventListener("click", () => seekPlay(TL.file, TL.t + +b.dataset.j, !player.paused)));
+$("#tlRate").addEventListener("change", (e) => { player.playbackRate = +e.target.value; });
+$("#tlFile").addEventListener("change", (e) => seekPlay(+e.target.value, 0, false));
+$("#tlTime").addEventListener("click", () => { TL.cur = null; tlDraw(true); });
+// 아래 띠: 누르거나 끌면 그 자리로
+const tlAll = $("#tlAll");
+const allSeek = (ev) => { const r = tlAll.getBoundingClientRect(); TL.t = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * fileDur(TL.file); if (TL.loaded === TL.file) player.currentTime = TL.t; tlDraw(true); };
+tlAll.addEventListener("pointerdown", (ev) => { tlAll.setPointerCapture(ev.pointerId); TL.drag = "all"; tlLoad(TL.file).then(() => allSeek(ev)); });
+tlAll.addEventListener("pointermove", (ev) => { if (TL.drag === "all") allSeek(ev); });
+tlAll.addEventListener("pointerup", () => { TL.drag = null; });
+// 위 띠: 끌면 앞뒤로 옮기기, 짧게 누르면 그 자리로
+const tlZoom = $("#tlZoom");
+tlZoom.addEventListener("pointerdown", (ev) => { tlZoom.setPointerCapture(ev.pointerId); TL.drag = { x: ev.clientX, t: TL.t, moved: false }; tlLoad(TL.file); });
+tlZoom.addEventListener("pointermove", (ev) => {
+  const d = TL.drag; if (!d || d === "all") return;
+  const dx = ev.clientX - d.x; if (Math.abs(dx) > 4) d.moved = true;
+  if (!d.moved) return;
+  TL.t = Math.max(0, Math.min(fileDur(TL.file), d.t - (dx / tlZoom.clientWidth) * 2 * TL.Z));
+  if (TL.loaded === TL.file) player.currentTime = TL.t;
+  tlDraw();
+});
+tlZoom.addEventListener("pointerup", (ev) => {
+  const d = TL.drag; TL.drag = null;
+  if (!d || d === "all" || d.moved) return;
+  const r = tlZoom.getBoundingClientRect();
+  seekPlay(TL.file, TL.t - TL.Z + ((ev.clientX - r.left) / r.width) * 2 * TL.Z, !player.paused);
+});
+
+// 발언 ▶ — 2초 앞부터 이어서 재생(같은 발언을 재생 중이면 멈춤)
+function playFrom(f, s) {
+  if (!player.paused && TL.loaded === f && TL.t >= s - PRE - 0.1 && TL.t < s + 0.5) { player.pause(); return; }
+  seekPlay(f, Math.max(0, s - PRE));
 }
 $("#rvBody").addEventListener("click", (ev) => {
   const b = ev.target.closest("button.play");
-  if (b) playClip(b, +b.dataset.f, +b.dataset.s, +b.dataset.e);
+  if (b) playFrom(+b.dataset.f, +b.dataset.s);
 });
-player.addEventListener("ended", () => playingRow && playingRow.classList.remove("playing"));
-player.addEventListener("pause", () => playingRow && playingRow.classList.remove("playing"));
 async function doExport(fmt) {
   if (!REVIEW.id) return;
   const data = await reviewData(REVIEW.id);
@@ -640,7 +809,7 @@ $("#spkPanel").addEventListener("click", async (ev) => {
   if (!b) return;
   const a = b.dataset.a, card = b.closest(".cl"), id = card && card.dataset.c;
   const c = id && clustersOf().find((x) => x.id === id);
-  if (a === "play") return playClip(b, +b.dataset.f, +b.dataset.s, +b.dataset.e);
+  if (a === "play") return playFrom(+b.dataset.f, +b.dataset.s);
   if (a === "more") { REVIEW.page[id] = ((REVIEW.page[id] || 0) + 1) % Math.ceil(c.samples.length / 2); renderPanel(); return; }
   if (a === "only") { REVIEW.only = REVIEW.only === id ? null : id; if (REVIEW.only) { $$(".seg button").forEach((x) => x.classList.toggle("on", x.dataset.f === "all")); REVIEW.filter = "all"; } renderReview(); return; }
   if (a === "sug") { pushUndo(); REVIEW.names[id] = c.suggest.name; saveEdits(); renderReview(); return; }

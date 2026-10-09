@@ -104,6 +104,12 @@ export async function readAudio(jobId, fileIndex, s, e) {
   return f;
 }
 
+/** 저장된 16kHz 음원 파일 하나 전체(File, Int16) — 전체 재생 막대용. 메모리에 올리지 않고 파일을 그대로 가리킨다 */
+export async function audioFile(jobId, fileIndex) {
+  const dir = await audioDir(jobId);
+  return (await dir.getFileHandle(`${fileIndex}.pcm`)).getFile();
+}
+
 export async function deleteAudio(jobId) {
   for (const k of [...fileCache.keys()]) if (k.startsWith(jobId + "/")) fileCache.delete(k);
   try {
