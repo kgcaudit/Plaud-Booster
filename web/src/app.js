@@ -2,12 +2,15 @@
 import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
 import { decodeFile, wavBlob } from "./audio.js";
-import { exportTxt, exportCsv, mergeBackup, hms as hmsLong } from "./export.js";
+import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong } from "./export.js";
+import { orderFiles, printsFromReview } from "./diar.js";
+import { isGeneric } from "./engine.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const MODE_LABEL = { gap: "누락 구간 보충", range: "지정 구간 재전사", fragment: "조각 음원 화자 매칭", enroll: "목소리 기준 등록" };
+const MODE_LABEL = { sony: "소니 녹음(화자 먼저)", gap: "누락 구간 보충", range: "지정 구간 재전사", fragment: "조각 음원 화자 매칭", enroll: "목소리 기준 등록" };
+const MULTI = (m) => m === "fragment" || m === "sony";
 const FAKE = new URLSearchParams(location.search).get("fake") === "1";
 const hms = (t) => hmsLong(t, false);
 const parseHms = (s) => { s = String(s || "").trim(); return s ? s.split(":").reduce((a, p) => a * 60 + Number(p), 0) : NaN; };
@@ -115,11 +118,18 @@ function setMsg(t, err = false) { $("#formMsg").textContent = t; $("#formMsg").c
 $$('input[name="mode"]').forEach((r) => r.addEventListener("change", applyMode));
 function applyMode() {
   const m = mode();
-  $("#audioFiles").multiple = m === "fragment";
-  $("#audioHint").textContent = m === "fragment" ? "MP3·WAV·M4A 여러 개 가능 — 녹음 순서대로 고르세요" : "MP3·WAV·M4A 1개";
+  $("#audioFiles").multiple = MULTI(m);
+  $("#audioHint").textContent = m === "sony" ? "소니 녹음기 MP3·WAV 여러 개 가능 — 파일 이름의 녹음 시각 순으로 자동 정렬"
+    : m === "fragment" ? "MP3·WAV·M4A 여러 개 가능 — 녹음 순서대로 고르세요" : "MP3·WAV·M4A 1개";
   $("#fsRange").classList.toggle("hidden", m !== "range");
   $("#fsSpeakers").classList.toggle("hidden", m === "enroll");
-  $("#fsTranscript").classList.toggle("hidden", m === "fragment");
+  $("#fsTranscript").classList.toggle("hidden", MULTI(m));
+  $("#spkLegend").textContent = m === "sony" ? "4. 참석자(선택)" : "4. 화자 후보";
+  $("#spkHint").textContent = m === "sony" ? "고르면 그 사람들의 목소리 기준으로만 이름을 추천합니다. 인원 수는 묶음이 지나치게 많아지지 않게 하는 데만 씁니다."
+    : "고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다";
+  $("#attWrap").classList.toggle("hidden", m !== "sony");
+  $("#useVpWrap").classList.toggle("hidden", m === "sony");
+  if (m === "sony" && F.audio.length > 1) { F.audio = orderFiles(F.audio.map((a) => ({ ...a, name: a.file.name }))); renderAudioList(); }
   $("#trHint").textContent = m === "gap" || m === "enroll" ? "필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(타임스탬프·화자 켜기)"
     : "권장 — 같은 녹음의 전사가 있으면 그 사람들 목소리로 화자를 맞힙니다";
   drawTape();
@@ -135,15 +145,26 @@ function mediaDuration(file) {
   });
 }
 $("#audioFiles").addEventListener("change", async (ev) => {
-  F.audio = [...ev.target.files].map((file) => ({ file, dur: null }));
+  F.audio = [...ev.target.files].map((file) => ({ file, dur: null, name: file.name }));
+  if (mode() === "sony") F.audio = orderFiles(F.audio);
   renderAudioList();
   for (const a of F.audio) { a.dur = await mediaDuration(a.file); renderAudioList(); }
   drawTape();
 });
+/** 앞 파일 녹음 끝과 이 파일 녹음 시작 사이(초). 시각을 모르면 null */
+function gapBefore(i) {
+  const a = F.audio[i - 1], b = F.audio[i];
+  if (!a || !b || !a.recordedAt || !b.recordedAt || !a.dur) return null;
+  return (Date.parse(b.recordedAt) - Date.parse(a.recordedAt)) / 1000 - a.dur;
+}
 function renderAudioList() {
-  $("#audioList").innerHTML = F.audio.map((a, i) => `<li><span>${i + 1}. ${esc(a.file.name)}</span>
-    <span class="msg">${(a.file.size / 1048576).toFixed(1)}MB${a.dur ? " · 길이 " + hms(a.dur) : ""}</span>
-    <span class="pbar"><i data-w="${Math.round((a.prog || 0) * 100)}"></i></span></li>`).join("");
+  $("#audioList").innerHTML = F.audio.map((a, i) => {
+    const g = gapBefore(i);
+    const gap = g == null ? "" : g > 5 ? ` · 앞 파일과 ${hms(g)} 비어 있음` : g < -5 ? " · ⚠ 앞 파일과 시각이 겹칩니다" : " · 앞 파일에 이어짐";
+    return `<li><span>${i + 1}. ${esc(a.file.name)}</span>
+    <span class="msg">${(a.file.size / 1048576).toFixed(1)}MB${a.dur ? " · 길이 " + hms(a.dur) : ""}${a.recordedAt ? " · " + a.recordedAt.replace("T", " ").slice(0, 16) + " 녹음" : ""}${gap}</span>
+    <span class="pbar"><i data-w="${Math.round((a.prog || 0) * 100)}"></i></span></li>`;
+  }).join("");
   applyGeom($("#audioList"));
 }
 
@@ -180,7 +201,7 @@ function renderChips() {
 }
 function drawTape() {
   const tape = $("#gapTape"), a = F.audio[0];
-  if (mode() === "fragment" || !a || !a.dur || !F.tr) { tape.classList.add("hidden"); return; }
+  if (MULTI(mode()) || !a || !a.dur || !F.tr) { tape.classList.add("hidden"); return; }
   tape.classList.remove("hidden");
   if (F.tr.endSec > a.dur + 30) { tape.innerHTML = `<span class="lbl err">⚠ 전사(${hms(F.tr.endSec)})가 음원(${hms(a.dur)})보다 깁니다 — 같은 녹음인지 확인하세요</span>`; return; }
   const end = Math.min(F.tr.endSec, a.dur), pct = (end / a.dur) * 100, gap = a.dur - end;
@@ -194,7 +215,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const m = mode();
   if (!F.audio.length) return setMsg("음원을 골라 주세요.", true);
-  if (m !== "fragment" && F.audio.length !== 1) return setMsg("이 유형은 음원 1개만 받습니다.", true);
+  if (!MULTI(m) && F.audio.length !== 1) return setMsg("이 유형은 음원 1개만 받습니다.", true);
   if ((m === "gap" || m === "enroll") && !F.tr) return setMsg("Plaud 전사 파일이 필요합니다.", true);
   let range = null;
   if (m === "range") {
@@ -203,13 +224,15 @@ $("#newJob").addEventListener("submit", async (ev) => {
     range = { from: a, to: b };
   }
   const id = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14) + "-" + Math.random().toString(36).slice(2, 6);
-  const tr = m !== "fragment" ? F.tr : null;
+  const tr = !MULTI(m) ? F.tr : null;
+  const att = Math.max(0, Math.min(30, Math.round(+$("#attendees").value || 0)));
   const job = {
     title: $("#jobTitle").value.trim() || F.audio[0].file.name.replace(/\.[^.]+$/, ""),
     mode: m, status: "준비", createdAt: S.now(), audioFiles: [],
     transcript: tr ? { name: tr.name, count: tr.segs.length, endSec: tr.endSec } : null,
     transcriptEndSec: tr ? tr.endSec : 0, range, speakerMap: speakerMap(), speakers: [...F.picked],
     useVoiceprints: $("#useVp").checked, note: $("#jobNote").value.trim(), progress: { pct: 0, msg: "음원 준비 중" },
+    ...(m === "sony" ? { attendees: att || null, stage: "diar", skip: [] } : {}),
   };
   $("#btnSubmit").disabled = true;
   try {
@@ -222,7 +245,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
       try {
         const dur = await decodeFile(a.file, (pcm) => w.write(pcm), (p) => { a.prog = p; renderAudioList(); });
         await w.close();
-        job.audioFiles.push({ name: a.file.name, dur });
+        job.audioFiles.push({ name: a.file.name, dur, ...(a.recordedAt ? { recordedAt: a.recordedAt } : {}) });
       } catch (e) { await w.abort(); throw new Error(`${a.file.name}: 음원을 열지 못했습니다 (${e.message})`); }
     }
     await S.saveJob(id, { audioFiles: job.audioFiles, status: "대기", progress: { pct: 0, msg: "대기" } });
@@ -249,19 +272,22 @@ async function loadJobs() {
   el.innerHTML = JOBS.map((j) => {
     const p = j.progress || {}, s = j.stats || {};
     const busy = j.status === "처리중" || j.status === "대기" || j.status === "준비";
-    const result = j.hasResult && j.mode !== "enroll" ? `발언 ${s.segments ?? "-"} · 혼재 ${s.mixed ?? 0} · 미상 ${s.unknown ?? 0} · 저신뢰 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : "";
+    const naming = j.status === "이름 대기";
+    const result = j.mode === "sony" ? (s.clusters ? `화자 묶음 ${s.clusters}개` + (s.segments != null ? ` · 발언 ${s.segments} · 확인 필요 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : ` · 전사할 발언 ${s.units ?? "-"}`) : "")
+      : j.hasResult && j.mode !== "enroll" ? `발언 ${s.segments ?? "-"} · 혼재 ${s.mixed ?? 0} · 미상 ${s.unknown ?? 0} · 저신뢰 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : "";
     const enrolled = s.enrolled && Object.keys(s.enrolled).length ? (result ? " · " : "") + "기준 등록 " + Object.keys(s.enrolled).join(", ") : "";
     const files = (j.audioFiles || []).map((f) => f.name + (f.dur ? ` (${hms(f.dur)})` : "")).join(", ");
     return `<div class="job" data-id="${esc(j.id)}">
-      <div><span class="t">${esc(j.title)}</span><span class="badge st-${esc(j.status)}">${esc(j.status)}</span>
+      <div><span class="t">${esc(j.title)}</span><span class="badge st-${esc(String(j.status).replace(/\s/g, ""))}">${esc(j.status)}</span>
         <div class="meta">${MODE_LABEL[j.mode] || j.mode} · ${esc(files)}${j.range ? " · " + hms(j.range.from) + "~" + hms(j.range.to) : ""} · ${esc((j.createdAt || "").replace("T", " ").slice(0, 16))}${j.audioDeleted ? " · 음원 지움" : ""}</div>
         ${result || enrolled ? `<div class="meta">${result}${enrolled}</div>` : ""}
         ${j.error ? `<div class="meta err">${esc(j.error)}</div>` : ""}
       </div>
       <div class="acts">
+        ${naming ? '<button type="button" data-a="review" class="primary">화자 이름 붙이기</button>' : ""}
         ${j.hasResult && j.mode !== "enroll" ? '<button type="button" data-a="review" class="primary">검수</button>' : ""}
         ${busy && j.status !== "준비" ? '<button type="button" data-a="stop">중지</button>' : ""}
-        ${!busy && j.status !== "완료" && !j.audioDeleted ? '<button type="button" data-a="resume">이어서 처리</button>' : ""}
+        ${!busy && !naming && j.status !== "완료" && !j.audioDeleted ? '<button type="button" data-a="resume">이어서 처리</button>' : ""}
         ${!busy && !j.audioDeleted ? '<button type="button" data-a="fresh">처음부터 다시</button>' : ""}
         ${!busy && !j.audioDeleted ? '<button type="button" data-a="delaudio">음원 지우기</button>' : ""}
         ${!busy || j.status === "준비" ? '<button type="button" data-a="del">삭제</button>' : ""}
@@ -284,8 +310,13 @@ $("#jobList").addEventListener("click", async (ev) => {
     }
     if (a === "resume") { await S.saveJob(id, { status: "대기", error: null }); kick(); }
     if (a === "fresh") {
-      if (!confirm("결과를 지우고 처음부터 다시 처리할까요? 검수 수정 내용은 남지만 발언 번호가 바뀔 수 있습니다.")) return;
-      await S.resetJob(id); await S.saveJob(id, { status: "대기", error: null, stats: null, progress: { pct: 0, msg: "대기" } }); kick();
+      const j = await S.get("jobs", id);
+      if (j.mode === "sony") {
+        if (!confirm("화자 묶기부터 다시 할까요? 붙여 둔 화자 이름과 검수 수정이 지워집니다.")) return;
+        await S.del("edits", id);
+      } else if (!confirm("결과를 지우고 처음부터 다시 처리할까요? 검수 수정 내용은 남지만 발언 번호가 바뀔 수 있습니다.")) return;
+      await S.resetJob(id);
+      await S.saveJob(id, { status: "대기", error: null, stats: null, progress: { pct: 0, msg: "대기" }, ...(j.mode === "sony" ? { stage: "diar", skip: [] } : {}) }); kick();
     }
     if (a === "delaudio") { if (!confirm("이 작업의 음원을 지울까요? 결과는 남고, 검수 화면의 재생은 안 됩니다.")) return; await S.deleteAudio(id); await S.saveJob(id, { audioDeleted: true }); }
     if (a === "del") { if (!confirm("작업과 결과를 모두 지울까요? (목소리 기준은 남습니다)")) return; await S.deleteJob(id); }
@@ -297,50 +328,68 @@ $("#jobList").addEventListener("click", async (ev) => {
 const REVIEW = { id: null, want: null, data: null, edits: {}, filter: "need", saveT: null, gl: [] };
 async function loadReviewJobs() {
   JOBS = await jobsList();
-  const done = JOBS.filter((j) => j.hasResult && j.mode !== "enroll");
+  const done = JOBS.filter((j) => (j.hasResult && j.mode !== "enroll") || j.status === "이름 대기");
   const sel = $("#rvJob");
-  sel.innerHTML = done.length ? done.map((j) => `<option value="${esc(j.id)}">${esc(j.title)} (${MODE_LABEL[j.mode]})</option>`).join("") : '<option value="">검수할 결과가 없습니다</option>';
+  sel.innerHTML = done.length ? done.map((j) => `<option value="${esc(j.id)}">${esc(j.title)} (${MODE_LABEL[j.mode]}${j.status === "이름 대기" ? " · 이름 대기" : ""})</option>`).join("") : '<option value="">검수할 결과가 없습니다</option>';
   const id = REVIEW.want && done.some((j) => j.id === REVIEW.want) ? REVIEW.want : REVIEW.id && done.some((j) => j.id === REVIEW.id) ? REVIEW.id : done[0]?.id;
   REVIEW.want = null;
-  if (id) { sel.value = id; await openReview(id); } else { $("#rvBody").innerHTML = ""; $("#rvStats").innerHTML = ""; }
+  if (id) { sel.value = id; await openReview(id); } else { $("#rvBody").innerHTML = ""; $("#rvStats").innerHTML = ""; $("#spkPanel").classList.add("hidden"); }
 }
 $("#rvJob").addEventListener("change", (e) => openReview(e.target.value));
 $$(".seg button").forEach((b) => b.addEventListener("click", () => { $$(".seg button").forEach((x) => x.classList.toggle("on", x === b)); REVIEW.filter = b.dataset.f; renderReview(); }));
 $("#rvPlaud").addEventListener("change", renderReview);
 async function reviewData(id) {
   const [job, result, edits, plaud, gl] = await Promise.all([S.get("jobs", id), S.get("results", id), S.get("edits", id), S.get("plaud", id), S.get("kv", "glossary")]);
-  return { job: { ...job, id }, result, edits: edits || { e: {} }, plaud: plaud || [], glossary: (gl && gl.pairs) || [] };
+  return { job: { ...job, id }, result, edits: { e: {}, ...(edits || {}) }, plaud: plaud || [], glossary: (gl && gl.pairs) || [] };
 }
 async function openReview(id) {
   REVIEW.id = id;
   REVIEW.data = await reviewData(id);
   REVIEW.edits = REVIEW.data.edits.e || {};
+  REVIEW.names = REVIEW.data.edits.names || {};
   REVIEW.gl = REVIEW.data.glossary;
+  REVIEW.undo = [];
+  REVIEW.diar = REVIEW.data.job.mode === "sony" ? await S.get("chunks", id) : null;
+  REVIEW.vpNames = (await S.all("voiceprints")).map(([n]) => n);
+  REVIEW.page = {};
   $("#rvSave").textContent = "";
   renderReview();
 }
 const gloss = (t) => { for (const p of REVIEW.gl || []) if (p.from) t = t.split(p.from).join(p.to); return t; };
-const isNeed = (g) => g.kind !== "단일" || g.conf < 0.6;
+const isNeed = (g) => {
+  if (g.cluster) { // 소니 녹음: 이름 없는 묶음 · 묶음과 덜 닮음 · 다른 묶음과 차이 작음 · 2초 미만
+    const named = (REVIEW.edits[g.i] && REVIEW.edits[g.i].speaker) || (REVIEW.names[g.cluster] && !isGeneric(REVIEW.names[g.cluster]));
+    return !named || g.conf < 0.5 || g.margin < 0.1 || g.end - g.start < 2;
+  }
+  return g.kind !== "단일" || g.conf < 0.6;
+};
 function renderReview() {
   const d = REVIEW.data;
   if (!d) return;
+  renderPanel();
+  const sony = d.job.mode === "sony";
+  $("#rvMain").classList.toggle("hidden", !d.result);
+  if (!d.result) { $("#rvStats").innerHTML = ""; $("#rvBody").innerHTML = ""; return; }
   const segs = d.result.segs, s = d.result.stats, job = d.job, smap = job.speakerMap || {};
   const names = new Set(s.speakersUsed || []);
   segs.forEach((g) => { if (g.kind === "단일") names.add(g.speaker); });
   Object.values(REVIEW.edits).forEach((e) => e.speaker && names.add(e.speaker));
+  Object.values(REVIEW.names).forEach((n) => n && names.add(n));
   const nameList = [...names].sort((a, b) => a.localeCompare(b, "ko"));
   const checked = Object.values(REVIEW.edits).filter((e) => e.ok).length;
   const multi = (s.files || []).length > 1;
-  $("#rvStats").innerHTML = [["발언", s.segments], ["확인 필요", segs.filter(isNeed).length], ["혼재", s.mixed], ["미상", s.unknown], ["저신뢰", s.lowConf], ["환각 제거", s.droppedHallucination], ["검수 완료", checked]]
+  $("#rvStats").innerHTML = (sony ? [["발언", s.segments], ["확인 필요", segs.filter(isNeed).length], ["화자 묶음", s.clusters], ["전사 제외", s.skipped], ["환각 제거", s.droppedHallucination], ["검수 완료", checked]]
+    : [["발언", s.segments], ["확인 필요", segs.filter(isNeed).length], ["혼재", s.mixed], ["미상", s.unknown], ["저신뢰", s.lowConf], ["환각 제거", s.droppedHallucination], ["검수 완료", checked]])
     .map(([k, v]) => `<span class="stat"><b>${v ?? 0}</b>${k}</span>`).join("")
     + (s.targets ? `<span class="stat">대상 ${s.targets.map((t) => (multi ? t.file + 1 + "번 " : "") + hms(t.from) + "~" + hms(t.to)).join(", ")}</span>` : "");
   let rows = segs.map((g) => ({ g, e: REVIEW.edits[g.i] || {} }));
   const f = REVIEW.filter;
   if (f === "need") rows = rows.filter((r) => isNeed(r.g) && !r.e.ok);
   if (f === "edited") rows = rows.filter((r) => r.e.speaker || r.e.text);
+  if (REVIEW.only) rows = rows.filter((r) => r.g.cluster === REVIEW.only);
   if (f === "todo") rows = rows.filter((r) => !r.e.ok);
   const items = rows.map((r) => ({ t: r.g.start, file: r.g.file || 0, r }));
-  if ($("#rvPlaud").checked && job.mode !== "fragment") {
+  if ($("#rvPlaud").checked && !MULTI(job.mode)) {
     const tg = s.targets || [];
     for (const p of d.plaud) {
       const near = tg.some((t) => p.start >= t.from - 180 && p.start < t.to + 180); // 대상 구간 앞뒤 3분만 맥락으로
@@ -353,7 +402,20 @@ function renderReview() {
   $("#rvBody").innerHTML = items.map((it) => {
     if (it.p) return `<tr class="plaud"><td class="c-t">${hms(it.p.start)}</td><td></td><td>${esc(smap[it.p.speaker] || it.p.speaker)}</td><td>${esc(gloss(it.p.text))}</td><td><span class="msg">Plaud</span></td><td></td></tr>`;
     const { g, e } = it.r;
-    const spk = e.speaker || g.speaker;
+    const spk = speakerOf(g, { e: REVIEW.edits, names: REVIEW.names });
+    if (sony) {
+      const ci = clusterIndex(g.cluster), why = [];
+      if (g.conf < 0.5) why.push("묶음과 덜 닮음");
+      if (g.margin < 0.1) why.push("다른 묶음과 비슷");
+      if (g.end - g.start < 2) why.push("짧음");
+      return `<tr data-i="${g.i}" class="${e.speaker || e.text ? "edited" : ""}">
+      <td class="c-t">${(multi ? `<small>${(g.file || 0) + 1}번</small> ` : "") + hms(g.start)}</td>
+      <td>${canPlay ? `<button type="button" class="play" title="듣기" data-s="${g.start}" data-e="${g.end}" data-f="${g.file || 0}">▶</button>` : ""}</td>
+      <td><button type="button" class="spkbtn cc${ci % 8}${e.speaker ? " own" : ""}" title="${esc(clusterLabel(g.cluster))}${e.speaker ? " · 이 발언만 따로 지정" : ""}">${esc(spk)}</button></td>
+      <td><textarea rows="2" aria-label="발언">${esc(e.text ?? gloss(g.text))}</textarea></td>
+      <td><span class="kind ${why.length ? "k-저신뢰" : "k-단일"}">${esc(clusterLabel(g.cluster).replace("Speaker ", "S"))} ${Math.round(g.conf * 100)}%</span><span class="votes">${esc(why.join(" · "))}</span></td>
+      <td class="c-ok"><input type="checkbox" class="ok" ${e.ok ? "checked" : ""} title="검수 완료" aria-label="검수 완료"></td></tr>`;
+    }
     const kl = g.kind === "단일" && g.conf < 0.6 ? "저신뢰" : g.kind;
     const votes = Object.entries(g.votes || {}).slice(0, 3).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(" · ");
     const opts = (nameList.includes(spk) ? nameList : [spk, ...nameList]).map((n) => `<option ${n === spk ? "selected" : ""}>${esc(n)}</option>`).join("") + '<option value="__new">직접 입력…</option>';
@@ -373,38 +435,47 @@ $("#rvBody").addEventListener("change", (ev) => {
   if (!tr) return;
   const i = tr.dataset.i, g = REVIEW.data.result.segs.find((x) => String(x.i) === i);
   if (ev.target.matches("select.spk")) {
+    pushUndo();
     let v = ev.target.value;
     if (v === "__new") { v = (prompt("화자 이름") || "").trim(); if (!v) { renderReview(); return; } }
     const e = editOf(i);
     if (v === g.speaker) delete e.speaker; else e.speaker = v;
     e.ok = true;
   } else if (ev.target.matches("textarea")) {
+    pushUndo();
     const e = editOf(i), v = ev.target.value.trim();
     if (v === gloss(g.text).trim()) delete e.text; else e.text = v;
   } else if (ev.target.matches("input.ok")) editOf(i).ok = ev.target.checked;
   tr.classList.toggle("edited", !!(REVIEW.edits[i].speaker || REVIEW.edits[i].text));
+  saveEdits();
+});
+function saveEdits() {
   $("#rvSave").textContent = "저장 대기…";
   clearTimeout(REVIEW.saveT);
+  const id = REVIEW.id;
   REVIEW.saveT = setTimeout(async () => {
-    try { await S.put("edits", REVIEW.id, { e: REVIEW.edits, updatedAt: S.now() }); $("#rvSave").textContent = "저장됨 " + new Date().toLocaleTimeString("ko-KR"); }
+    try { await S.put("edits", id, { e: REVIEW.edits, names: REVIEW.names, updatedAt: S.now() }); $("#rvSave").textContent = "저장됨 " + new Date().toLocaleTimeString("ko-KR"); }
     catch (e) { $("#rvSave").textContent = "저장 실패: " + e.message; }
-  }, 500);
-});
+  }, 400);
+}
 const player = $("#player");
 let playingRow = null;
-$("#rvBody").addEventListener("click", async (ev) => {
-  const b = ev.target.closest("button.play");
-  if (!b) return;
-  const row = b.closest("tr");
+async function playClip(b, f, s, e) {
+  const row = b.closest("tr, .smp > div");
   if (playingRow === row && !player.paused) { player.pause(); return; }
+  if (REVIEW.data.job.audioDeleted) { toast("음원을 지운 작업입니다"); return; }
   try {
-    const pcm = await S.readAudio(REVIEW.id, +b.dataset.f, Math.max(0, +b.dataset.s - 0.3), +b.dataset.e + 0.3);
+    const pcm = await S.readAudio(REVIEW.id, f, Math.max(0, s - 0.3), e + 0.3);
     if (player.src) URL.revokeObjectURL(player.src);
     player.src = URL.createObjectURL(wavBlob(pcm));
     await player.play();
-    $$("#rvBody tr.playing").forEach((x) => x.classList.remove("playing"));
+    $$(".playing").forEach((x) => x.classList.remove("playing"));
     playingRow = row; row.classList.add("playing");
-  } catch (e) { toast("재생 실패: " + e.message); }
+  } catch (err) { toast("재생 실패: " + err.message); }
+}
+$("#rvBody").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button.play");
+  if (b) playClip(b, +b.dataset.f, +b.dataset.s, +b.dataset.e);
 });
 player.addEventListener("ended", () => playingRow && playingRow.classList.remove("playing"));
 player.addEventListener("pause", () => playingRow && playingRow.classList.remove("playing"));
@@ -418,6 +489,199 @@ async function doExport(fmt) {
 }
 $("#exTxt").addEventListener("click", () => doExport("txt"));
 $("#exCsv").addEventListener("click", () => doExport("csv"));
+
+/* ================================================================== 화자 패널(소니 녹음) */
+// 묶음(Speaker N)마다 대표 구간을 들어 보고 이름을 붙이면 그 묶음 발언 전체에 적용된다. 같은 이름을 붙이면 합쳐진다.
+// 이름이 정해지는 우선순위: 발언별 수정 > 묶음 이름 > 처리 결과(Speaker N). 원래 묶음은 지우지 않아 언제든 되돌릴 수 있다.
+const clustersOf = () => (REVIEW.data && (REVIEW.data.result?.clusters || REVIEW.diar?.clusters)) || [];
+const clusterIndex = (id) => Math.max(0, clustersOf().findIndex((c) => c.id === id));
+const clusterLabel = (id) => (clustersOf().find((c) => c.id === id) || {}).label || id;
+const nameOfCluster = (c) => REVIEW.names[c.id] || c.label;
+
+function pushUndo() {
+  REVIEW.undo.push(JSON.stringify({ e: REVIEW.edits, names: REVIEW.names }));
+  if (REVIEW.undo.length > 100) REVIEW.undo.shift();
+  $("#spUndo") && ($("#spUndo").disabled = false);
+}
+function undo() {
+  const last = REVIEW.undo.pop();
+  if (!last) { toast("되돌릴 것이 없습니다"); return; }
+  const v = JSON.parse(last);
+  REVIEW.edits = v.e; REVIEW.names = v.names;
+  saveEdits(); renderReview(); toast("되돌렸습니다");
+}
+document.addEventListener("keydown", (ev) => {
+  if (!(ev.ctrlKey || ev.metaKey) || ev.key.toLowerCase() !== "z" || ev.shiftKey) return;
+  if (!$("#tab-review").classList.contains("on") || ev.target.closest("input, textarea, select")) return;
+  ev.preventDefault(); undo();
+});
+
+function textNear(f, s) {
+  const segs = REVIEW.data.result ? REVIEW.data.result.segs : [];
+  const g = segs.find((x) => (x.file || 0) === f && x.start <= s + 0.5 && x.end > s);
+  return g ? (REVIEW.edits[g.i] && REVIEW.edits[g.i].text) || gloss(g.text) : "";
+}
+
+function renderPanel() {
+  const d = REVIEW.data, el = $("#spkPanel");
+  if (!d || d.job.mode !== "sony") { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  const cl = clustersOf();
+  const pending = !d.result;
+  const skip = new Set(d.job.skip || []);
+  const byName = {};
+  cl.forEach((c) => { const n = REVIEW.names[c.id]; if (n) (byName[n] = byName[n] || []).push(c); });
+  const segs = d.result ? d.result.segs : [];
+  const vp = new Set(REVIEW.vpNames);
+  const names = [...new Set([...REVIEW.vpNames, ...Object.values(REVIEW.names).filter(Boolean)])].sort((a, b) => a.localeCompare(b, "ko"));
+  const strong = cl.filter((c) => c.suggest && c.suggest.strong && !REVIEW.names[c.id]);
+  const cards = [...cl].sort((a, b) => b.dur - a.dur).map((c) => {
+    const ci = clusterIndex(c.id), nm = REVIEW.names[c.id] || "";
+    const same = nm && byName[nm].length > 1 ? byName[nm].filter((x) => x !== c).map((x) => x.label) : [];
+    const page = REVIEW.page[c.id] || 0, per = 2;
+    const smp = (c.samples || []).slice(page * per, page * per + per);
+    const nseg = segs.filter((g) => g.cluster === c.id).length;
+    const sug = c.suggest ? `<button type="button" class="sug${c.suggest.strong ? "" : " weak"}" data-a="sug" title="${c.suggest.strong ? "저장된 목소리 기준과 닮음" : "닮은 정도가 약합니다 — 들어 보고 정하세요"}">${c.suggest.strong ? "추천" : "닮음"}: ${esc(c.suggest.name)} ${Math.round(c.suggest.sim * 100)}%</button>` : vp.size ? '<span class="msg">저장된 기준과 닮은 사람 없음</span>' : "";
+    return `<div class="cl${skip.has(c.id) ? " skipped" : ""}${REVIEW.only === c.id ? " focus" : ""}" data-c="${esc(c.id)}">
+      <div class="hd"><span class="chip cc${ci % 8}">${esc(c.label)}</span>
+        <span class="msg">${pending ? `발언 ${c.nunit}` : `발언 ${nseg}`} · ${hms(c.dur)}</span><span class="spacer"></span>
+        <label class="chk" title="빼면 이 묶음의 발언은 전사하지 않습니다(잡음·음악 묶음 등)"><input type="checkbox" data-a="inc" ${skip.has(c.id) ? "" : "checked"}> 전사</label>
+        ${pending ? "" : `<button type="button" class="link" data-a="only">${REVIEW.only === c.id ? "모두 보기" : "이 묶음만 보기"}</button>`}</div>
+      <div class="nm"><input data-a="name" list="dlNames" value="${esc(nm)}" placeholder="이름(예: 김○○ 팀장)" aria-label="${esc(c.label)} 이름"> ${sug}
+        ${same.length ? `<span class="merged">↳ ${esc(same.join(", "))}와 같은 사람(합쳐짐)</span>` : ""}</div>
+      <div class="smp">${smp.map((x) => `<div><button type="button" class="play" data-a="play" data-f="${x.f}" data-s="${x.s}" data-e="${x.e}" title="듣기">▶</button>
+        <span class="msg">${(d.job.audioFiles || []).length > 1 ? x.f + 1 + "번 " : ""}${hms(x.s)}~${hms(x.e)} (${Math.round(x.e - x.s)}초)</span> <span class="tx">${esc(textNear(x.f, x.s).slice(0, 90))}</span></div>`).join("") || '<span class="msg">들어 볼 구간 없음</span>'}
+        ${(c.samples || []).length > per ? `<button type="button" class="link" data-a="more">다른 구간 ▸ ${page + 1}/${Math.ceil(c.samples.length / per)}</button>` : ""}</div>
+    </div>`;
+  }).join("");
+  el.innerHTML = `<div class="bar"><h3>화자 묶음 ${cl.length}개</h3><span class="msg">${pending ? "대표 구간을 들어 보고 이름을 붙이세요. 같은 이름을 붙이면 한 사람으로 합쳐집니다. 이름은 전사 뒤에도 바꿀 수 있습니다." : "이름을 바꾸면 그 묶음 발언 전체에 적용됩니다(발언별로 따로 지정한 것은 그대로)."}</span>
+      <span class="spacer"></span>
+      ${strong.length ? `<button type="button" data-a="sugall">추천 ${strong.length}건 모두 적용</button>` : ""}
+      <button type="button" id="spUndo" data-a="undo" ${REVIEW.undo.length ? "" : "disabled"} title="Ctrl+Z / ⌘Z">되돌리기</button>
+      ${pending ? `<button type="button" class="primary" data-a="go" ${d.job.status === "이름 대기" ? "" : "disabled"}>이 이름으로 전사 시작</button>`
+        : `<button type="button" data-a="vp" title="이름 붙인 사람의 목소리를 다음 녹음에서 추천하도록 저장합니다(30초 이상 말한 사람만)">목소리 기준 저장</button>`}</div>
+    <div class="clgrid">${cards}</div>
+    <datalist id="dlNames">${names.map((n) => `<option value="${esc(n)}">`).join("")}</datalist>`;
+}
+
+$("#spkPanel").addEventListener("change", async (ev) => {
+  const t = ev.target, card = t.closest(".cl");
+  if (!card) return;
+  const id = card.dataset.c;
+  if (t.dataset.a === "name") {
+    pushUndo();
+    const v = t.value.trim();
+    if (v) REVIEW.names[id] = v; else delete REVIEW.names[id];
+    saveEdits(); renderReview();
+  }
+  if (t.dataset.a === "inc") {
+    const job = await S.get("jobs", REVIEW.id);
+    const skip = new Set(job.skip || []);
+    if (t.checked) skip.delete(id); else skip.add(id);
+    await S.saveJob(REVIEW.id, { skip: [...skip] });
+    REVIEW.data.job.skip = [...skip];
+    if (REVIEW.data.result && t.checked) toast("작업 목록에서 「이어서 처리」를 누르면 이 묶음 발언을 전사해 더합니다");
+    if (REVIEW.data.result && !t.checked) toast("내보내기에서 빠지려면 「이어서 처리」로 결과를 다시 만드세요");
+    if (REVIEW.data.result && job.status === "완료" && t.checked) await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: "더할 발언이 있습니다 — 이어서 처리" } });
+    if (REVIEW.data.result && job.status === "완료" && !t.checked) await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: "뺀 묶음이 있습니다 — 이어서 처리" } });
+    renderPanel();
+  }
+});
+$("#spkPanel").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button[data-a]");
+  if (!b) return;
+  const a = b.dataset.a, card = b.closest(".cl"), id = card && card.dataset.c;
+  const c = id && clustersOf().find((x) => x.id === id);
+  if (a === "play") return playClip(b, +b.dataset.f, +b.dataset.s, +b.dataset.e);
+  if (a === "more") { REVIEW.page[id] = ((REVIEW.page[id] || 0) + 1) % Math.ceil(c.samples.length / 2); renderPanel(); return; }
+  if (a === "only") { REVIEW.only = REVIEW.only === id ? null : id; if (REVIEW.only) { $$(".seg button").forEach((x) => x.classList.toggle("on", x.dataset.f === "all")); REVIEW.filter = "all"; } renderReview(); return; }
+  if (a === "sug") { pushUndo(); REVIEW.names[id] = c.suggest.name; saveEdits(); renderReview(); return; }
+  if (a === "sugall") { pushUndo(); clustersOf().forEach((x) => { if (x.suggest && x.suggest.strong && !REVIEW.names[x.id]) REVIEW.names[x.id] = x.suggest.name; }); saveEdits(); renderReview(); return; }
+  if (a === "undo") return undo();
+  if (a === "go") {
+    const unnamed = clustersOf().filter((x) => !REVIEW.names[x.id] && !(REVIEW.data.job.skip || []).includes(x.id)).length;
+    if (unnamed && !confirm(`이름 없는 묶음이 ${unnamed}개 있습니다. 그대로 전사할까요? (이름은 전사 뒤에도 붙일 수 있습니다)`)) return;
+    clearTimeout(REVIEW.saveT);
+    await S.put("edits", REVIEW.id, { e: REVIEW.edits, names: REVIEW.names, updatedAt: S.now() });
+    await S.saveJob(REVIEW.id, { stage: "transcribe", status: "대기", progress: { pct: 0, msg: "전사 대기" } });
+    kick(); toast("전사를 시작합니다 — 작업 탭에서 진행을 볼 수 있습니다"); showTab("jobs");
+    return;
+  }
+  if (a === "vp") return saveSonyPrints();
+});
+
+async function saveSonyPrints() {
+  const d = REVIEW.data;
+  if (!REVIEW.diar || REVIEW.diar.kind !== "diar") { toast("이 작업은 목소리 특징이 남아 있지 않아(백업에서 되살림 등) 저장할 수 없습니다"); return; }
+  const prints = printsFromReview(d.result.segs, REVIEW.diar.units, (g) => speakerOf(g, { e: REVIEW.edits, names: REVIEW.names }), isGeneric);
+  const list = Object.entries(prints);
+  if (!list.length) { toast("저장할 사람이 없습니다(이름을 붙이고 30초 이상 말한 사람만 저장)"); return; }
+  if (!confirm(`다음 사람의 목소리 기준을 「${d.job.title}」 출처로 저장할까요? (같은 출처는 바꿔 넣습니다)\n\n` + list.map(([n, p]) => `${n} — ${hms(p.sec)}`).join("\n"))) return;
+  for (const [name, p] of list) {
+    await S.update("voiceprints", name, (ent) => {
+      const e = ent || { name, items: {}, model: "campplus" };
+      e.items = { ...e.items, [d.job.title || REVIEW.id]: { vec: p.vec, n: p.n, at: S.now() } };
+      e.updatedAt = S.now();
+      return e;
+    });
+  }
+  REVIEW.vpNames = (await S.all("voiceprints")).map(([n]) => n);
+  toast(`목소리 기준 ${list.length}명 저장`);
+}
+
+/* ---- 발언별 화자 창: 이 발언만 / 이 묶음 전체 / 이 묶음에서 이 발언 이후 */
+const pop = $("#spkPop");
+let popRow = null;
+$("#rvBody").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button.spkbtn");
+  if (!b) return;
+  const tr = b.closest("tr"), g = REVIEW.data.result.segs.find((x) => String(x.i) === tr.dataset.i);
+  popRow = g;
+  const cur = speakerOf(g, { e: REVIEW.edits, names: REVIEW.names });
+  const clusterNamed = REVIEW.names[g.cluster] && !isGeneric(REVIEW.names[g.cluster]);
+  const chips = [...new Set([...Object.values(REVIEW.names), ...REVIEW.vpNames])].filter(Boolean).sort((a, c) => a.localeCompare(c, "ko"));
+  pop.innerHTML = `<b>${hms(g.start)} 발언의 화자</b> <span class="msg">(${esc(clusterLabel(g.cluster))})</span>
+    <input id="popName" list="dlNames" value="${esc(cur)}" aria-label="화자 이름">
+    <div class="chips">${chips.map((n) => `<span class="chip" data-n="${esc(n)}">${esc(n)}</span>`).join("")}</div>
+    <label class="opt"><input type="radio" name="popScope" value="one" ${clusterNamed ? "checked" : ""}> 이 발언만</label>
+    <label class="opt"><input type="radio" name="popScope" value="all" ${clusterNamed ? "" : "checked"}> 이 묶음(${esc(clusterLabel(g.cluster))}) 전체</label>
+    <label class="opt"><input type="radio" name="popScope" value="after"> 이 묶음에서 이 발언부터 끝까지</label>
+    ${REVIEW.edits[g.i] && REVIEW.edits[g.i].speaker ? '<button type="button" class="link" data-a="reset">따로 지정 풀기(묶음 이름 따르기)</button>' : ""}
+    <div class="row end"><button type="button" data-a="cancel">취소</button><button type="button" class="primary" data-a="save">저장</button></div>`;
+  pop.classList.remove("hidden");
+  const r = b.getBoundingClientRect();
+  pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 8, r.bottom + 4) + "px";
+  pop.style.left = Math.max(8, Math.min(window.innerWidth - pop.offsetWidth - 8, r.left)) + "px";
+  $("#popName").select();
+});
+pop.addEventListener("click", (ev) => {
+  const chip = ev.target.closest(".chip");
+  if (chip) { $("#popName").value = chip.dataset.n; return; }
+  const b = ev.target.closest("button[data-a]");
+  if (!b) return;
+  if (b.dataset.a === "cancel") { pop.classList.add("hidden"); return; }
+  const g = popRow;
+  pushUndo();
+  if (b.dataset.a === "reset") { delete editOf(g.i).speaker; editOf(g.i).ok = true; }
+  else {
+    const v = $("#popName").value.trim();
+    if (!v) { toast("이름을 넣어 주세요"); REVIEW.undo.pop(); return; }
+    const scope = $('input[name="popScope"]:checked', pop).value;
+    if (scope === "one") { editOf(g.i).speaker = v; editOf(g.i).ok = true; }
+    if (scope === "all") { REVIEW.names[g.cluster] = v; if (REVIEW.edits[g.i]) delete REVIEW.edits[g.i].speaker; }
+    if (scope === "after") {
+      for (const x of REVIEW.data.result.segs) {
+        if (x.cluster !== g.cluster || (x.file || 0) < (g.file || 0) || ((x.file || 0) === (g.file || 0) && x.start < g.start)) continue;
+        if (REVIEW.edits[x.i] && REVIEW.edits[x.i].speaker && x !== g) continue; // 따로 지정한 발언은 그대로
+        editOf(x.i).speaker = v;
+      }
+    }
+  }
+  pop.classList.add("hidden");
+  saveEdits(); renderReview();
+});
+pop.addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.id === "popName") { ev.preventDefault(); pop.querySelector('[data-a="save"]').click(); } if (ev.key === "Escape") pop.classList.add("hidden"); });
+document.addEventListener("mousedown", (ev) => { if (!pop.classList.contains("hidden") && !ev.target.closest("#spkPop, button.spkbtn")) pop.classList.add("hidden"); });
 
 /* ================================================================== 목소리 기준 */
 async function loadVoices() {
@@ -486,7 +750,7 @@ async function loadSettings() {
 $("#btnModels").addEventListener("click", () => { worker.postMessage({ type: "download" }); toast("모델을 받기 시작했습니다"); });
 $("#btnClearModels").addEventListener("click", async () => {
   if (!confirm("받아 둔 모델을 지울까요? 다음 처리 때 다시 받습니다.")) return;
-  for (const k of await caches.keys()) if (k.startsWith("pb-models")) await caches.delete(k);
+  for (const k of await caches.keys()) if (k.startsWith("pb-models") || k.startsWith("pb-m-")) await caches.delete(k);
   worker.terminate(); startWorker(); toast("모델을 지웠습니다");
 });
 $("#btnThreads").addEventListener("click", async () => {
@@ -498,7 +762,7 @@ $("#btnBackup").addEventListener("click", async () => {
   for (const [id, job] of await S.all("jobs")) {
     jobs[id] = { job, result: await S.get("results", id), edits: await S.get("edits", id), plaud: await S.get("plaud", id) };
   }
-  const bk = { format: "plaud-booster-backup", version: 1, exportedAt: S.now(), voiceprints: Object.fromEntries(await S.all("voiceprints")),
+  const bk = { format: "plaud-booster-backup", version: 2, exportedAt: S.now(), voiceprints: Object.fromEntries(await S.all("voiceprints")),
     glossary: ((await S.get("kv", "glossary")) || {}).pairs || [], jobs };
   const d = new Date();
   download(`plaud-booster-백업_${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}.json`, new Blob([JSON.stringify(bk)], { type: "application/json" }));
@@ -509,6 +773,7 @@ $("#restoreFile").addEventListener("change", async (ev) => {
   try {
     const bk = JSON.parse(await f.text());
     if (bk.format !== "plaud-booster-backup") throw new Error("작업대 백업 파일이 아닙니다");
+    if (bk.version > 2) throw new Error("이 화면보다 새 판의 백업입니다. 페이지를 새로 고친 뒤 다시 올려 주세요");
     const cur = { voiceprints: Object.fromEntries(await S.all("voiceprints")), glossary: ((await S.get("kv", "glossary")) || {}).pairs || [], jobIds: new Set((await S.all("jobs")).map(([k]) => k)) };
     const m = mergeBackup(cur, bk);
     for (const [name, v] of Object.entries(m.voiceprints)) await S.put("voiceprints", name, v);

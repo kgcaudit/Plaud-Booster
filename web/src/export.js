@@ -12,6 +12,12 @@ export function applyGlossary(text, pairs) {
   return text;
 }
 
+/** 발언의 최종 화자: 발언별 수정 > 묶음 이름(소니 녹음) > 처리 결과 */
+export function speakerOf(g, edits) {
+  const e = (edits && edits.e) || {}, names = (edits && edits.names) || {};
+  return (e[g.i] && e[g.i].speaker) || (g.cluster && names[g.cluster]) || g.speaker;
+}
+
 /** 통합본 줄 목록 [{t,file,spk,text,src}] */
 export function mergedLines({ job, result, edits, plaud, glossary }, { usePlaud = true, useGlossary = true } = {}) {
   const e = (edits && edits.e) || {};
@@ -27,7 +33,7 @@ export function mergedLines({ job, result, edits, plaud, glossary }, { usePlaud 
     const ed = e[g.i] || {};
     let tag = job.mode === "gap" || job.mode === "range" ? "보충" : "";
     if (!ed.speaker && g.kind === "혼재") tag = [tag, "화자 혼재"].filter(Boolean).join("·");
-    lines.push({ t: g.start, file: g.file || 0, spk: ed.speaker || g.speaker, text: ed.text || g.text, src: tag });
+    lines.push({ t: g.start, file: g.file || 0, spk: speakerOf(g, edits), text: ed.text || g.text, src: tag });
   }
   lines.sort((a, b) => a.file - b.file || a.t - b.t);
   for (const x of lines) { x.text = applyGlossary(x.text, pairs); x.spk = applyGlossary(x.spk, pairs); }
@@ -36,7 +42,7 @@ export function mergedLines({ job, result, edits, plaud, glossary }, { usePlaud 
 
 export function exportTxt(data, opts) {
   const { job } = data;
-  const files = (job.audioFiles || []).map((f) => f.name);
+  const files = (job.audioFiles || []).map((f) => f.name + (f.recordedAt ? ` (${f.recordedAt.replace("T", " ").slice(0, 16)} 녹음)` : ""));
   const multi = files.length > 1;
   const d = new Date();
   const out = [job.title, `내보낸 시각: ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`, ""];
@@ -71,7 +77,7 @@ export function mergeBackup(cur, bk) {
   for (const p of bk.glossary || []) if (!have.has(p.from + "\u0000" + p.to)) { glossary.push(p); added.glossary++; }
   const jobs = {};
   for (const [id, j] of Object.entries(bk.jobs || {})) {
-    if (cur.jobIds.has(id)) continue;
+    if (cur.jobIds.has(id)) continue; // 백업 형식 1·2 모두 같은 자리(2는 edits에 묶음 이름 names가 더 있음)
     const job = { ...j.job, audioDeleted: true };
     if (job.status === "대기" || job.status === "처리중") job.status = "중지";
     jobs[id] = { ...j, job };

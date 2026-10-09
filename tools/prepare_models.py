@@ -1,11 +1,11 @@
 """사이트에 올릴 모델 파일을 만든다(배포 때 GitHub Actions가 돌린다).
 
-입력: sherpa-onnx-whisper-turbo 폴더(int8 인코더·디코더·토큰)와 CAM++ onnx
+입력: sherpa-onnx-whisper-turbo 폴더(int8 인코더·디코더·토큰), CAM++ onnx, (선택) Silero VAD onnx
 출력: <out>/ 아래 조각 파일들과 manifest.json
   - 디코더는 토큰 임베딩(fp32 265MB)을 행별 int8로 줄인다(shrink_decoder.py) — 전사 결과는 사실상 같다
   - GitHub Pages 한 파일 크기 걱정이 없도록 45MB 조각으로 나눈다
 
-사용: python tools/prepare_models.py <turbo_dir> <campplus.onnx> <out_dir>
+사용: python tools/prepare_models.py <turbo_dir> <campplus.onnx> <out_dir> [silero_vad.onnx]
 """
 import hashlib
 import json
@@ -38,6 +38,7 @@ def split(src, out, name):
 
 def main():
     turbo, camp, out = sys.argv[1:4]
+    vad = sys.argv[4] if len(sys.argv) > 4 else None
     os.makedirs(out, exist_ok=True)
     here = os.path.dirname(os.path.abspath(__file__))
     small = os.path.join(out, "_decoder.tmp.onnx")
@@ -48,6 +49,8 @@ def main():
         "campplus": split(camp, out, "campplus.onnx"),
         "tokens": split(os.path.join(turbo, "turbo-tokens.txt"), out, "tokens.txt"),
     }
+    if vad:
+        files["vad"] = split(vad, out, "silero-vad.onnx")
     os.remove(small)
     version = hashlib.sha256("".join(f["sha256"] for f in files.values()).encode()).hexdigest()[:12]
     with open(os.path.join(out, "manifest.json"), "w") as f:

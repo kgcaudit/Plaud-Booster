@@ -19,7 +19,8 @@ concurrency:
 
 env:
   SHERPA_REL: https://github.com/k2-fsa/sherpa-onnx/releases/download
-  MODEL_REV: turbo-int8-v1
+  MODEL_REV: turbo-int8-v2-vad
+  SILERO_SHA16: 9e2449e1087496d8
 
 jobs:
   verify:
@@ -83,9 +84,11 @@ jobs:
           curl -sSL -o turbo.tar.bz2 "$SHERPA_REL/asr-models/sherpa-onnx-whisper-turbo.tar.bz2"
           tar xjf turbo.tar.bz2 --wildcards '*int8.onnx' '*tokens.txt'
           curl -sSL -o campplus.onnx "$SHERPA_REL/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+          curl -sSL -o silero_vad.onnx "$SHERPA_REL/asr-models/silero_vad.onnx"
+          test "$(sha256sum silero_vad.onnx | cut -c1-16)" = "$SILERO_SHA16" || (echo "silero_vad.onnx 해시가 다릅니다" && exit 1)
           cd ..
           pip install -q onnx numpy
-          python tools/prepare_models.py _dl/sherpa-onnx-whisper-turbo _dl/campplus.onnx _models
+          python tools/prepare_models.py _dl/sherpa-onnx-whisper-turbo _dl/campplus.onnx _models _dl/silero_vad.onnx
           rm -rf _dl
 
       - name: 올릴 파일 모으기

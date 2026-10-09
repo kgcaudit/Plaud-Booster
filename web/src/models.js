@@ -2,6 +2,7 @@
 // 탐욕 디코딩은 tools/ref_whisper.py와 같다: [sot, ko, transcribe, notimestamps]로 시작해 eot까지.
 import { whisperLogMel, campFeatures } from "./dsp.js";
 import { normalize } from "./engine.js";
+import { agcGains } from "./diar.js";
 
 export class Whisper {
   /** @param ort onnxruntime-web 모듈, encBytes/decBytes: Uint8Array, tokensText: tokens.txt 내용 */
@@ -94,5 +95,34 @@ export class CamPlus {
     const v = normalize(r.embedding.data);
     r.embedding.dispose?.();
     return v;
+  }
+}
+
+/** Silero VAD(sherpa-onnx 판, 입력 x[1,512]·h·c[2,1,64]) — 칸(32ms)마다 말소리 확률. 음량은 agcGains로 맞춰 넣는다 */
+export class SileroVad {
+  static async create(ort, bytes) {
+    const s = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"], graphOptimizationLevel: "all" });
+    return new SileroVad(ort, s);
+  }
+  constructor(ort, s) { this.ort = ort; this.s = s; }
+  /** x: 16kHz Float32Array → Float32Array(칸 수) */
+  async probs(x) {
+    const { ort } = this;
+    const gains = agcGains(x);
+    const n = gains.length, out = new Float32Array(n);
+    let h = new ort.Tensor("float32", new Float32Array(128), [2, 1, 64]);
+    let c = new ort.Tensor("float32", new Float32Array(128), [2, 1, 64]);
+    const buf = new Float32Array(512);
+    const xt = new ort.Tensor("float32", buf, [1, 512]);
+    for (let i = 0; i < n; i++) {
+      const g = gains[i];
+      for (let k = 0; k < 512; k++) { const v = x[i * 512 + k] * g; buf[k] = v > 1 ? 1 : v < -1 ? -1 : v; }
+      const r = await this.s.run({ x: xt, h, c });
+      out[i] = r.prob.data[0];
+      h.dispose?.(); c.dispose?.(); r.prob.dispose?.();
+      h = r.new_h; c = r.new_c;
+    }
+    h.dispose?.(); c.dispose?.();
+    return out;
   }
 }

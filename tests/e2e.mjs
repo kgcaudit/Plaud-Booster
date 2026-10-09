@@ -24,6 +24,20 @@ function wav(sec, file) {
   }
   fs.writeFileSync(file, b);
 }
+/** 두 「사람」이 번갈아 말하는 합성 음원: 4초 말 + 2초 쉼, 짝수 번째는 220Hz, 홀수 번째는 520Hz */
+function wav2(sec, file) {
+  const sr = 16000, n = sec * sr, b = Buffer.alloc(44 + n * 2);
+  b.write("RIFF", 0); b.writeUInt32LE(36 + n * 2, 4); b.write("WAVE", 8); b.write("fmt ", 12);
+  b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(sr, 24); b.writeUInt32LE(sr * 2, 28);
+  b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write("data", 36); b.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr, k = Math.floor(t / 6), on = t % 6 < 4, f = k % 2 ? 520 : 220;
+    b.writeInt16LE(on ? Math.round(9000 * Math.sin(2 * Math.PI * f * t)) : 0, 44 + i * 2);
+  }
+  fs.writeFileSync(file, b);
+}
+const sony1 = path.join(tmp, "251009_1430.wav"), sony2 = path.join(tmp, "251009_1432.wav");
+wav2(90, sony1); wav2(60, sony2);
 const audioPath = path.join(tmp, "회의.wav");
 wav(90, audioPath);
 const trPath = path.join(tmp, "plaud.txt");
@@ -96,6 +110,71 @@ try {
   assert.match(txt, /김응옥: 발언 0/); // Plaud 전사가 합쳐짐
   assert.match(txt, /진짜 전사/); // 사전 적용
   console.log("✓ 통합본 TXT(Plaud 합치기·검수·사전)");
+
+  // ---- 소니 녹음: 화자 먼저 묶기 → 이름 붙이기 → 전사 → 발언별 수정·되돌리기 → 목소리 기준 저장
+  page.on("dialog", (d) => d.accept());
+  await page.click(".tabs button[data-tab='jobs']");
+  await page.click("#btnNew");
+  await page.check("input[name='mode'][value='sony']");
+  await page.setInputFiles("#audioFiles", [asFile(sony2, "audio/wav"), asFile(sony1, "audio/wav")]); // 거꾸로 골라도
+  await page.waitForSelector("#audioList li:first-child:has-text('251009_1430.wav')"); // 녹음 시각 순
+  await page.waitForSelector("#audioList li:nth-child(2):has-text('앞 파일과')");
+  await page.fill("#attendees", "2");
+  await page.fill("#jobTitle", "소니 시험");
+  await page.click("#btnSubmit");
+  await page.waitForSelector(".job:has-text('소니 시험') .badge:has-text('이름 대기')", { timeout: 60000 });
+  await page.click(".job:has-text('소니 시험') button[data-a='review']");
+  await page.waitForSelector("#spkPanel .cl");
+  assert.equal(await page.locator("#spkPanel .cl").count(), 2);
+  assert.ok(await page.locator("#rvMain").isHidden());
+  await page.locator("#spkPanel .cl").first().locator("button.play").first().click();
+  await page.waitForFunction(() => document.getElementById("player").currentSrc.startsWith("blob:"));
+  const cards = page.locator("#spkPanel .cl");
+  const ids = [await cards.nth(0).getAttribute("data-c"), await cards.nth(1).getAttribute("data-c")];
+  await page.fill(`#spkPanel .cl[data-c='${ids[0]}'] input[data-a='name']`, "갑");
+  await page.locator(`#spkPanel .cl[data-c='${ids[0]}'] input[data-a='name']`).dispatchEvent("change");
+  await page.fill(`#spkPanel .cl[data-c='${ids[1]}'] input[data-a='name']`, "을");
+  await page.locator(`#spkPanel .cl[data-c='${ids[1]}'] input[data-a='name']`).dispatchEvent("change");
+  await page.click("#spkPanel button[data-a='go']");
+  await page.waitForSelector(".job:has-text('소니 시험') .badge.st-완료", { timeout: 90000 });
+  console.log("✓ 소니 녹음: 파일 순서·화자 묶음 2개·이름 붙이고 전사");
+
+  await page.click(".job:has-text('소니 시험') button[data-a='review']");
+  await page.click(".seg button[data-f='all']");
+  await page.waitForSelector("#rvBody button.spkbtn");
+  const names0 = await page.locator("#rvBody button.spkbtn").allTextContents();
+  assert.ok(names0.includes("갑") && names0.includes("을"), names0.join(","));
+  // 발언 하나만 바꾸기(이름 붙은 묶음이라 「이 발언만」이 기본)
+  const row = page.locator("#rvBody tr").first();
+  const was = await row.locator("button.spkbtn").textContent();
+  await row.locator("button.spkbtn").click();
+  await page.waitForSelector("#spkPop:not(.hidden)");
+  assert.ok(await page.locator("#spkPop input[value='one']").isChecked());
+  await page.fill("#popName", "병");
+  await page.click("#spkPop button[data-a='save']");
+  assert.equal(await page.locator("#rvBody tr").first().locator("button.spkbtn").textContent(), "병");
+  assert.equal((await page.locator("#rvBody button.spkbtn").allTextContents()).filter((x) => x === "병").length, 1);
+  await page.click("#spUndo");
+  assert.equal(await page.locator("#rvBody tr").first().locator("button.spkbtn").textContent(), was);
+  // 묶음 전체 이름 바꾸기
+  await page.locator("#rvBody tr").first().locator("button.spkbtn").click();
+  await page.check("#spkPop input[value='all']");
+  await page.fill("#popName", "정");
+  await page.click("#spkPop button[data-a='save']");
+  const names1 = await page.locator("#rvBody button.spkbtn").allTextContents();
+  assert.ok(!names1.includes(was) && names1.includes("정"), names1.join(","));
+  await page.waitForSelector("#rvSave:has-text('저장됨')");
+  console.log("✓ 발언별 화자 창(이 발언만·묶음 전체)·되돌리기");
+
+  const d4 = page.waitForEvent("download");
+  await page.click("#exTxt");
+  const t4 = fs.readFileSync(await (await d4).path(), "utf8");
+  assert.match(t4, /■ 251009_1430\.wav \(2025-10-09 14:30 녹음\)/);
+  assert.match(t4, /\] 정: /);
+  await page.click("#spkPanel button[data-a='vp']");
+  await page.click(".tabs button[data-tab='voices']");
+  await page.waitForSelector("#vpBody tr[data-n='정']");
+  console.log("✓ 통합본(묶음 이름·녹음 시각)·목소리 기준 저장");
 
   // ---- 조각 음원(MP3 프레임 단위 풀기)
   if (mp3Path) {

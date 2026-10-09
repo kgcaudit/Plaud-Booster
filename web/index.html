@@ -13,7 +13,7 @@
 <header class="top">
   <div class="brand">
     <strong>Plaud 보강 작업대</strong>
-    <span class="sub">누락 구간 보충 · 구간 재전사 · 조각 음원 화자 매칭 — 모든 처리는 이 PC 브라우저 안에서만</span>
+    <span class="sub">소니 녹음 화자 나누기 · 누락 구간 보충 · 구간 재전사 · 조각 음원 화자 매칭 — 모든 처리는 이 기기 브라우저 안에서만</span>
   </div>
   <div id="sysline" class="sysline">준비 중…</div>
 </header>
@@ -41,6 +41,8 @@
 
     <fieldset class="modes">
       <legend>1. 무엇을 할까요</legend>
+      <label class="mode"><input type="radio" name="mode" value="sony">
+        <b>소니 녹음 화자 나누기</b><span>Plaud 없이 녹음기 파일만으로: 비슷한 목소리를 먼저 묶고(Speaker 1, 2…), 이름을 붙인 뒤 전사합니다.</span></label>
       <label class="mode"><input type="radio" name="mode" value="gap" checked>
         <b>누락 구간 보충</b><span>Plaud 전사가 중간에 끊겼을 때, 끊긴 뒤부터 녹음 끝까지 전사하고 화자를 붙입니다.</span></label>
       <label class="mode"><input type="radio" name="mode" value="range">
@@ -72,9 +74,10 @@
     </fieldset>
 
     <fieldset id="fsSpeakers">
-      <legend>4. 화자 후보 <small>고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다</small></legend>
+      <legend><span id="spkLegend">4. 화자 후보</span> <small id="spkHint">고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다</small></legend>
       <div id="spkChips" class="chips"></div>
-      <label class="chk"><input type="checkbox" id="useVp" checked> 저장된 목소리 기준 함께 쓰기</label>
+      <label class="chk" id="attWrap">참석 인원(선택) <input type="number" id="attendees" min="0" max="30" class="num" placeholder="모름"></label>
+      <label class="chk" id="useVpWrap"><input type="checkbox" id="useVp" checked> 저장된 목소리 기준 함께 쓰기</label>
     </fieldset>
 
     <fieldset>
@@ -105,6 +108,8 @@
     </div>
     <label class="chk"><input type="checkbox" id="rvPlaud"> Plaud 전사 함께 보기</label>
   </div>
+  <div id="spkPanel" class="spkpanel card hidden"></div>
+  <div id="rvMain">
   <div id="rvStats" class="stats"></div>
   <div class="bar small">
     <span class="msg" id="rvSave"></span>
@@ -119,6 +124,7 @@
     <tbody id="rvBody"></tbody>
   </table></div>
   <p id="rvEmpty" class="empty hidden">표시할 발언이 없습니다.</p>
+  </div>
   <audio id="player" preload="none"></audio>
 </section>
 
@@ -170,6 +176,7 @@
 </section>
 </main>
 
+<div id="spkPop" class="spkpop hidden" role="dialog" aria-label="발언 화자 바꾸기"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script type="module" src="src/app.js"></script>
 </body>

@@ -5,68 +5,93 @@ import { runJob, isGeneric } from "./engine.js";
 
 const FAKE = new URL(self.location.href).searchParams.get("fake") === "1";
 const post = (m) => self.postMessage(m);
-let ort = null, whisper = null, camp = null, busy = false, stopId = null, manifest = null;
+let ort = null, whisper = null, camp = null, vad = null, busy = false, stopId = null, manifest = null;
 
 /* ------------------------------------------------------------------ 모델 */
-const CACHE = "pb-models";
+// 모델 파일마다 내용 해시로 캐시를 따로 둔다(pb-m-<sha>). 모델 하나를 더하거나 바꿔도 나머지는 다시 받지 않는다.
+// 예전 방식(pb-models-<판>, 전체 한 캐시)에 있던 조각은 해시를 확인한 뒤 옮겨 쓴다.
+const LEGACY = "pb-models-";
+const cacheName = (info) => "pb-m-" + info.sha256.slice(0, 16);
+const partUrl = (part) => new URL("../models/" + part, self.location.href).href;
 
 async function getManifest() {
   if (!manifest) manifest = await (await fetch("../models/manifest.json", { cache: "no-store" })).json();
   return manifest;
 }
 
+async function findPart(info, url) {
+  const r = await (await caches.open(cacheName(info))).match(url);
+  if (r) return { r, legacy: false };
+  for (const k of await caches.keys()) {
+    if (!k.startsWith(LEGACY)) continue;
+    const q = await (await caches.open(k)).match(url);
+    if (q) return { r: q, legacy: true };
+  }
+  return null;
+}
+
+const hex = (buf) => [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, "0")).join("");
+
 /** 모델 파일(조각)을 받아 캐시에 두고 합친 바이트를 돌려준다 */
-async function loadFile(info, onBytes) {
-  const cache = await caches.open(CACHE + "-" + manifest.version);
+async function loadFile(info, onBytes, fromNet = false) {
+  const cache = await caches.open(cacheName(info));
   const out = new Uint8Array(info.size);
-  let o = 0;
+  let o = 0, legacy = false;
   for (const part of info.parts) {
-    const url = new URL("../models/" + part, self.location.href).href;
-    let r = await cache.match(url);
-    if (!r) {
-      const net = await fetch(url);
+    const url = partUrl(part);
+    const hit = fromNet ? null : await findPart(info, url);
+    let b;
+    if (hit) {
+      b = new Uint8Array(await hit.r.arrayBuffer());
+      if (hit.legacy) { legacy = true; await cache.put(url, new Response(b)); }
+    } else {
+      const net = await fetch(url, { cache: "no-store" });
       if (!net.ok) throw new Error(`모델 받기 실패: ${part} (${net.status})`);
       await cache.put(url, net.clone());
-      r = net;
+      b = new Uint8Array(await net.arrayBuffer());
     }
-    const b = new Uint8Array(await r.arrayBuffer());
+    if (o + b.length > info.size) break;
     out.set(b, o);
     o += b.length;
     onBytes(b.length);
   }
-  if (o !== info.size) throw new Error(`모델 크기가 맞지 않습니다: ${info.name}`);
+  const bad = o !== info.size || (legacy && hex(await crypto.subtle.digest("SHA-256", out)) !== info.sha256);
+  if (bad) {
+    if (fromNet || !legacy) throw new Error(`모델 크기가 맞지 않습니다: ${info.name}`);
+    await caches.delete(cacheName(info));
+    return loadFile(info, onBytes, true); // 예전 캐시 내용이 달랐다 → 새로 받는다
+  }
   return out;
 }
 
 export async function modelStatus() {
   if (FAKE) return { ready: true, cachedBytes: 0, totalBytes: 0 };
   const m = await getManifest();
-  const cache = await caches.open(CACHE + "-" + m.version);
   let cached = 0, total = 0;
   for (const f of Object.values(m.files)) {
     for (let i = 0; i < f.parts.length; i++) {
-      const sz = f.partSizes[i];
-      total += sz;
-      if (await cache.match(new URL("../models/" + f.parts[i], self.location.href).href)) cached += sz;
+      total += f.partSizes[i];
+      if (await findPart(f, partUrl(f.parts[i]))) cached += f.partSizes[i];
     }
   }
   return { ready: cached === total, cachedBytes: cached, totalBytes: total, version: m.version };
 }
 
+/** 모든 모델을 새 캐시로 옮긴 뒤 예전 캐시와 이제 안 쓰는 모델 캐시를 지운다 */
 async function cleanupOldCaches() {
-  const keep = CACHE + "-" + manifest.version;
-  for (const k of await caches.keys()) if (k.startsWith(CACHE) && k !== keep) await caches.delete(k);
+  const keep = new Set(Object.values(manifest.files).map(cacheName));
+  for (const k of await caches.keys()) if (k.startsWith(LEGACY) || (k.startsWith("pb-m-") && !keep.has(k))) await caches.delete(k);
 }
 
 async function ensureModels() {
   if (FAKE) {
     whisper = whisper || { transcribe: async (a) => `가짜 전사 ${(a.length / 16000).toFixed(1)}초` };
-    camp = camp || { embed: async (a) => { let s = 0; for (let i = 0; i < a.length; i += 97) s += Math.abs(a[i]); const v = new Float32Array(192); for (let i = 0; i < 192; i++) v[i] = Math.sin(i * (1 + (s % 7))); let n = 0; for (const x of v) n += x * x; n = Math.sqrt(n); return v.map((x) => x / n); } };
+    camp = camp || { embed: async (a) => fakeEmbed(a) };
+    vad = vad || { probs: async (x) => { const n = Math.floor(x.length / 512), p = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let k = i * 512; k < (i + 1) * 512; k++) s += x[k] * x[k]; p[i] = Math.sqrt(s / 512) > 0.01 ? 0.9 : 0.02; } return p; } };
     return;
   }
-  if (whisper && camp) return;
+  if (whisper && camp && (vad || !manifest?.files?.vad)) return;
   const m = await getManifest();
-  await cleanupOldCaches();
   if (!ort) {
     ort = await import("../vendor/ort/ort.wasm.min.mjs");
     const set = (await S.get("kv", "settings")) || {};
@@ -80,10 +105,14 @@ async function ensureModels() {
   got = 0;
   const { Whisper, CamPlus } = await import("./models.js");
   const tokens = new TextDecoder().decode(await loadFile(m.files.tokens, tick));
+  const vadBytes = m.files.vad ? await loadFile(m.files.vad, tick) : null;
   const campBytes = await loadFile(m.files.campplus, tick);
   const decBytes = await loadFile(m.files.decoder, tick);
   const encBytes = await loadFile(m.files.encoder, tick);
+  await cleanupOldCaches();
   post({ type: "models", phase: "load" });
+  const { SileroVad } = await import("./models.js");
+  if (vadBytes) vad = await SileroVad.create(ort, vadBytes);
   camp = await CamPlus.create(ort, campBytes);
   whisper = await Whisper.create(ort, encBytes, decBytes, tokens);
   post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads });
@@ -113,6 +142,8 @@ async function processJob(job) {
     readAudio: (fi, s, e) => S.readAudio(id, fi, s, e),
     transcribe: (a) => whisper.transcribe(a),
     embed: (a) => camp.embed(a),
+    vadProbs: vad ? (x) => vad.probs(x) : undefined,
+    clearPartial: () => S.del("partials", id),
     plaud: (await S.get("plaud", id)) || [],
     vpStore,
     loadEnroll: () => S.get("enroll", id),
@@ -124,7 +155,12 @@ async function processJob(job) {
     progress,
     shouldStop: () => stopId === id,
   };
-  const { result, fresh } = await runJob(job, job.audioFiles, ctx);
+  const { result, fresh, awaiting, diar } = await runJob(job, job.audioFiles, ctx);
+  if (awaiting) {
+    await S.saveJob(id, { status: "이름 대기", stats: { clusters: diar.clusters.length, units: diar.units.length }, progress: { pct: 100, msg: "화자 이름을 붙인 뒤 전사를 시작하세요" } });
+    post({ type: "job", id, naming: true });
+    return;
+  }
   if (!result) {
     const j = await S.get("jobs", id);
     await S.saveJob(id, { status: "중지", progress: { pct: j.progress?.pct || 0, msg: "중지됨 — 다시 시작하면 이어서 합니다" } });
@@ -134,6 +170,7 @@ async function processJob(job) {
   result.updatedAt = S.now();
   await S.put("results", id, result);
   const source = job.title || id;
+  // 소니 녹음은 사람이 이름을 확인한 뒤 검수 화면의 「목소리 기준 저장」으로만 저장한다(확인 안 된 이름이 기준을 흐리지 않게)
   for (const [name, d] of Object.entries(fresh || {})) {
     if (isGeneric(name)) continue; // 「Speaker 1」 같은 임시 이름은 저장하지 않는다
     await S.update("voiceprints", name, (ent) => {
@@ -145,6 +182,18 @@ async function processJob(job) {
   }
   await S.saveJob(id, { status: "완료", stats: result.stats, finishedAt: S.now(), progress: { pct: 100, msg: "완료" } });
   post({ type: "job", id, done: true });
+}
+
+/** 가짜 엔진 목소리 특징: 소리의 대략적인 높낮이(영점 교차 수)로 정한다 — 시험 음원의 두 「사람」을 가른다 */
+function fakeEmbed(a) {
+  let z = 0;
+  for (let i = 1; i < a.length; i++) if ((a[i - 1] < 0) !== (a[i] < 0)) z++;
+  const hz = (z / 2) / (a.length / 16000 || 1);
+  const v = new Float32Array(192);
+  const k = hz < 330 ? 0 : 1;
+  for (let i = 0; i < 192; i++) v[i] = (i % 2 === k ? 1 : 0.05) + 0.01 * Math.sin(i + hz / 50);
+  let n = 0; for (const x of v) n += x * x; n = Math.sqrt(n);
+  return v.map((x) => x / n);
 }
 
 async function loop() {

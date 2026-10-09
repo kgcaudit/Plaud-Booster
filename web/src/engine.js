@@ -4,6 +4,7 @@
 //   70% 이상이면 「단일」, 아니면 「혼재」. 1·2위 유사도 차이가 작으면 신뢰도를 낮춘다.
 // - 처음부터 N명으로 묶는 방식은 소수 화자가 사라져 쓰지 않는다.
 import { vadChunks, activeEnd } from "./dsp.js";
+import { speechRegions, packRegions, windowsOf, diarize } from "./diar.js";
 
 const HALLU = /다음 영상에서|시청해 주셔서|구독(과|,)? ?좋아요|^감사합니다\.?$|^MBC 뉴스|자막 제공|^\(?음악\)?$/;
 const GENERIC = /^(speaker|spk|화자|발언자|참석자)\s*[_-]?\s*\d+$/i;
@@ -103,6 +104,120 @@ export async function match(embedAt, s, e, C) {
   return [Object.fromEntries(sorted.map(([k, v]) => [k, Math.round((v / tot) * 100) / 100])), whole];
 }
 
+/** 말소리 구간: Silero(음량 맞춤)가 있으면 그것으로, 없으면 에너지 기준. 긴 녹음은 10분씩 읽는다 */
+export async function regionsOf(ctx, fi, a, b, onStep = () => {}) {
+  const out = [];
+  for (let t = a; t < b; t += 600) {
+    const e = Math.min(b, t + 600);
+    const x = await ctx.readAudio(fi, t, e);
+    if (ctx.vadProbs) {
+      for (const r of speechRegions(await ctx.vadProbs(x), t)) {
+        const last = out[out.length - 1];
+        if (last && r[0] - last[1] < 0.05) last[1] = r[1]; else out.push(r); // 10분 경계에서 이어진 구간은 붙인다
+      }
+    } else out.push(...vadChunks(x, t));
+    onStep(Math.min(1, (e - a) / Math.max(1, b - a)));
+  }
+  return out;
+}
+
+/** 저장된 목소리 기준 → { 이름: 단위벡터 } (참석자를 골랐으면 그 사람들만) */
+export function knownPrints(vpStore, only = []) {
+  const set = new Set(only || []);
+  const C = {};
+  for (const [name, entry] of Object.entries(vpStore || {})) {
+    if (set.size && !set.has(name)) continue;
+    const { vec } = centroid(entry);
+    if (vec) C[name] = vec;
+  }
+  return C;
+}
+
+/**
+ * 소니 녹음(화자 먼저): ① 말소리 구간 → 창 특징 → 묶기(결과는 chunks 저장소에 diar로) → 「이름 대기」
+ * ② job.stage === "transcribe"가 되면 발언 단위로 전사(job.skip에 든 묶음은 건너뜀)
+ */
+export async function runSony(job, files, ctx) {
+  let diar = await ctx.loadChunks();
+  if (!diar || diar.kind !== "diar") {
+    const wins = [];
+    let r0 = 0;
+    for (let fi = 0; fi < files.length; fi++) {
+      const regs = await regionsOf(ctx, fi, 0, files[fi].dur, (p) => ctx.progress(1 + Math.floor(((fi + p) / files.length) * 14), `말소리 찾는 중 ${fi + 1}/${files.length}번 파일`));
+      for (const w of windowsOf(regs)) wins.push({ ...w, f: fi, r: w.r + r0 });
+      r0 += regs.length;
+    }
+    // 창 특징(100개씩 저장해 두어 멈춰도 이어서)
+    const done = await ctx.loadPartial();
+    const B = 100, vecs = new Array(wins.length);
+    const tic = Date.now();
+    let fresh = 0;
+    for (let b = 0; b * B < wins.length; b++) {
+      const key = "e" + b;
+      if (done[key] && done[key].v.length === Math.min(B, wins.length - b * B)) { done[key].v.forEach((v, i) => { vecs[b * B + i] = Float32Array.from(v); }); continue; }
+      if (ctx.shouldStop()) return { result: null, fresh: {} };
+      const v = [];
+      for (let i = b * B; i < Math.min(wins.length, (b + 1) * B); i++) {
+        const w = wins[i];
+        vecs[i] = await ctx.embed(await ctx.readAudio(w.f, w.s, w.e));
+        v.push(Array.from(vecs[i], (x) => Math.round(x * 1e4) / 1e4));
+      }
+      await ctx.savePartial({ k: key, v });
+      fresh++;
+      const n = Math.min(wins.length, (b + 1) * B);
+      const left = ((wins.length - n) / B) * ((Date.now() - tic) / fresh) / 60000;
+      ctx.progress(15 + Math.floor((n / wins.length) * 80), `목소리 특징 ${n}/${wins.length} · 남은 시간 약 ${Math.ceil(left)}분`);
+    }
+    ctx.progress(96, "화자 묶는 중");
+    const known = knownPrints(ctx.vpStore, job.speakers);
+    const cap = job.attendees ? job.attendees + 2 : 0;
+    diar = { kind: "diar", ...diarize(wins, vecs, known, { cap }), nwin: wins.length, known: Object.keys(known) };
+    await ctx.saveChunks(diar);
+    if (ctx.clearPartial) await ctx.clearPartial();
+  }
+  if (job.stage !== "transcribe") return { result: null, fresh: {}, awaiting: true, diar };
+
+  const skip = new Set(job.skip || []);
+  const ids = diar.clusters.map((c) => c.id);
+  const todo = diar.units.map((u, k) => k).filter((k) => !skip.has(ids[diar.units[k].c]));
+  const done = await ctx.loadPartial();
+  const tic = Date.now();
+  let nNew = 0;
+  for (const k of todo) {
+    if (done[k]) continue;
+    if (ctx.shouldStop()) return { result: null, fresh: {} };
+    const u = diar.units[k];
+    const text = await ctx.transcribe(await ctx.readAudio(u.f, Math.max(0, u.s - 0.15), u.e + 0.15));
+    const rec = { k, text };
+    if (isHallu(text)) rec.hallu = true;
+    await ctx.savePartial(rec);
+    done[k] = rec;
+    nNew++;
+    const n = todo.filter((q) => done[q]).length;
+    const left = ((todo.length - n) * (Date.now() - tic)) / nNew / 60000;
+    ctx.progress(Math.floor((n / Math.max(1, todo.length)) * 99), `${n}/${todo.length} 발언 전사 · 남은 시간 약 ${Math.ceil(left)}분`);
+  }
+  const segs = [];
+  let dropped = 0;
+  for (const k of todo) {
+    const r = done[k], u = diar.units[k], c = diar.clusters[u.c];
+    if (r.hallu) { dropped++; continue; }
+    segs.push({ i: k + 1, u: k, file: u.f, start: u.s, end: u.e, text: r.text, cluster: c.id, speaker: c.label, kind: "단일", conf: u.sim, margin: u.margin });
+  }
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const stats = {
+    segments: segs.length, single: segs.length, mixed: 0, unknown: 0,
+    lowConf: segs.filter((g) => g.conf < 0.5 || g.margin < 0.1).length, droppedHallucination: dropped,
+    clusters: diar.clusters.length, skipped: diar.units.length - todo.length,
+    targetSec: r1(files.reduce((m, f) => m + f.dur, 0)),
+    targets: files.map((f, i) => ({ file: i, from: 0, to: r1(f.dur) })),
+    files: files.map((f) => ({ name: f.name, dur: r1(f.dur), recordedAt: f.recordedAt || null })),
+    speakersUsed: [], enrolled: {},
+  };
+  const clusters = diar.clusters.map(({ vec, ...c }) => c); // 특징 벡터는 결과(백업)에 넣지 않는다
+  return { result: { segs, stats, clusters }, fresh: {} };
+}
+
 /** 처리 대상 구간 [[파일번호, 시작, 끝]] */
 export async function planTargets(job, files, plaudEnd, readAudio) {
   if (job.mode === "enroll") return [];
@@ -124,6 +239,7 @@ export async function planTargets(job, files, plaudEnd, readAudio) {
  * 반환: { result, fresh } — 멈췄으면 result=null
  */
 export async function runJob(job, files, ctx) {
+  if (job.mode === "sony") return runSony(job, files, ctx);
   const smap = job.speakerMap || {};
   const plaud = (ctx.plaud || []).map((g) => ({ ...g, speaker: (smap[g.speaker] || g.speaker || "").trim() }));
   const plaudEnd = plaud.reduce((m, g) => Math.max(m, g.end), 0) || null;
@@ -142,13 +258,7 @@ export async function runJob(job, files, ctx) {
     await ctx.saveEnroll(fresh);
   }
 
-  let C = {};
-  if (job.useVoiceprints !== false) {
-    for (const [name, entry] of Object.entries(ctx.vpStore || {})) {
-      const { vec } = centroid(entry);
-      if (vec) C[name] = vec;
-    }
-  }
+  let C = job.useVoiceprints !== false ? knownPrints(ctx.vpStore) : {};
   for (const [name, d] of Object.entries(fresh)) { // 이번 회의 기준이 있으면 저장된 기준과 합쳐 쓴다
     if (C[name]) C[name] = centroid({ items: { ...(ctx.vpStore[name].items || {}), __this__: d } }).vec;
     else C[name] = Float32Array.from(d.vec);
@@ -164,7 +274,8 @@ export async function runJob(job, files, ctx) {
     ctx.progress(10, "말소리 구간 나누는 중");
     chunks = [];
     for (const [fi, a, b] of targets) {
-      for (const [s, e] of vadChunks(await ctx.readAudio(fi, a, b), a)) chunks.push([fi, s, e]);
+      const regs = ctx.vadProbs ? packRegions(await regionsOf(ctx, fi, a, b)) : vadChunks(await ctx.readAudio(fi, a, b), a);
+      for (const [s, e] of regs) chunks.push([fi, s, e]);
     }
     await ctx.saveChunks(chunks);
   }
