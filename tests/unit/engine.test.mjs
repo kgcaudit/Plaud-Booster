@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runJob, label, isHallu, isGeneric, centroid, pacer } from "../../web/src/engine.js";
+import { runJob, label, isHallu, isGeneric, centroid, pacer, cleanText } from "../../web/src/engine.js";
 import { exportTxt, exportCsv, mergeBackup, mergedLines } from "../../web/src/export.js";
 
 // 합성 음원: 6초 주기(4초 말 + 2초 쉼). 화자는 시간대로 정해지는 가짜 특징(앞 30초 A, 뒤 B)
@@ -121,4 +121,11 @@ test("느려짐 알림: 최근 구간이 처음보다 1.8배 넘게 느려야만
   const q = pacer(() => t);
   for (let k = 0; k < 24; k++) { step(1200 + (k % 3) * 100); msg = q(); }
   assert.equal(msg, "");
+});
+
+test("대화체 줄표 걷어 내기", () => {
+  assert.equal(cleanText("- 아, 됐어. - 응. - 그거"), "아, 됐어. 응. 그거");
+  assert.equal(cleanText("-사무소 전화번호 잡고 있었어. - -"), "사무소 전화번호 잡고 있었어.");
+  assert.equal(cleanText("- -"), "");
+  assert.equal(cleanText("A-15 번하고 3-4번"), "A-15 번하고 3-4번");
 });

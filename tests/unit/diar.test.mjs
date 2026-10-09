@@ -267,6 +267,7 @@ test("소니 녹음 전사: 짧은 발언을 묶어 창 수를 줄이고, 글은
   const ctx = sonyCtx(120);
   const files = [{ name: "a.mp3", dur: 120 }];
   const r1 = await runJob({ mode: "diar", stage: "diar" }, files, ctx);
+  ctx.store.chunks.narrow = false; // 시험 음원(사인파)은 전화 음질로 잡히므로 넓은 대역 회의로 둔다
   const nu = r1.diar.units.length;
   let calls = 0, ts = 0, stop = 2;
   ctx.transcribe = async (a) => { calls++; return `한 발언 ${a.length}`; };
@@ -292,4 +293,23 @@ test("소니 녹음 전사: 짧은 발언을 묶어 창 수를 줄이고, 글은
   assert.ok(r.result.stats.packed > 0);
   assert.ok(r.result.segs.every((g) => g.text)); // 빈 발언은 결과에 없음
   for (const g of r.result.segs) assert.equal(g.cluster, r1.diar.clusters[r1.diar.units[g.u].c].id);
+});
+
+test("묶은 창에서 글을 못 받은 발언은 혼자 다시 전사하고, 통화·전화 음질은 묶지 않는다", async () => {
+  const ctx = sonyCtx(120);
+  const files = [{ name: "a.mp3", dur: 120 }];
+  const r1 = await runJob({ mode: "diar", stage: "diar" }, files, ctx);
+  ctx.store.chunks.narrow = false; // 시험 음원(사인파)은 전화 음질로 잡히므로 넓은 대역 회의로 둔다
+  const nu = r1.diar.units.length;
+  let alone = 0, ts = 0;
+  ctx.transcribe = async () => { alone++; return "혼자 전사"; };
+  ctx.transcribeTs = async () => { ts++; return [{ s: 0, e: 1, text: "첫 발언만" }]; }; // 창의 첫 발언에만 글
+  const r = await runJob({ mode: "diar", stage: "transcribe" }, files, ctx);
+  assert.equal(r.result.segs.length, nu); // 하나도 빠지지 않음
+  assert.equal(r.result.stats.merged, 0);
+  assert.ok(alone > 0 && ts > 0);
+  // 통화 녹음이면 묶지 않는다
+  ctx.store.partial = {}; ts = 0; alone = 0;
+  const r2 = await runJob({ mode: "diar", stage: "transcribe", call: true }, files, ctx);
+  assert.equal(ts, 0); assert.equal(alone, nu); assert.equal(r2.result.segs.length, nu);
 });

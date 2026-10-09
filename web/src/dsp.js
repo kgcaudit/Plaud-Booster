@@ -197,10 +197,17 @@ export function vadChunks(a, t0, maxlen = 25) {
     for (let k = i * fr; k < (i + 1) * fr; k++) s += a[k] * a[k];
     e[i] = 20 * Math.log10(Math.sqrt(s / fr) + 1e-9);
   }
-  const thr = percentile(e, 20) + 6;
+  // 기준 = 앞뒤 5초 안의 소음 바닥(1초 블록마다 하위 10%, 그중 가장 낮은 값) + 6dB.
+  // 예전처럼 녹음 전체 하위 20% + 6dB로 하면, 쉼 없이 이어지는 통화에서는 그 20%가 이미 말소리라
+  // 작게 들리는 상대방 말을 침묵으로 버렸다(2026-09-14 통화: 205초 중 98초만 잡힘 → 204초).
+  const B = 33, nb = Math.ceil(nfr / B), bp = new Float64Array(nb), floor = new Float64Array(nb);
+  for (let b = 0; b < nb; b++) bp[b] = percentile(e.subarray(b * B, Math.min(nfr, (b + 1) * B)), 10);
+  for (let b = 0; b < nb; b++) { let m = Infinity; for (let k = Math.max(0, b - 5); k <= Math.min(nb - 1, b + 5); k++) m = Math.min(m, bp[k]); floor[b] = m; }
+  const gfloor = percentile(e, 5);
   const ch = [];
   let st = null, sil = 0;
   for (let i = 0; i < nfr; i++) {
+    const thr = Math.max(floor[Math.floor(i / B)], gfloor) + 6;
     if (e[i] > thr) {
       if (st === null) st = i;
       sil = 0;

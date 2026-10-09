@@ -10,6 +10,18 @@ const HALLU = /다음 영상에서|시청해 주셔서|구독(과|,)? ?좋아요
 const GENERIC = /^(speaker|spk|화자|발언자|참석자)\s*[_-]?\s*\d+$/i;
 
 export const isGeneric = (name) => GENERIC.test(String(name).trim());
+/**
+ * Whisper가 대화체로 붙이는 줄표(「- 아, 됐어. - 응.」)와 글자 없는 조각(「- -」)을 걷어 낸다.
+ * 낱말 안·숫자 사이 줄표(A-15, 3-4)는 그대로 둔다.
+ */
+export function cleanText(t) {
+  const s = String(t || "")
+    .replace(/(^|\s)-+(?=\s|$)/g, "$1")      // 홀로 선 줄표
+    .replace(/(^|\s)-+(?=[^\s\d-])/g, "$1") // 말 앞에 붙은 줄표(「-사무소」)
+    .replace(/\s{2,}/g, " ").trim();
+  return /[\p{L}\p{N}]/u.test(s) ? s : "";
+}
+
 export function isHallu(t) {
   t = t.trim();
   return !t || t === "-" || t === "." || HALLU.test(t) || /(.{4,})\1{3,}/u.test(t);
@@ -264,24 +276,29 @@ export async function runSony(job, files, ctx) {
   const tic = Date.now(), pace = pacer(ctx.now);
   let nNew = 0;
   const PAD = 0.15, GAP = 0.6;
-  const groups = ctx.transcribeTs ? packGroups(diar.units, todo.filter((k) => !done[k]), { gap: GAP }) : todo.filter((k) => !done[k]).map((k) => [k]);
+  // 통화·전화 음질은 묶지 않는다: 짧게 주고받는 말이 많아 묶으면 발언이 통째로 빠지거나 옆 발언으로 옮겨 간다
+  // (2026-09-14 통화 녹음: 묶었더니 발언 5개가 사라짐 — 사용자 확인)
+  const canPack = ctx.transcribeTs && !diar.narrow && !job.call;
+  const groups = canPack ? packGroups(diar.units, todo.filter((k) => !done[k]), { gap: GAP }) : todo.filter((k) => !done[k]).map((k) => [k]);
   for (const g of groups) {
     if (ctx.shouldStop()) return { result: null, fresh: {} };
     const clips = [];
     for (const k of g) { const u = diar.units[k]; clips.push(await ctx.readAudio(u.f, Math.max(0, u.s - PAD), u.e + PAD)); }
     let texts;
-    if (g.length === 1) texts = [await ctx.transcribe(clips[0])];
+    if (g.length === 1) texts = [cleanText(await ctx.transcribe(clips[0]))];
     else {
       const gapN = Math.round(GAP * 16000), all = new Float32Array(clips.reduce((n, c) => n + c.length, 0) + gapN * (clips.length - 1));
       const spans = [];
       let o = 0;
       clips.forEach((c, j) => { all.set(c, o); spans.push([o / 16000, (o + c.length) / 16000]); o += c.length + (j < clips.length - 1 ? gapN : 0); });
-      texts = assignPack(spans, await ctx.transcribeTs(all));
+      texts = assignPack(spans, (await ctx.transcribeTs(all)).map((g) => ({ ...g, text: cleanText(g.text) })).filter((g) => g.text));
+      // 묶은 창에서 글을 못 받은 발언은 버리지 않고 혼자 다시 전사한다(말이 통째로 빠지지 않게)
+      for (let j = 0; j < g.length; j++) if (!texts[j]) texts[j] = cleanText(await ctx.transcribe(clips[j]));
     }
     for (let j = 0; j < g.length; j++) {
       const rec = { k: g[j], text: texts[j] };
       if (g.length > 1) rec.pack = g.length;
-      if (!rec.text) rec.empty = true; // 같은 창의 이웃(같은 화자) 발언으로 글이 옮겨 간 경우
+      if (!rec.text) rec.empty = true; // 혼자 다시 전사해도 글이 없는 발언
       else if (isHallu(rec.text)) rec.hallu = true;
       await ctx.savePartial(rec);
       done[g[j]] = rec;
@@ -386,7 +403,7 @@ export async function runJob(job, files, ctx) {
     if (ctx.shouldStop()) return { result: null, fresh };
     const [fi, s, e] = chunks[k];
     const audio = await ctx.readAudio(fi, Math.max(0, s - 0.15), e + 0.15);
-    const text = await ctx.transcribe(audio);
+    const text = cleanText(await ctx.transcribe(audio));
     const rec = { k, file: fi, start: s, end: e, text };
     if (isHallu(text)) rec.hallu = true;
     else {

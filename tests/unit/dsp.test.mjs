@@ -29,3 +29,17 @@ test("말소리 구간은 25초를 넘지 않고, 쉼에서 나뉜다", () => {
   for (const [a, b] of ch) { assert.ok(b - a <= 25.01); assert.ok(a >= 100); }
   assert.ok(activeEnd(x, 100, 170) <= 170);
 });
+
+test("말소리 구간(에너지): 쉼 없는 통화에서 작게 들리는 상대방 말도 잡는다", () => {
+  const SR = 16000, x = new Float32Array(60 * SR);
+  let seed = 1; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296 - 0.5);
+  // 0~2초 조용함(선 잡음), 이후 4초씩 큰 사람(0.3)·작은 사람(0.03) 번갈아, 쉼 없음. 말은 음절처럼 세기가 오르내린다
+  for (let i = 0; i < x.length; i++) {
+    const t = i / SR, loud = Math.floor((t - 2) / 4) % 2 === 0, amp = t < 2 ? 0 : loud ? 0.3 : 0.03;
+    x[i] = 0.002 * rnd() + amp * (0.6 + 0.4 * Math.sin(2 * Math.PI * 4 * t)) * Math.sin(i / 6);
+  }
+  const ch = vadChunks(x, 0);
+  const cov = ch.reduce((m, [a, b]) => m + b - a, 0);
+  assert.ok(cov > 54, `잡힌 말소리 ${cov.toFixed(1)}초 / 58초`);
+  assert.ok(ch[0][0] >= 1.5); // 앞의 조용한 2초는 빼고
+});
