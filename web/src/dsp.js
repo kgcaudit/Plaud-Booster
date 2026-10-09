@@ -13,7 +13,7 @@ function percentile(arr, q) {
 }
 
 /** 반복 가능한 실수 FFT(2의 거듭제곱 길이) — 제자리 계산 */
-function fftInPlace(re, im) {
+export function fftInPlace(re, im) {
   const n = re.length;
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;
@@ -236,4 +236,31 @@ export function activeEnd(a, t0, t1) {
   let last = -1;
   for (let i = 0; i < n; i++) if (db[i] > thr) last = i;
   return last < 0 ? t1 : Math.min(t1, t0 + (last + 1) * 5 + 5);
+}
+
+/**
+ * 전화 음질(좁은 대역) 판정용: 소리 있는 칸들의 4.2~7.8kHz 에너지 ÷ 0.3~3.4kHz 에너지(dB).
+ * 넓은 대역 회의 녹음은 -20~-36dB, 8kHz로 녹음된 전화·통화 녹음을 16kHz로 올린 것은 -55dB 아래로 떨어진다.
+ */
+export function bandRatioDb(x) {
+  const N = 512, n = Math.floor(x.length / N);
+  if (n < 8) return 0;
+  const win = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
+  const re = new Float64Array(N), im = new Float64Array(N);
+  const frames = [];
+  for (let f = 0; f < n; f++) {
+    let e = 0;
+    for (let k = 0; k < N; k++) { const v = x[f * N + k]; re[k] = v * win[k]; im[k] = 0; e += v * v; }
+    fftInPlace(re, im);
+    let lo = 0, hi = 0;
+    for (let b = 1; b < N / 2; b++) {
+      const hz = (b * SR) / N, p = re[b] * re[b] + im[b] * im[b];
+      if (hz >= 300 && hz < 3400) lo += p; else if (hz >= 4200 && hz < 7800) hi += p;
+    }
+    frames.push([e, lo, hi]);
+  }
+  const es = frames.map((q) => q[0]).sort((a, b) => a - b), med = es[es.length >> 1];
+  let lo = 0, hi = 0;
+  for (const [e, l, h] of frames) if (e > med) { lo += l; hi += h; } // 소리 있는(음량 위쪽 절반) 칸만
+  return 10 * Math.log10((hi + 1e-20) / (lo + 1e-20));
 }

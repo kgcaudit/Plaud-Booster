@@ -3,8 +3,8 @@
 // - 화자: Plaud가 이름 붙인 구간으로 사람별 기준(6초 창 평균)을 만들고, 3초 창(1.5초 간격) 투표로 판정
 //   70% 이상이면 「단일」, 아니면 「혼재」. 1·2위 유사도 차이가 작으면 신뢰도를 낮춘다.
 // - 처음부터 N명으로 묶는 방식은 소수 화자가 사라져 쓰지 않는다.
-import { vadChunks, activeEnd } from "./dsp.js";
-import { speechRegions, packRegions, windowsOf, diarize } from "./diar.js";
+import { vadChunks, activeEnd, bandRatioDb } from "./dsp.js";
+import { speechRegions, packRegions, windowsOf, diarize, DEFAULTS } from "./diar.js";
 
 const HALLU = /다음 영상에서|시청해 주셔서|구독(과|,)? ?좋아요|^감사합니다\.?$|^MBC 뉴스|자막 제공|^\(?음악\)?$/;
 const GENERIC = /^(speaker|spk|화자|발언자|참석자)\s*[_-]?\s*\d+$/i;
@@ -104,21 +104,42 @@ export async function match(embedAt, s, e, C) {
   return [Object.fromEntries(sorted.map(([k, v]) => [k, Math.round((v / tot) * 100) / 100])), whole];
 }
 
-/** 말소리 구간: Silero(음량 맞춤)가 있으면 그것으로, 없으면 에너지 기준. 긴 녹음은 10분씩 읽는다 */
+const sumSec = (rs) => rs.reduce((m, [s, e]) => m + e - s, 0);
+
+/**
+ * 말소리 구간: Silero(음량 맞춤)가 있으면 그것으로, 없으면 에너지 기준. 긴 녹음은 10분씩 읽는다.
+ * Silero가 에너지 기준이 찾은 말소리의 40%도 못 찾으면 그 10분은 에너지 기준을 쓴다 — Silero(16kHz 모델)는
+ * 8kHz 전화·통화 녹음을 16kHz로 올린 소리를 말소리로 보지 못한다(10-08 회의를 8kHz로 낮추면 69% → 2%).
+ * 반환 배열의 fallback = 대체한 10분 묶음 수
+ */
 export async function regionsOf(ctx, fi, a, b, onStep = () => {}) {
   const out = [];
+  out.fallback = 0;
   for (let t = a; t < b; t += 600) {
     const e = Math.min(b, t + 600);
     const x = await ctx.readAudio(fi, t, e);
+    let rs = vadChunks(x, t);
     if (ctx.vadProbs) {
-      for (const r of speechRegions(await ctx.vadProbs(x), t)) {
-        const last = out[out.length - 1];
-        if (last && r[0] - last[1] < 0.05) last[1] = r[1]; else out.push(r); // 10분 경계에서 이어진 구간은 붙인다
-      }
-    } else out.push(...vadChunks(x, t));
+      const sil = speechRegions(await ctx.vadProbs(x), t);
+      if (sumSec(sil) >= 0.4 * sumSec(rs)) rs = sil; else out.fallback++;
+    }
+    for (const r of rs) {
+      const last = out[out.length - 1];
+      if (last && r[0] - last[1] < 0.05) last[1] = r[1]; else out.push([...r]); // 10분 경계에서 이어진 구간은 붙인다
+    }
     onStep(Math.min(1, (e - a) / Math.max(1, b - a)));
   }
   return out;
+}
+
+/** 녹음 전체에서 4초씩 최대 20곳을 뽑아 대역 비(dB)를 잰다 — 좁은 대역(전화 음질)이면 묶기 기준을 바꾼다 */
+export async function bandOf(ctx, fi, dur) {
+  const k = Math.max(1, Math.min(20, Math.floor(dur / 4)));
+  const parts = [];
+  for (let i = 0; i < k; i++) { const s = ((dur - 4) * (i + 0.5)) / k; parts.push(await ctx.readAudio(fi, Math.max(0, s), Math.max(0, s) + 4)); }
+  const all = new Float32Array(parts.reduce((m, p) => m + p.length, 0));
+  let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
+  return bandRatioDb(all);
 }
 
 /** 저장된 목소리 기준 → { 이름: 단위벡터 } (참석자를 골랐으면 그 사람들만) */
@@ -141,12 +162,17 @@ export async function runSony(job, files, ctx) {
   let diar = await ctx.loadChunks();
   if (!diar || diar.kind !== "diar") {
     const wins = [];
-    let r0 = 0;
+    let r0 = 0, fallback = 0, band = 0, bandSec = 0;
     for (let fi = 0; fi < files.length; fi++) {
       const regs = await regionsOf(ctx, fi, 0, files[fi].dur, (p) => ctx.progress(1 + Math.floor(((fi + p) / files.length) * 14), `말소리 찾는 중 ${fi + 1}/${files.length}번 파일`));
+      fallback += regs.fallback || 0;
+      band += (await bandOf(ctx, fi, files[fi].dur)) * files[fi].dur; bandSec += files[fi].dur;
       for (const w of windowsOf(regs)) wins.push({ ...w, f: fi, r: w.r + r0 });
       r0 += regs.length;
     }
+    band = Math.round((band / Math.max(1, bandSec)) * 10) / 10;
+    const narrow = band < DEFAULTS.narrowDb;
+    if (!wins.length) throw new Error("말소리를 찾지 못했습니다. 음원이 비어 있거나 소리가 매우 작습니다.");
     // 창 특징(100개씩 저장해 두어 멈춰도 이어서)
     const done = await ctx.loadPartial();
     const B = 100, vecs = new Array(wins.length);
@@ -171,7 +197,8 @@ export async function runSony(job, files, ctx) {
     ctx.progress(96, "화자 묶는 중");
     const known = knownPrints(ctx.vpStore, job.speakers);
     const cap = job.attendees ? job.attendees + 2 : 0;
-    diar = { kind: "diar", ...diarize(wins, vecs, known, { cap }), nwin: wins.length, known: Object.keys(known) };
+    const cutOpt = narrow ? { cut: DEFAULTS.narrowCut, ...(wins.length > DEFAULTS.maxWin ? { cut: DEFAULTS.bigCut + 0.1 } : {}) } : {};
+    diar = { kind: "diar", ...diarize(wins, vecs, known, { cap, ...cutOpt }), nwin: wins.length, known: Object.keys(known), band, narrow, vadFallback: fallback };
     await ctx.saveChunks(diar);
     if (ctx.clearPartial) await ctx.clearPartial();
   }
@@ -209,6 +236,7 @@ export async function runSony(job, files, ctx) {
     segments: segs.length, single: segs.length, mixed: 0, unknown: 0,
     lowConf: segs.filter((g) => g.conf < 0.5 || g.margin < 0.1).length, droppedHallucination: dropped,
     clusters: diar.clusters.length, skipped: diar.units.length - todo.length,
+    narrow: !!diar.narrow, band: diar.band ?? null, vadFallback: diar.vadFallback || 0,
     targetSec: r1(files.reduce((m, f) => m + f.dur, 0)),
     targets: files.map((f, i) => ({ file: i, from: 0, to: r1(f.dur) })),
     files: files.map((f) => ({ name: f.name, dur: r1(f.dur), recordedAt: f.recordedAt || null })),

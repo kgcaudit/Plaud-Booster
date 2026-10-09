@@ -178,6 +178,7 @@ test("소니 녹음: 화자 먼저 묶고 이름 대기 → 전사, 뺀 묶음�
   const r1 = await runJob(job, files, ctx);
   assert.equal(r1.awaiting, true);
   assert.equal(r1.diar.clusters.length, 2);
+  assert.equal(r1.diar.narrow, true); // 시험 음원은 500Hz 사인뿐이라 「전화 음질」로 판정 → 묶기 기준 0.45
   assert.ok(r1.diar.units.every((u) => u.e - u.s <= 4.5));
   assert.deepEqual(ctx.store.partial, {}); // 특징 임시 저장은 비움
   let calls = 0;
@@ -212,4 +213,27 @@ test("소니 녹음: 특징 계산 중 멈추면 100개 단위로 이어서 한�
   const r2 = await runJob({ mode: "sony", stage: "diar" }, [{ name: "a.wav", dur: 1200 }], ctx);
   assert.equal(r2.awaiting, true);
   assert.equal(n - before, r2.diar.nwin - 200);
+});
+
+test("전화 음질 판정: 4kHz 위가 빈 소리는 대역 비가 -47dB보다 낮다", async () => {
+  const { bandRatioDb } = await import("../../web/src/dsp.js");
+  let x = 12345;
+  const rnd = () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return x / 0x7fffffff - 0.5; };
+  const wide = Float32Array.from({ length: 16000 * 4 }, () => 0.2 * rnd() * (1 + Math.sin(performance.now())));
+  // 8kHz로 낮춘 소리 흉내: 0.3~3.4kHz 사인 여러 개
+  const narrow = Float32Array.from({ length: 16000 * 4 }, (_, i) => [350, 700, 1300, 2100, 3100].reduce((m, f, k) => m + 0.05 * Math.sin((2 * Math.PI * f * i) / 16000 + k), 0) * (i % 16000 < 12000 ? 1 : 0.05));
+  assert.ok(bandRatioDb(wide) > -20, String(bandRatioDb(wide)));
+  assert.ok(bandRatioDb(narrow) < -47, String(bandRatioDb(narrow)));
+});
+
+test("말소리 구간: Silero가 거의 못 찾으면(전화 음질 등) 그 10분은 음량 기준으로 대신한다", async () => {
+  const { regionsOf } = await import("../../web/src/engine.js");
+  const x = new Float32Array(60 * 16000);
+  for (let s = 0; s < 60; s += 6) for (let i = s * 16000; i < (s + 4) * 16000; i++) x[i] = 0.3 * Math.sin(i / 5);
+  const ctx = { readAudio: async (fi, s, e) => x.subarray(Math.floor(s * 16000), Math.floor(e * 16000)), vadProbs: async (a) => new Float32Array(Math.floor(a.length / 512)) };
+  const r = await regionsOf(ctx, 0, 0, 60);
+  assert.equal(r.fallback, 1);
+  assert.ok(r.length >= 5);
+  const ok = await regionsOf({ ...ctx, vadProbs: async (a) => Float32Array.from({ length: Math.floor(a.length / 512) }, (_, i) => (Math.abs(a[i * 512 + 200]) > 0.01 ? 0.9 : 0)) }, 0, 0, 60);
+  assert.equal(ok.fallback, 0);
 });

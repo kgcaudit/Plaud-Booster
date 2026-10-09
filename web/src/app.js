@@ -592,7 +592,11 @@ function renderPanel() {
         ${(c.samples || []).length > per ? `<button type="button" class="link" data-a="more">다른 구간 ▸ ${page + 1}/${Math.ceil(c.samples.length / per)}</button>` : ""}</div>
     </div>`;
   }).join("");
-  el.innerHTML = `<div class="bar"><h3>화자 묶음 ${cl.length}개</h3><span class="msg">${pending ? "대표 구간을 들어 보고 이름을 붙이세요. 같은 이름을 붙이면 한 사람으로 합쳐집니다. 이름은 전사 뒤에도 바꿀 수 있습니다." : "이름을 바꾸면 그 묶음 발언 전체에 적용됩니다(발언별로 따로 지정한 것은 그대로)."}</span>
+  const info = REVIEW.diar && REVIEW.diar.kind === "diar" ? REVIEW.diar : (d.result && d.result.stats) || {};
+  const notes = [];
+  if (info.narrow) notes.push(`전화 음질(4kHz 위가 비어 있음, 대역 비 ${info.band}dB)로 판단해 목소리 묶기 기준을 높였습니다. 같은 사람이 여러 묶음으로 나뉠 수 있으니 같은 이름을 붙여 합치세요.`);
+  if (info.vadFallback) notes.push("이 녹음은 말소리 모델이 말소리를 거의 찾지 못해 음량 기준으로 말소리를 찾았습니다(잡음이 크거나 전화 음질인 녹음).");
+  el.innerHTML = `${notes.map((n) => `<p class="banner info">${esc(n)}</p>`).join("")}<div class="bar"><h3>화자 묶음 ${cl.length}개</h3><span class="msg">${pending ? "대표 구간을 들어 보고 이름을 붙이세요. 같은 이름을 붙이면 한 사람으로 합쳐집니다. 이름은 전사 뒤에도 바꿀 수 있습니다." : "이름을 바꾸면 그 묶음 발언 전체에 적용됩니다(발언별로 따로 지정한 것은 그대로)."}</span>
       <span class="spacer"></span>
       ${strong.length ? `<button type="button" data-a="sugall">추천 ${strong.length}건 모두 적용</button>` : ""}
       <button type="button" id="spUndo" data-a="undo" ${REVIEW.undo.length ? "" : "disabled"} title="Ctrl+Z / ⌘Z">되돌리기</button>
