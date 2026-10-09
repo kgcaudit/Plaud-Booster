@@ -44,8 +44,9 @@ function startWorker() {
   worker.onmessage = (ev) => {
     const m = ev.data;
     if (m.type === "hello") { WSTATE.owner = m.owner; worker.postMessage({ type: "status" }); kick(); }
-    if (m.type === "status") { Object.assign(WSTATE, m); renderSys(); }
+    if (m.type === "status") { Object.assign(WSTATE, m); if (m.busy) keepAwake("job", true); renderSys(); }
     if (m.type === "models") {
+      keepAwake("model", m.phase === "download" || m.phase === "load");
       if (m.phase === "download") WSTATE.dl = m;
       if (m.phase === "load") WSTATE.dl = { ...(WSTATE.dl || {}), loading: true };
       if (m.phase === "stored") { WSTATE.dl = null; toast("모델을 이 기기에 저장했습니다 — 다음부터는 받지 않습니다"); worker.postMessage({ type: "status" }); }
@@ -62,18 +63,35 @@ function startWorker() {
     }
     if (m.type === "idle") { wakeLock(false); loadJobs(); }
     if (m.type === "bench") onBench(m);
-    if (m.type === "error") toast(m.message);
+    if (m.type === "error") { keepAwake("model", false); toast(m.message); }
     if (m.type === "notice") toast(m.message);
   };
 }
 const kick = () => worker && worker.postMessage({ type: "kick" });
-let lock = null;
-async function wakeLock(on) {
+/* 화면 꺼짐 방지: 이 페이지가 무언가 처리하는 동안(전사·화자 나누기·모델 받기/열기·음원 준비·성능 시험) 화면을 켜 둔다.
+   브라우저는 탭이 가려지면 이 잠금을 풀기 때문에, 다시 보이면 곧바로 다시 건다. 처리할 것이 없으면 놓는다. */
+const AWAKE = new Set();
+let lock = null, lockBusy = false;
+async function syncAwake() {
+  document.body.dataset.awake = [...AWAKE].sort().join(",");
+  if (lockBusy) return;
+  lockBusy = true;
   try {
-    if (on && !lock && navigator.wakeLock) { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); }
-    if (!on && lock) { await lock.release(); lock = null; }
-  } catch { /* 지원 안 함 */ }
+    const want = AWAKE.size > 0 && document.visibilityState === "visible";
+    if (want && !lock && navigator.wakeLock) {
+      lock = await navigator.wakeLock.request("screen");
+      lock.addEventListener("release", () => { lock = null; renderSys(); });
+    }
+    if (!want && lock && !AWAKE.size) { await lock.release(); lock = null; }
+  } catch { /* 지원 안 함·배터리 절약 모드 등 */ } finally { lockBusy = false; renderSys(); }
 }
+function keepAwake(reason, on) {
+  const had = AWAKE.has(reason);
+  if (on) AWAKE.add(reason); else AWAKE.delete(reason);
+  if (had !== on || (on && !lock)) syncAwake();
+}
+const wakeLock = (on) => keepAwake("job", on);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncAwake(); });
 
 function renderSys() {
   const m = WSTATE.models;
@@ -85,7 +103,7 @@ function renderSys() {
   else if (WSTATE.dl && WSTATE.dl.loading) eng = "모델 여는 중";
   else if (m.ready) eng = '<span class="ok">엔진 준비됨</span>';
   else eng = `<span class="bad">모델 없음</span> (받은 양 ${Math.round((m.cachedBytes / Math.max(1, m.totalBytes)) * 100)}%)`;
-  const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? " · 그래픽 칩 가속" : "");
+  const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? " · 그래픽 칩 가속" : "") + (lock ? ' · <span class="ok">화면 켜 둠</span>' : "");
   $("#sysline").innerHTML = `${eng}${th}` + (WSTATE.coi ? "" : ' · <span class="bad">스레드 꺼짐(느림)</span>') + (WSTATE.owner ? "" : ' · <span class="bad">다른 탭에서 처리 중</span>');
   $("#engState").innerHTML = eng + (m && !m.ready && !WSTATE.fake ? "<br><small>모델을 받아 두면 대기 중인 작업이 바로 시작됩니다. 작업을 등록하면 자동으로 받습니다.</small>" : "");
   const pct = WSTATE.dl && WSTATE.dl.total ? (WSTATE.dl.got / WSTATE.dl.total) * 100 : m ? (m.cachedBytes / Math.max(1, m.totalBytes)) * 100 : 0;
@@ -307,6 +325,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
     ...(isDiar(m) ? { attendees: ($("#isCall").checked && src === "phone" ? 2 : att) || null, call: $("#isCall").checked && src === "phone", stage: "diar", skip: [] } : {}),
   };
   $("#btnSubmit").disabled = true;
+  keepAwake("prep", true); // 긴 음원을 16kHz로 바꿔 저장하는 동안에도 화면을 켜 둔다
   try {
     await S.put("jobs", id, { ...job, updatedAt: S.now() });
     if (tr) await S.put("plaud", id, tr.segs);
@@ -327,7 +346,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
   } catch (e) {
     setMsg(e.message, true);
     await S.deleteJob(id);
-  } finally { $("#btnSubmit").disabled = false; }
+  } finally { $("#btnSubmit").disabled = false; keepAwake("prep", false); }
 });
 
 /* ================================================================== 작업 목록 */
@@ -1105,6 +1124,7 @@ function renderBench(r, gpu) {
 }
 function onBench(m) {
   if (m.msg) { $("#benchMsg").textContent = m.msg + " …"; return; }
+  keepAwake("bench", false);
   $("#btnBench").disabled = false;
   if (m.error) { $("#benchMsg").textContent = m.error; $("#benchMsg").classList.add("err"); return; }
   $("#benchMsg").textContent = "끝났습니다"; $("#benchMsg").classList.remove("err");
@@ -1122,6 +1142,7 @@ $("#btnBench").addEventListener("click", async () => {
   if (WSTATE.busy) { $("#benchMsg").textContent = "작업을 처리하는 중에는 시험할 수 없습니다."; return; }
   $("#btnBench").disabled = true; $("#benchMsg").classList.remove("err");
   $("#benchMsg").textContent = "그래픽 칩 확인 …";
+  keepAwake("bench", true);
   BENCH_GPU = await gpuInfo();
   worker.postMessage({ type: "bench" });
 });

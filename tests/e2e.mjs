@@ -292,7 +292,9 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.setViewportSize({ width: 412, height: 900 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 412), "성능 시험 결과가 가로로 넘침");
   await page.setViewportSize(vp0);
-  console.log("✓ 기기 성능 시험(결과표·지난 기록)");
+  // 화면 꺼짐 방지: 처리할 것이 없으면 이유가 하나도 남지 않는다(시험·작업이 끝나면 놓음)
+  await page.waitForFunction(() => document.body.dataset.awake === "", null, { timeout: 15000 });
+  console.log("✓ 기기 성능 시험(결과표·지난 기록)·화면 켜 둠 해제");
 
   // ---- 백업 → 모두 지우기 → 복원
   await page.click(".tabs button[data-tab='settings']");
