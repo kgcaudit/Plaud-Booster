@@ -67,7 +67,7 @@ function startWorker() {
       else if ($("#tab-jobs").classList.contains("on")) loadJobs();
       if (m.done) toast("작업이 끝났습니다");
     }
-    if (m.type === "idle") { WSTATE.busy = false; wakeLock(false); loadJobs(); } // 「처리 중」 상태는 일꾼이 쉬면 풀린다
+    if (m.type === "idle") { WSTATE.busy = false; keepAwake("model", false); wakeLock(false); loadJobs(); } // 「처리 중」 상태는 일꾼이 쉬면 풀린다
     if (m.type === "bench") onBench(m);
     if (m.type === "error") { keepAwake("model", false); toast(m.message); }
     if (m.type === "notice") toast(m.message);
@@ -536,7 +536,7 @@ $("#jobList").addEventListener("click", async (ev) => {
 /* ================================================================== 검수 */
 // 할 일 순서대로 세 단계: ① 화자 이름 정하기(화자 나누기 작업만) → ② 발언 검수 → ③ 내보내기.
 // 보기 범위는 포함 관계(전체 ⊃ 확인함·미검수, 미검수 ⊃ 확인 필요·판정 확실) — 규칙은 review.js.
-const REVIEW = { id: null, want: null, data: null, edits: {}, filter: "need", editedOnly: false, saveT: null, gl: [], split: null, visible: [], fold: {} };
+const REVIEW = { id: null, want: null, data: null, edits: {}, names: {}, filter: "need", editedOnly: false, saveT: null, gl: [], split: null, visible: [], fold: {}, undo: [], only: null, tok: 0 };
 async function loadReviewJobs() {
   JOBS = await jobsList();
   const done = JOBS.filter((j) => (j.hasResult && j.mode !== "enroll") || j.status === "이름 대기");
@@ -585,18 +585,25 @@ async function reviewData(id) {
   return { job: { ...job, id }, result, edits: { e: {}, ...(edits || {}) }, plaud: plaud || [], glossary: (gl && gl.pairs) || [] };
 }
 async function openReview(id) {
+  await flushEdits(); // 앞 작업에 쓰지 못한 수정부터
+  const tok = (REVIEW.tok = (REVIEW.tok || 0) + 1); // 작업을 빨리 바꿔 늦게 끝난 앞 읽기가 뒤 작업을 덮지 않게
+  const data = await reviewData(id);
+  const diar = isDiar(data.job.mode) ? await S.get("chunks", id) : null;
+  const vpNames = (await S.all("voiceprints")).map(([n]) => n);
+  if (tok !== REVIEW.tok) return;
   REVIEW.id = id;
-  REVIEW.data = await reviewData(id);
+  REVIEW.data = data;
+  REVIEW.only = null;
+  REVIEW.diar = diar;
+  REVIEW.vpNames = vpNames;
   REVIEW.edits = REVIEW.data.edits.e || {};
   REVIEW.names = REVIEW.data.edits.names || {};
   REVIEW.gl = REVIEW.data.glossary;
   REVIEW.undo = [];
   REVIEW.split = null;
-  REVIEW.diar = isDiar(REVIEW.data.job.mode) ? await S.get("chunks", id) : null;
   const plaudish = REVIEW.data.job.mode === "gap" || REVIEW.data.job.mode === "range";
   $("#rvPlaudWrap").classList.toggle("hidden", !plaudish);
   $("#exPlaudWrap").classList.toggle("hidden", !plaudish);
-  REVIEW.vpNames = (await S.all("voiceprints")).map(([n]) => n);
   REVIEW.page = {};
   $("#rvSave").textContent = "";
   // ① 이름을 다 붙였고 전사가 끝났으면 처음부터 접어 둔다(이름 대기 중이면 펼침)
@@ -744,9 +751,9 @@ function renderReview() {
       <td><div class="judge">${judge}<span class="spacer"></span>${act}</div></td>
       <td class="c-ok"><button type="button" class="okbtn${e.ok ? " done" : ""}" data-a="ok" aria-pressed="${!!e.ok}" title="이 발언을 사람이 확인함 — 미검수에서 빠집니다">${e.ok ? "✓ 확인함" : "✓ 확인"}</button></td></tr>`;
   }).join("");
-  $$("#rvBody textarea").forEach(fitTa);
+  fitAll($$("#rvBody textarea"));
   renderScope();
-  if (SEG.key) segUi(); // 다시 그린 뒤에도 조작 줄을 재생 중인 발언에 붙임
+  if (SEG.key) segUi(true); // 다시 그린 뒤에도 조작 줄을 재생 중인 발언에 붙임
   if (sp) { const ta = $(`#rvBody tr[data-i="${sp.i}"] textarea.splitta`); if (ta) { ta.focus(); splitPreview(ta); } }
   TL.cur = null; tlDraw();
 }
@@ -759,7 +766,7 @@ $("#rvBody").addEventListener("change", (ev) => {
   if (ev.target.matches("select.spk, select.pspk")) {
     pushUndo();
     let v = ev.target.value;
-    if (v === "__new") { v = (prompt("화자 이름") || "").trim(); if (!v) { REVIEW.undo.pop(); renderReview(); return; } }
+    if (v === "__new") { v = (prompt("화자 이름") || "").trim(); if (!v) { REVIEW.undo.pop(); updUndo(); renderReview(); return; } }
     const e = editOf(i);
     if (part) { // 나눈 조각의 화자
       const p = e.parts[+part.dataset.k], base = speakerOf(g, { e: { ...REVIEW.edits, [i]: { ...e, speaker: e.speaker } }, names: REVIEW.names });
@@ -769,7 +776,7 @@ $("#rvBody").addEventListener("change", (ev) => {
     saveEdits(); renderReview(); return;
   }
   if (ev.target.matches("textarea")) {
-    if (REVIEW.split) return; // 나누는 중에는 나눌 때 함께 반영
+    if (ev.target.matches("textarea.splitta")) return; // 나누는 글 칸은 나눌 때 함께 반영(다른 발언 고치기는 그대로 저장)
     pushUndo();
     const e = editOf(i), v = ev.target.value.trim();
     if (part) e.parts[+part.dataset.k].text = v;
@@ -792,6 +799,8 @@ function splitPreview(ta) {
   pb.textContent = t == null ? "재생 위치에서(이 구간 재생 중일 때)" : `재생 위치 ${hms(t)}에서`;
 }
 const fitTa = (t) => { t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; };
+// 여럿은 한꺼번에: 모두 auto → 높이 모두 읽기 → 모두 쓰기(하나씩 하면 칸마다 배치를 다시 계산해 수백 발언에서 굼뜸)
+function fitAll(list) { for (const t of list) t.style.height = "auto"; const h = list.map((t) => t.scrollHeight); list.forEach((t, k) => { t.style.height = h[k] + 2 + "px"; }); }
 $("#rvBody").addEventListener("input", (ev) => { if (ev.target.matches("textarea")) fitTa(ev.target); });
 for (const evn of ["keyup", "click", "select", "input"]) $("#rvBody").addEventListener(evn, (ev) => { if (ev.target.matches("textarea.splitta")) splitPreview(ev.target); });
 // player는 아래(재생 막대)에서 만들어지므로 모듈을 다 읽은 뒤 건다
@@ -837,15 +846,25 @@ $("#rvAllOk").addEventListener("click", () => {
   saveEdits(); renderReview(); toast(`${todo.length}개를 확인했습니다 — 「되돌리기」로 되돌릴 수 있습니다`);
 });
 $("#rvUndo").addEventListener("click", () => undo());
+// 검수 수정 저장: 0.4초 모았다가 쓴다. 그 사이 작업을 바꾸거나 내보내면 flushEdits로 먼저 쓴다(예전엔 내보낸 파일에 마지막 수정이 빠지거나,
+// 작업을 바꾼 직후 다른 작업의 수정이 앞 작업 이름으로 덮어써질 수 있었다). 쓸 내용은 부를 때의 것을 붙잡아 둔다.
+REVIEW.pending = null;
 function saveEdits() {
   $("#rvSave").textContent = "저장 대기…";
   clearTimeout(REVIEW.saveT);
-  const id = REVIEW.id;
-  REVIEW.saveT = setTimeout(async () => {
-    try { await S.put("edits", id, { e: REVIEW.edits, names: REVIEW.names, updatedAt: S.now() }); $("#rvSave").textContent = "저장됨 " + new Date().toLocaleTimeString("ko-KR"); }
-    catch (e) { $("#rvSave").textContent = "저장 실패: " + e.message; }
-  }, 400);
+  REVIEW.pending = { id: REVIEW.id, e: REVIEW.edits, names: REVIEW.names };
+  REVIEW.saveT = setTimeout(() => flushEdits(), 400);
 }
+async function flushEdits() {
+  clearTimeout(REVIEW.saveT);
+  const p = REVIEW.pending; REVIEW.pending = null;
+  if (!p || !p.id) return;
+  try {
+    await S.put("edits", p.id, { e: p.e, names: p.names, updatedAt: S.now() });
+    if (REVIEW.id === p.id) $("#rvSave").textContent = "저장됨 " + new Date().toLocaleTimeString("ko-KR");
+  } catch (e) { $("#rvSave").textContent = "저장 실패: " + e.message; }
+}
+addEventListener("pagehide", () => { flushEdits(); });
 /* ================================================================== 고정 영역(틀 고정) 높이 */
 // 위: 탭 줄(모든 화면) + 검수 화면의 작업 선택·보기 줄, 아래: 전체 재생 막대. 높이가 바뀌면(접힘·화면 회전·폴드 펼침)
 // CSS 변수로 알려 표 머리·스크롤 여백이 가려지지 않게 한다.
@@ -1058,20 +1077,22 @@ player.addEventListener("pause", () => tlDraw());
 player.addEventListener("ended", () => tlDraw());
 window.addEventListener("resize", () => tlDraw());
 
-$("#tlPlay").addEventListener("click", () => (player.paused || TL.loaded !== TL.file ? seekPlay(TL.file, TL.t) : player.pause()));
-$$("#tl [data-j]").forEach((b) => b.addEventListener("click", () => seekPlay(TL.file, TL.t + +b.dataset.j, !player.paused)));
+// 아래 재생 막대를 쓰면 발언 듣기(끝에서 멈춤)는 풀고 녹음 전체를 이어 듣는다
+const tlTake = () => { stopClear(); if (SEG.key) { SEG.key = null; segUi(true); } };
+$("#tlPlay").addEventListener("click", () => { tlTake(); return player.paused || TL.loaded !== TL.file ? seekPlay(TL.file, TL.t) : player.pause(); });
+$$("#tl [data-j]").forEach((b) => b.addEventListener("click", () => { tlTake(); seekPlay(TL.file, TL.t + +b.dataset.j, !player.paused); }));
 $("#tlRate").addEventListener("change", (e) => { player.playbackRate = +e.target.value; });
 $("#tlFile").addEventListener("change", (e) => seekPlay(+e.target.value, 0, false));
 $("#tlTime").addEventListener("click", () => { TL.cur = null; tlDraw(true); });
 // 아래 띠: 누르거나 끌면 그 자리로
 const tlAll = $("#tlAll");
-const allSeek = (ev) => { const r = tlAll.getBoundingClientRect(); TL.t = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * fileDur(TL.file); if (TL.loaded === TL.file) player.currentTime = TL.t; tlDraw(true); };
-tlAll.addEventListener("pointerdown", (ev) => { tlAll.setPointerCapture(ev.pointerId); TL.drag = "all"; tlLoad(TL.file).then(() => allSeek(ev)); });
+const allSeek = (ev) => { tlTake(); const r = tlAll.getBoundingClientRect(); TL.t = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * fileDur(TL.file); if (TL.loaded === TL.file) player.currentTime = TL.t; tlDraw(true); };
+tlAll.addEventListener("pointerdown", (ev) => { tlAll.setPointerCapture(ev.pointerId); TL.drag = "all"; tlLoad(TL.file).then(() => allSeek(ev)).catch(() => {}); });
 tlAll.addEventListener("pointermove", (ev) => { if (TL.drag === "all") allSeek(ev); });
 tlAll.addEventListener("pointerup", () => { TL.drag = null; });
 // 위 띠: 끌면 앞뒤로 옮기기, 짧게 누르면 그 자리로
 const tlZoom = $("#tlZoom");
-tlZoom.addEventListener("pointerdown", (ev) => { tlZoom.setPointerCapture(ev.pointerId); TL.drag = { x: ev.clientX, t: TL.t, moved: false }; tlLoad(TL.file); });
+tlZoom.addEventListener("pointerdown", (ev) => { tlZoom.setPointerCapture(ev.pointerId); TL.drag = { x: ev.clientX, t: TL.t, moved: false }; tlLoad(TL.file).catch(() => {}); });
 tlZoom.addEventListener("pointermove", (ev) => {
   const d = TL.drag; if (!d || d === "all") return;
   const dx = ev.clientX - d.x; if (Math.abs(dx) > 4) d.moved = true;
@@ -1084,6 +1105,7 @@ tlZoom.addEventListener("pointerup", (ev) => {
   const d = TL.drag; TL.drag = null;
   if (!d || d === "all" || d.moved) return;
   const r = tlZoom.getBoundingClientRect();
+  tlTake();
   seekPlay(TL.file, TL.t - TL.Z + ((ev.clientX - r.left) / r.width) * 2 * TL.Z, !player.paused);
 });
 
@@ -1100,10 +1122,12 @@ function stopWatch() {
   STOP.raf = requestAnimationFrame(tick);
 }
 async function playRange(f, s, e) {
-  STOP.at = e;
+  stopClear(); // 앞 구간의 멈춤 감시가 새 재생을 잘못 멈추지 않게(다른 파일로 옮길 때 특히)
   await seekPlay(f, s);
+  STOP.at = e;
   stopWatch();
 }
+function stopClear() { cancelAnimationFrame(STOP.raf); STOP.at = null; }
 /* ---- 발언 듣기: ▶는 재생·일시정지 겸용, 재생 중인 발언(조각) 아래에만 조작 줄(처음 · −5초 · ❚❚ · +5초 · 다음)
  * 전사 편집기들의 일반 방식(한 단추로 재생/멈춤, 5초 되감기, 지금 위치 표시)을 휴대폰 크기에 맞춤. 발언 끝에서 멈추고,
  * 멈춘 뒤 다시 누르면 1초 앞부터 이어 듣는다. 녹음 전체를 이어 듣기는 아래 재생 막대. */
@@ -1111,10 +1135,11 @@ const SEG = { f: 0, s: 0, e: 0, key: null };
 const segKey = (b) => `${b.dataset.f}|${b.dataset.s}|${b.dataset.e}`;
 async function segPlay(f, s, e, key, from) {
   Object.assign(SEG, { f, s, e, key });
-  STOP.at = e;
+  stopClear();
   await seekPlay(f, from ?? Math.max(0, s - PRE));
+  STOP.at = e;
   stopWatch();
-  segUi();
+  segUi(true);
 }
 function segToggle(b) {
   const f = +b.dataset.f, s = +b.dataset.s, e = +b.dataset.e, key = segKey(b);
@@ -1136,22 +1161,29 @@ function segSeek(d) {
 function segNext() {
   const all = $$("#rvBody button.play");
   const i = all.findIndex((b) => segKey(b) === SEG.key);
-  const nx = all.slice(i + 1).find((b) => +b.dataset.s >= SEG.e - 0.05) || all[i + 1];
+  const after = (b) => +b.dataset.f > SEG.f || (+b.dataset.f === SEG.f && +b.dataset.s >= SEG.e - 0.05); // 다음 파일은 시각과 상관없이 뒤
+  const nx = all.slice(i + 1).find(after) || all[i + 1];
   if (nx) { segToggle(nx); nx.scrollIntoView({ block: "center", behavior: REDUCE_MOTION ? "auto" : "smooth" }); }
 }
 // 단추 모양·조작 줄 자리·진행 막대를 지금 상태에 맞춤(재생 막대 그리기와 함께 불림)
-function segUi() {
+// force: 행을 다시 그렸을 때. 재생 중 화면 갱신마다 불리므로, 상태(어느 발언·재생 여부)가 바뀔 때만 단추들을 고친다(예전엔 매 화면 모든 ▶를 고쳐 긴 녹음에서 버벅임)
+function segUi(force = false) {
   const playing = !player.paused;
-  // 아래 재생 막대로 다른 곳을 듣기 시작하면 발언 조작 줄은 걷는다
-  if (SEG.key && playing && TL.loaded === SEG.f && (player.currentTime < SEG.s - PRE - 0.6 || player.currentTime > SEG.e + 0.6)) SEG.key = null;
-  let host = null;
-  for (const b of $$("#rvBody button.play")) {
-    const on = SEG.key && segKey(b) === SEG.key;
-    b.textContent = on && playing ? "❚❚" : "▶";
-    b.classList.toggle("on", !!on);
-    b.title = on && playing ? "멈춤" : "듣기";
-    if (on) host = b.closest(".part") || b.closest("tr")?.querySelector("td:nth-child(4)");
+  // 아래 재생 막대로 다른 곳을 듣기 시작하면 발언 조작 줄은 걷고, 그 발언의 끝 멈춤도 푼다
+  if (SEG.key && playing && TL.loaded === SEG.f && (player.currentTime < SEG.s - PRE - 0.6 || player.currentTime > SEG.e + 0.6)) { SEG.key = null; stopClear(); }
+  const sig = `${SEG.key}|${playing}`;
+  if (force || sig !== SEG.sig || (SEG.host && !SEG.host.isConnected)) {
+    SEG.sig = sig; SEG.host = null;
+    for (const b of $$("#rvBody button.play")) {
+      const on = SEG.key && segKey(b) === SEG.key;
+      if (!on && !b.classList.contains("on") && b.textContent === "▶") continue;
+      b.textContent = on && playing ? "❚❚" : "▶";
+      b.classList.toggle("on", !!on);
+      b.title = on && playing ? "멈춤" : "듣기";
+      if (on) SEG.host = b.closest(".part") || b.closest("tr")?.querySelector("td:nth-child(4)");
+    }
   }
+  const host = SEG.key ? SEG.host : null;
   let bar = $("#segCtl");
   if (!host) { if (bar) bar.remove(); return; }
   if (!bar) {
@@ -1196,16 +1228,17 @@ $("#rvBody").addEventListener("pointerdown", (ev) => {
 document.addEventListener("keydown", (ev) => {
   if (!$("#tab-review").classList.contains("on") || !(ev.ctrlKey || ev.metaKey)) return;
   if (ev.code === "Space") { ev.preventDefault(); const b = SEG.key && $$("#rvBody button.play").find((y) => segKey(y) === SEG.key); if (b) segToggle(b); else $("#tlPlay").click(); }
-  else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") { ev.preventDefault(); const d = ev.key === "ArrowLeft" ? -5 : 5; if (SEG.key) segSeek(d); else $(`#tl button[data-j='${d}']`).click(); }
+  else if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && !ev.target.closest("input, textarea")) { ev.preventDefault(); const d = ev.key === "ArrowLeft" ? -5 : 5; if (SEG.key) segSeek(d); else $(`#tl button[data-j='${d}']`).click(); }
 });
 async function doExport(fmt) {
   if (!REVIEW.id) return;
+  await flushEdits(); // 방금 고친 글이 빠지지 않게
   const data = await reviewData(REVIEW.id);
   const opts = { usePlaud: $("#exPlaud").checked, useGlossary: $("#exGl").checked };
   const name = safeName(data.job.title) + "_통합본." + fmt;
   // 앞에 UTF-8 표시(BOM)를 붙인다: 없으면 휴대폰 크롬의 글 보기·윈도 메모장·엑셀이 한글을 EUC-KR로 짐작해 깨져 보임
   const BOM = "\uFEFF";
-  if (fmt === "csv") download(name, new Blob([BOM + exportCsv(data, opts)], { type: "text/csv;charset=utf-8" }));
+  if (fmt === "csv") download(name, new Blob([exportCsv(data, opts)], { type: "text/csv;charset=utf-8" })); // CSV는 exportCsv가 이미 BOM을 붙임
   else download(name, new Blob([BOM + exportTxt(data, opts)], { type: "text/plain;charset=utf-8" }));
 }
 $("#exTxt").addEventListener("click", () => doExport("txt"));
@@ -1217,7 +1250,6 @@ $("#exCsv").addEventListener("click", () => doExport("csv"));
 const clustersOf = () => (REVIEW.data && (REVIEW.data.result?.clusters || REVIEW.diar?.clusters)) || [];
 const clusterIndex = (id) => Math.max(0, clustersOf().findIndex((c) => c.id === id));
 const clusterLabel = (id) => (clustersOf().find((c) => c.id === id) || {}).label || id;
-const nameOfCluster = (c) => REVIEW.names[c.id] || c.label;
 
 function pushUndo(diar) { // diar: 묶음을 나누기 전 화자 나누기 결과(되돌릴 때 다시 저장)
   REVIEW.undo.push({ s: JSON.stringify({ e: REVIEW.edits, names: REVIEW.names }), diar });
@@ -1249,6 +1281,8 @@ function textNear(f, s) {
   return g ? (REVIEW.edits[g.i] && REVIEW.edits[g.i].text) || gloss(g.text) : "";
 }
 
+// 둘로 나누기에 쓸 수 있는 차례 수(사람이 정한 차례는 다시 나누지 않음 — splitCluster와 같은 기준)
+const nFree = (ci) => (REVIEW.diar ? REVIEW.diar.turns.filter((t) => t.c === ci && !t.m).length : 0);
 function renderPanel() {
   const d = REVIEW.data, el = $("#spkPanel");
   if (!d || !isDiar(d.job.mode)) { el.classList.add("hidden"); $("#stNames").classList.add("hidden"); return; }
@@ -1273,7 +1307,7 @@ function renderPanel() {
       <div class="hd"><span class="chip cc${ci % 8}">${esc(c.label)}</span>
         <span class="msg">${pending ? `발언 ${c.nunit}` : `발언 ${nseg}`} · ${hms(c.dur)}</span><span class="spacer"></span>
         <label class="chk" title="빼면 이 묶음의 발언은 전사하지 않습니다(잡음·음악 묶음 등)"><input type="checkbox" data-a="inc" ${skip.has(c.id) ? "" : "checked"}> 전사</label>
-        ${pending ? ((c.nturn || 0) >= 4 ? '<button type="button" class="link" data-a="split2" title="두 사람이 쉼 없이 주고받아 한 사람으로 묶였을 때 — 목소리로 다시 둘로 나눕니다">둘로 나누기</button>' : "")
+        ${pending ? (nFree(ci) >= 4 ? '<button type="button" class="link" data-a="split2" title="두 사람이 쉼 없이 주고받아 한 사람으로 묶였을 때 — 목소리로 다시 둘로 나눕니다">둘로 나누기</button>' : "")
           : `<button type="button" class="link" data-a="only">${REVIEW.only === c.id ? "모두 보기" : "이 묶음만 보기"}</button>`}</div>
       <div class="nm"><input data-a="name" list="dlNames" value="${esc(nm)}" placeholder="이름(예: 김○○ 팀장)" aria-label="${esc(c.label)} 이름"> ${sug}
         ${same.length ? `<span class="merged">↳ ${esc(same.join(", "))}와 같은 사람(합쳐짐)</span>` : ""}</div>
@@ -1326,7 +1360,7 @@ $("#spkPanel").addEventListener("change", async (ev) => {
     if (REVIEW.data.result && !t.checked) toast("내보내기에서 빠지려면 「이어서 처리」로 결과를 다시 만드세요");
     if (REVIEW.data.result && job.status === "완료" && t.checked) await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: "더할 발언이 있습니다 — 이어서 처리" } });
     if (REVIEW.data.result && job.status === "완료" && !t.checked) await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: "뺀 묶음이 있습니다 — 이어서 처리" } });
-    renderPanel();
+    renderPanel(); renderNamesStep();
   }
 });
 $("#spkPanel").addEventListener("click", async (ev) => {
@@ -1357,8 +1391,7 @@ $("#spkPanel").addEventListener("click", async (ev) => {
   if (a === "go") {
     const unnamed = clustersOf().filter((x) => !REVIEW.names[x.id] && !(REVIEW.data.job.skip || []).includes(x.id)).length;
     if (unnamed && !confirm(`이름 없는 묶음이 ${unnamed}개 있습니다. 그대로 전사할까요? (이름은 전사 뒤에도 붙일 수 있습니다)`)) return;
-    clearTimeout(REVIEW.saveT);
-    await S.put("edits", REVIEW.id, { e: REVIEW.edits, names: REVIEW.names, updatedAt: S.now() });
+    saveEdits(); await flushEdits();
     await S.saveJob(REVIEW.id, { stage: "transcribe", status: "대기", progress: { pct: 0, msg: "전사 대기" } });
     kick(); toast("전사를 시작합니다 — 작업 탭에서 진행을 볼 수 있습니다"); showTab("jobs");
     return;
@@ -1369,7 +1402,14 @@ $("#spkPanel").addEventListener("click", async (ev) => {
 async function saveSonyPrints() {
   const d = REVIEW.data;
   if (!REVIEW.diar || REVIEW.diar.kind !== "diar") { toast("이 작업은 목소리 특징이 남아 있지 않아(백업에서 되살림 등) 저장할 수 없습니다"); return; }
-  const prints = printsFromReview(d.result.segs, REVIEW.diar.units, (g) => speakerOf(g, { e: REVIEW.edits, names: REVIEW.names }), isGeneric);
+  // 나눈 발언은 조각 화자가 둘 이상이면 목소리 기준에서 뺀다(섞인 목소리로 기준이 흐려지지 않게), 모두 같으면 그 사람
+  const nameOf = (g) => {
+    const base = speakerOf(g, { e: REVIEW.edits, names: REVIEW.names }), parts = REVIEW.edits[g.i] && REVIEW.edits[g.i].parts;
+    if (!parts || !parts.length) return base;
+    const who = new Set(parts.map((p) => p.speaker || base));
+    return who.size === 1 ? [...who][0] : "";
+  };
+  const prints = printsFromReview(d.result.segs, REVIEW.diar.units, nameOf, isGeneric);
   const list = Object.entries(prints);
   if (!list.length) { toast("저장할 사람이 없습니다(이름을 붙이고 30초 이상 말한 사람만 저장)"); return; }
   if (!confirm(`다음 사람의 목소리 기준을 「${d.job.title}」 출처로 저장할까요? (같은 출처는 바꿔 넣습니다)\n\n` + list.map(([n, p]) => `${n} — ${hms(p.sec)}`).join("\n"))) return;
@@ -1421,7 +1461,7 @@ pop.addEventListener("click", (ev) => {
   if (b.dataset.a === "reset") { delete editOf(g.i).speaker; editOf(g.i).ok = true; }
   else {
     const v = $("#popName").value.trim();
-    if (!v) { toast("이름을 넣어 주세요"); REVIEW.undo.pop(); return; }
+    if (!v) { toast("이름을 넣어 주세요"); REVIEW.undo.pop(); updUndo(); return; }
     const scope = $('input[name="popScope"]:checked', pop).value;
     if (scope === "one") { editOf(g.i).speaker = v; editOf(g.i).ok = true; }
     if (scope === "all") { REVIEW.names[g.cluster] = v; if (REVIEW.edits[g.i]) delete REVIEW.edits[g.i].speaker; }
@@ -1505,18 +1545,18 @@ async function loadSettings() {
   $("#devInfo").title = `근거: ${dev.basis}`;
   renderLevelNow();
   showBenchPrev().catch(() => {});
-  worker.postMessage({ type: "status" });
+  worker && worker.postMessage({ type: "status" });
   try {
     const est = await navigator.storage.estimate();
     const persisted = navigator.storage.persisted ? await navigator.storage.persisted() : false;
     $("#storeState").innerHTML = `이 사이트가 쓰는 공간 ${(est.usage / 1073741824).toFixed(2)}GB / 쓸 수 있는 공간 ${(est.quota / 1073741824).toFixed(0)}GB · ${persisted ? "영구 보관 켜짐" : "영구 보관 꺼짐(공간이 부족하면 브라우저가 지울 수 있음)"}`;
   } catch { /* 없음 */ }
 }
-$("#btnModels").addEventListener("click", () => { worker.postMessage({ type: "download" }); toast("모델을 받기 시작했습니다"); });
+$("#btnModels").addEventListener("click", () => { if (!worker) return; worker.postMessage({ type: "download" }); toast("모델을 받기 시작했습니다"); });
 $("#btnClearModels").addEventListener("click", async () => {
   if (!confirm("받아 둔 모델을 지울까요? 다음 처리 때 다시 받습니다.")) return;
   for (const k of await caches.keys()) if (k.startsWith("pb-models") || k.startsWith("pb-m-")) await caches.delete(k);
-  worker.terminate(); startWorker(); toast("모델을 지웠습니다");
+  if (worker) worker.terminate(); WSTATE.models = null; WSTATE.busy = false; startWorker(); toast("모델을 지웠습니다");
 });
 /* 기기 성능 시험: 그래픽 칩(WebGPU) 지원은 화면 쪽에서, 단계별 속도는 일꾼에서 잰다 */
 async function gpuInfo() {
@@ -1651,7 +1691,7 @@ $("#restoreFile").addEventListener("change", async (ev) => {
  * 1 구간 정하기(파형 끌기·손잡이·⏱ 지금·±0.2초) → 2 누구 말인지(기존 묶음·새 사람·빼기) → 3 비슷한 곳(들어 보고 고른 것만 옮김).
  * 규칙은 diar.js(relabelRange·similarRegions·mixSuspects). 되돌리기는 손보기 전 화자 나누기 결과를 다시 저장한다. */
 const RG = { open: false };
-const fmt1 = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? "0" : ""}${s.toFixed(1)}`; };
+const fmt1 = (t) => { const d = Math.max(0, Math.floor((t || 0) * 10 + 1e-6)) / 10, h = Math.floor(d / 3600), m = Math.floor((d % 3600) / 60), s = d - h * 3600 - m * 60; return `${h ? h + ":" + String(m).padStart(2, "0") : m}:${s < 10 ? "0" : ""}${s.toFixed(1)}`; }; // 0.1초 내림
 const rgNameOf = (i) => { const c = clustersOf()[i]; return c ? (REVIEW.names[c.id] ? `${REVIEW.names[c.id]}(${c.label.replace("Speaker ", "S")})` : c.label) : "빼기"; };
 async function rgKnown() { const vp = Object.fromEntries(await S.all("voiceprints")); return knownPrints(vp, REVIEW.data.job.speakers); }
 function rgMajority(f, s, e) {
@@ -1671,16 +1711,24 @@ async function openRange(f, s, e) {
   $("#rgSheet").classList.remove("hidden");
   document.body.classList.add("rg-open");
   rgRender();
+  await rgPeaks();
+}
+// 보이는 범위(vs~ve)의 파형 — 범위가 넓어지면 다시 읽는다(옛 파형을 늘려 그리면 시각이 어긋남)
+async function rgPeaks() {
+  const { f, vs, ve } = RG;
+  RG.peaks = null;
   try {
     const x = await S.readAudio(REVIEW.id, f, vs, ve);
     const n = 400, step = Math.max(1, Math.floor(x.length / n)), pk = new Float32Array(n);
     for (let k = 0; k < n; k++) { let m = 0; for (let j = k * step; j < Math.min(x.length, (k + 1) * step); j += 2) { const v = Math.abs(x[j]); if (v > m) m = v; } pk[k] = m; }
     const top = Math.max(1e-4, ...pk); for (let k = 0; k < n; k++) pk[k] /= top;
-    if (RG.open && RG.f === f && RG.vs === vs) { RG.peaks = pk; rgDraw(); }
+    if (RG.open && RG.f === f && RG.vs === vs && RG.ve === ve) { RG.peaks = pk; rgDraw(); }
   } catch (err) { toast("파형을 읽지 못했습니다: " + err.message); }
 }
 function closeRange() {
-  RG.open = false; STOP.at = null;
+  RG.open = false;
+  if (STOP.at != null && !player.paused) player.pause(); // 구간 듣기 중에 닫으면 멈춤(안 그러면 끝없이 이어 재생)
+  stopClear();
   $("#rgSheet").classList.add("hidden");
   document.body.classList.remove("rg-open");
 }
@@ -1772,7 +1820,7 @@ $("#rgSheet").addEventListener("click", async (ev) => {
   const b = ev.target.closest("button[data-rg]");
   if (!b) return;
   const a = b.dataset.rg, now = TL.loaded === RG.f ? player.currentTime : null, dur = fileDur(RG.f) || RG.ve;
-  const set = (k, v) => { RG[k] = Math.round(Math.max(0, Math.min(dur, v)) * 10) / 10; if (RG.e - RG.s < 0.2) { if (k === "s") RG.s = RG.e - 0.2; else RG.e = RG.s + 0.2; } RG.vs = Math.min(RG.vs, RG.s); RG.ve = Math.max(RG.ve, RG.e); rgRender(); };
+  const set = (k, v) => { RG[k] = Math.round(Math.max(0, Math.min(dur, v)) * 10) / 10; if (RG.e - RG.s < 0.2) { if (k === "s") RG.s = RG.e - 0.2; else RG.e = RG.s + 0.2; } const vs = Math.min(RG.vs, RG.s), ve = Math.max(RG.ve, RG.e), wide = vs !== RG.vs || ve !== RG.ve; RG.vs = vs; RG.ve = ve; rgRender(); if (wide) rgPeaks(); };
   if (a === "close") { closeRange(); return; }
   if (a === "s-") set("s", RG.s - 0.2); if (a === "s+") set("s", RG.s + 0.2);
   if (a === "e-") set("e", RG.e - 0.2); if (a === "e+") set("e", RG.e + 0.2);

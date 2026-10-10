@@ -134,3 +134,17 @@ test("시각 표시는 내림: 0:40.7은 0:40(반올림하면 실제 소리보�
   assert.equal(_hms(59.99, false), "0:59");
   assert.equal(_hms(3600.5), "01:00:00");
 });
+
+import { exportCsv, mergeBackup } from "../../web/src/export.js";
+test("점검 보완: 짧은 조각 나누기·지운 글 빼기·CSV 수식 막기·이름 대기 백업은 중지", () => {
+  const g = { i: 1, start: 10, end: 10.15 };
+  const p = splitPart(g, null, 0, "네 네", 1);
+  assert.ok(p[1].start > 10 && p[1].start < 10.15, "아주 짧은 발언도 조각 시각이 발언 안");
+  const result = { stats: {}, segs: [{ i: 1, start: 1, end: 2, speaker: "갑", text: "헛말" }, { i: 2, start: 3, end: 4, speaker: "을", text: "-5억 원, \"확정\"" }] };
+  const data = { job: { mode: "diar", audioFiles: [{ name: "a.wav" }] }, result, edits: { e: { 1: { text: "" } } }, plaud: [], glossary: [] };
+  assert.equal(mergedLines(data).length, 1);
+  const csv = exportCsv(data);
+  assert.ok(csv.includes(`"'-5억 원, ""확정"""`));
+  const r = mergeBackup({ voiceprints: {}, glossary: [], jobIds: new Set() }, { jobs: { x: { job: { status: "이름 대기" } } } });
+  assert.equal(r.jobs.x.job.status, "중지");
+});

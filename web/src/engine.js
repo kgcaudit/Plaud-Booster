@@ -133,13 +133,14 @@ export async function match(embedAt, s, e, C) {
  * 10-08 회의: 창 641 → 381, 글자 오류율은 그대로이거나 조금 나음(31.8→30.8%, 43.2→35.5%). 사이 0.6초(1.2초는 더 나빴음).
  * @returns 발언 번호 배열의 배열
  */
-export function packGroups(units, todo, { maxLen = 10, win = 24, gap = 0.6 } = {}) {
+// extra(k): 발언 k를 실제로 잘라 읽을 때 더 붙는 길이(앞 여유·뒤 0.15초). 세지 않으면 창이 30초를 넘어 Whisper가 뒤를 잘라 먹었다
+export function packGroups(units, todo, { maxLen = 10, win = 24, gap = 0.6, extra = () => 0 } = {}) {
   const order = [...todo].sort((a, b) => units[a].c - units[b].c || units[a].f - units[b].f || units[a].s - units[b].s);
   const out = [];
   let cur = [], len = 0;
   const flush = () => { if (cur.length) out.push(cur); cur = []; len = 0; };
   for (const k of order) {
-    const u = units[k], d = u.e - u.s;
+    const u = units[k], d = u.e - u.s + extra(k);
     if (cur.length && units[cur[0]].c !== u.c) flush();
     if (d > maxLen) { flush(); out.push([k]); continue; }
     if (cur.length && len + gap + d > win) flush();
@@ -303,7 +304,7 @@ export async function runSony(job, files, ctx) {
     for (const k of ord) { const u = diar.units[k]; g[k] = u.s - (pe[u.f] ?? -9); pe[u.f] = Math.max(pe[u.f] ?? -9, u.e); }
     return g;
   })();
-  const groups = canPack ? packGroups(diar.units, todo.filter((k) => !done[k]), { gap: GAP }) : todo.filter((k) => !done[k]).map((k) => [k]);
+  const groups = canPack ? packGroups(diar.units, todo.filter((k) => !done[k]), { gap: GAP, extra: (k) => leadPad(gapBefore[k]) + PAD }) : todo.filter((k) => !done[k]).map((k) => [k]);
   for (const g of groups) {
     if (ctx.shouldStop()) return { result: null, fresh: {} };
     const clips = [];

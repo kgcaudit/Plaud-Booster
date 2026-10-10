@@ -4,6 +4,10 @@ import { whisperLogMel, campFeatures } from "./dsp.js";
 import { normalize } from "./engine.js";
 import { agcGains } from "./diar.js";
 
+// 디코더 첫 걸음의 빈 self k·v 캐시(약 9MB). wasm 실행기는 입력을 복사해 쓰므로 하나를 계속 다시 쓴다
+// (예전엔 창마다 두 개씩 새로 만들어 0으로 채움 — 18MB씩 할당)
+const ZERO_CACHE = new Float32Array(4 * 448 * 1280);
+
 export class Whisper {
   /** @param ort onnxruntime-web 모듈, encBytes/decBytes: Uint8Array, tokensText: tokens.txt 내용 */
   /**
@@ -72,7 +76,6 @@ export class Whisper {
     this.SOT = 50258n; this.KO = 50264n; this.EN = 50259n; this.TRANSCRIBE = 50360n; this.NOTS = 50364n; this.EOT = 50257;
     // 말하는 언어: "ko"(기본 — 한국어 속 영어 낱말·문장도 받아 적음) · "en"(영어 회의). 작업마다 일꾼이 정해 준다(job.lang)
     this.lang = "ko";
-    this.lastLang = "ko";
     this.maxTokens = 220;
   }
 
@@ -100,18 +103,23 @@ export class Whisper {
    * 언어 토큰: 영어 회의면 en, 그 밖에는 ko. 한국어(ko)로 두어도 말 중간의 영어는 영어로 받아 적는다(합성 시험: 한·영이 섞인 발언 그대로).
    * 「발언마다 언어 알아내기」는 넣지 않았다 — 한 발언 안에 두 언어가 섞이면 한쪽(시험에서는 한국어 전부)이 빠졌다.
    */
-  async langToken() {
-    this.lastLang = this.lang === "en" ? "en" : "ko";
+  langToken() {
     return this.lang === "en" ? this.EN : this.KO;
+  }
+
+  /** 세션 놓기(그래픽 칩 오류 뒤 새로 올릴 때) */
+  async release() {
+    for (const x of this.enc || []) await x.release?.();
+    await this.dec?.release?.();
   }
 
   async transcribe(audio) {
     const { ort } = this;
     const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
     const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
-    const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
+    const cache = () => new ort.Tensor("float32", ZERO_CACHE, [4, 1, 448, 1280]);
     const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
-    const prompt = [this.SOT, await this.langToken(), this.TRANSCRIBE, this.NOTS];
+    const prompt = [this.SOT, this.langToken(), this.TRANSCRIBE, this.NOTS];
     let out = await this.dec.run({
       tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
       n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]),
@@ -151,9 +159,9 @@ Whisper.prototype.transcribeTs = async function (audio) {
   const dur = audio.length / 16000, maxTs = TS0 + Math.min(1500, Math.floor(dur / 0.02) + 1);
   const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
   const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
-  const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
+  const cache = () => new ort.Tensor("float32", ZERO_CACHE, [4, 1, 448, 1280]);
   const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
-  const prompt = [this.SOT, await this.langToken(), this.TRANSCRIBE];
+  const prompt = [this.SOT, this.langToken(), this.TRANSCRIBE];
   let out = await this.dec.run({ tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
     n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]) });
   const res = [];
@@ -224,7 +232,7 @@ Whisper.prototype.bench = async function (audio, steps = 24) {
   const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
   const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
   const enc = now() - t;
-  const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
+  const cache = () => new ort.Tensor("float32", ZERO_CACHE, [4, 1, 448, 1280]);
   const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
   const prompt = [this.SOT, this.KO, this.TRANSCRIBE, this.NOTS];
   let out = await this.dec.run({ tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),

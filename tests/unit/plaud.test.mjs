@@ -48,3 +48,10 @@ test("시간 없는 파일은 경고", async () => {
   assert.equal(r.segs.length, 0);
   assert.ok(r.warnings.length);
 });
+
+test("TXT: 본문 안의 시각(「2:30에」「…3:00」)을 새 발언 머리로 보지 않는다", async () => {
+  const txt = ["00:00:05 김응옥", "그럼 2:30에 다시 모이시죠", "", "00:00:20 배소정", "네 알겠습니다", "", "00:01:00 김응옥", "다음 회의는 3:00", "", "00:01:30 배소정", "좋습니다"].join("\n");
+  const r = await parse("a.txt", new TextEncoder().encode(txt));
+  assert.deepEqual(r.segs.map((g) => [g.start, g.speaker, g.text]), [
+    [5, "김응옥", "그럼 2:30에 다시 모이시죠"], [20, "배소정", "네 알겠습니다"], [60, "김응옥", "다음 회의는 3:00"], [90, "배소정", "좋습니다"]]);
+});

@@ -8,7 +8,7 @@
 
 export const SCOPES = ["all", "ok", "todo", "need", "sure"];
 
-export const isEdited = (e) => !!(e && (e.speaker || e.text || (e.parts && e.parts.length)));
+export const isEdited = (e) => !!(e && (e.speaker || e.text != null || (e.parts && e.parts.length))); // 글을 다 지운 것("")도 고친 것
 
 /** 발언 g(수정 e)가 범위 f에 드는가 */
 export function inScope(f, e, need) {
@@ -50,7 +50,8 @@ export function splitPart(g, parts, k, text, pos, at) {
   if (!a || !b) return null;
   const s0 = cur.start, s1 = k + 1 < list.length ? list[k + 1].start : g.end;
   let t = Number.isFinite(at) ? at : s0 + (s1 - s0) * (pos / Math.max(1, text.length));
-  t = Math.round(Math.min(s1 - 0.1, Math.max(s0 + 0.1, t)) * 100) / 100;
+  t = s1 - s0 < 0.2 ? (s0 + s1) / 2 : Math.min(s1 - 0.1, Math.max(s0 + 0.1, t)); // 아주 짧은 조각은 가운데
+  t = Math.round(t * 100) / 100;
   const front = { ...cur, text: a }, back = { start: t, text: b };
   if (cur.speaker) back.speaker = cur.speaker; // 처음엔 같은 화자 — 사람이 바꾼다
   list.splice(k, 1, front, back);

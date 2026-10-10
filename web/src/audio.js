@@ -256,10 +256,11 @@ async function decodeWavStreaming(file, onChunk, onProgress) {
   while (p + 8 <= head.byteLength) {
     const id = head.getUint32(p, false), size = head.getUint32(p + 4, true);
     if (id === 0x666d7420) fmt = { ch: head.getUint16(p + 10, true), sr: head.getUint32(p + 12, true), align: head.getUint16(p + 20, true), fmtBytes: new Uint8Array(head.buffer.slice(p, p + 8 + size)) };
-    if (id === 0x64617461) { dataOff = p + 8; dataLen = Math.min(size, file.size - dataOff); break; }
+    // 녹음이 덜 끝난 파일은 크기 칸이 0이나 0xFFFFFFFF — 파일 끝까지를 소리로 본다
+    if (id === 0x64617461) { dataOff = p + 8; dataLen = size === 0 || size === 0xffffffff ? file.size - dataOff : Math.min(size, file.size - dataOff); break; }
     p += 8 + size + (size & 1);
   }
-  if (!fmt || dataOff < 0) return null;
+  if (!fmt || dataOff < 0 || !fmt.align || !fmt.sr) return null; // 머리가 이상하면(0으로 나누면 끝없이 돎) 일반 풀기로
   const per = fmt.sr * 60 * fmt.align;
   let total = 0;
   for (let o = 0; o < dataLen; o += per) {
@@ -289,13 +290,3 @@ export function wavHeader(n) {
   return out.buffer;
 }
 
-/** 재생용 WAV(16비트) 만들기 */
-export function wavBlob(f32) {
-  const out = new DataView(new ArrayBuffer(44 + f32.length * 2));
-  const w = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
-  w(0, "RIFF"); out.setUint32(4, 36 + f32.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
-  out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true); out.setUint32(24, SR, true);
-  out.setUint32(28, SR * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true); w(36, "data"); out.setUint32(40, f32.length * 2, true);
-  for (let i = 0; i < f32.length; i++) { const v = Math.max(-1, Math.min(1, f32[i])); out.setInt16(44 + i * 2, v < 0 ? v * 32768 : v * 32767, true); }
-  return new Blob([out.buffer], { type: "audio/wav" });
-}

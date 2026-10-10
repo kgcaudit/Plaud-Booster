@@ -155,3 +155,13 @@ test("전사 앞 여유: 조용한 뒤엔 0.5초까지, 앞 발언에 붙어 있
   assert.equal(leadPad(0.05), 0.15);
   assert.equal(leadPad(undefined), 0.5); // 첫 발언
 });
+
+import { packGroups as _pg } from "../../web/src/engine.js";
+test("묶은 창은 실제로 읽는 길이(앞뒤 여유 포함)로 24초를 넘지 않는다", () => {
+  const U = Array.from({ length: 20 }, (_, k) => ({ f: 0, c: 0, s: k * 10, e: k * 10 + 1 }));
+  const extra = () => 0.65;
+  for (const g of _pg(U, U.map((_, k) => k), { extra })) {
+    const real = g.reduce((m, k) => m + (U[k].e - U[k].s) + 0.65, 0) + 0.6 * (g.length - 1);
+    assert.ok(real <= 24.0001, `창 ${real}초`);
+  }
+});

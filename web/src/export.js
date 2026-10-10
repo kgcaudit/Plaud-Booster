@@ -49,10 +49,12 @@ export function mergedLines({ job, result, edits, plaud, glossary }, { usePlaud 
     if (!ed.speaker && g.kind === "혼재") tag = [tag, "화자 혼재"].filter(Boolean).join("·");
     if (ed.parts && ed.parts.length) { // 검수에서 나눈 발언: 조각마다 한 줄(조각 화자 > 발언 화자)
       const base = speakerOf(g, edits);
-      for (const p of ed.parts) lines.push({ t: p.start, file: g.file || 0, spk: p.speaker || base, text: p.text, src: tag.replace(/·?화자 혼재/, "") });
+      for (const p of ed.parts) if ((p.text || "").trim()) lines.push({ t: p.start, file: g.file || 0, spk: p.speaker || base, text: p.text, src: tag.replace(/·?화자 혼재/, "") });
       continue;
     }
-    lines.push({ t: g.start, file: g.file || 0, spk: speakerOf(g, edits), text: ed.text || g.text, src: tag });
+    const text = ed.text ?? g.text; // 검수에서 글을 다 지웠으면(헛말 지우기) 그 발언은 내보내지 않는다
+    if (!(text || "").trim()) continue;
+    lines.push({ t: g.start, file: g.file || 0, spk: speakerOf(g, edits), text, src: tag });
   }
   lines.sort((a, b) => a.file - b.file || a.t - b.t);
   for (const x of lines) { x.text = applyGlossary(x.text, pairs); x.spk = applyGlossary(x.spk, pairs); }
@@ -78,7 +80,8 @@ export function exportTxt(data, opts) {
 
 export function exportCsv(data, opts) {
   const files = (data.job.audioFiles || []).map((f) => f.name);
-  const q = (s) => (/[",\n]/.test(s) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
+  // 따옴표가 필요한 칸(쉼표·따옴표·줄바꿈)은 감싸고, =·+·-·@로 시작하는 글은 엑셀이 수식으로 돌리지 않게 앞에 '를 붙인다(「-5억」 → #NAME?)
+  const q = (v) => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const rows = [["파일", "시각", "화자", "발언", "출처"]];
   for (const x of mergedLines(data, opts)) rows.push([files[x.file] ?? x.file, hms(x.t), x.spk, x.text, x.src]);
   return "﻿" + rows.map((r) => r.map(q).join(",")).join("\r\n") + "\r\n";
@@ -100,7 +103,8 @@ export function mergeBackup(cur, bk) {
   for (const [id, j] of Object.entries(bk.jobs || {})) {
     if (cur.jobIds.has(id)) continue; // 백업 형식 1·2 모두 같은 자리(2는 edits에 묶음 이름 names가 더 있음)
     const job = { ...j.job, audioDeleted: true };
-    if (job.status === "대기" || job.status === "처리중") job.status = "중지";
+    // 음원·화자 나누기 중간 결과는 백업에 없으므로 이어서 할 수 없는 상태는 「중지」로(이름 대기 작업은 이름을 붙일 묶음이 없음)
+    if (job.status === "대기" || job.status === "처리중" || job.status === "이름 대기") job.status = "중지";
     jobs[id] = { ...j, job };
     added.jobs++;
   }

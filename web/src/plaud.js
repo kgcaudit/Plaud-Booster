@@ -15,7 +15,7 @@ const TS = String.raw`(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?`;
 const RE_SRT_TIME = new RegExp(String.raw`^\s*(${TS})\s*-->\s*(${TS})`);
 const RE_SRT_TIME_ANY = new RegExp(String.raw`^\s*(${TS})\s*-->\s*(${TS})`, "m");
 const RE_RANGE = new RegExp(String.raw`^\s*\[?(${TS})\]?\s*[-~–]\s*\[?(${TS})\]?\s*(.*)$`);
-const RE_TS_FIRST = new RegExp(String.raw`^\s*[\[(]?(${TS})[\])]?\s*[-|·]?\s*(.*)$`);
+const RE_TS_FIRST = new RegExp(String.raw`^\s*[\[(]?(${TS})(?![0-9A-Za-z가-힣])[\])]?\s*[-|·]?\s*(.*)$`); // 「2:30에 다시…」 같은 본문은 시각 머리가 아님
 const RE_TS_LAST = new RegExp(String.raw`^\s*(.+?)\s*[\[(]?(${TS})[\])]?\s*:?\s*$`);
 const RE_SPK_TS_TEXT = new RegExp(String.raw`^\s*(.{1,40}?)\s*[\[(](${TS})[\])]\s*[:：]\s*(.+)$`);
 const RE_SPK_TEXT = /^\s*([^:：\s][^:：]{0,30}?)\s*[:：]\s*(.+)$/;
@@ -88,7 +88,10 @@ export function parseTxt(text) {
       else start(ts(m[1]), "", rest, ts(m[2]));
       continue;
     }
+    // 머리(시각·화자)만 있고 아직 말이 없는 다음 줄, 또는 시각이 앞 머리보다 이르면 시각처럼 보여도 본문이다(「…회의는 3:00」)
+    const bodyFirst = (t) => cur && (!cur.text || t < cur.start);
     m = line.match(RE_TS_FIRST); // [00:01:05] 김응옥: 발언 / 00:01:05 김응옥
+    if (m && bodyFirst(ts(m[1]))) m = null;
     if (m) {
       const rest = m[2].trim();
       const mm = rest.match(RE_SPK_TEXT);
@@ -98,7 +101,7 @@ export function parseTxt(text) {
       continue;
     }
     m = line.match(RE_TS_LAST); // 김응옥 00:01:05
-    if (m && looksLikeSpeaker(m[1])) { start(ts(m[2]), m[1]); continue; }
+    if (m && looksLikeSpeaker(m[1]) && !bodyFirst(ts(m[2]))) { start(ts(m[2]), m[1]); continue; }
     if (cur) cur.text = (cur.text + " " + line).trim();
   }
   return finish(segs);

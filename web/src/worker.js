@@ -12,12 +12,14 @@ let useGpu = false, cleanExitAt = 0; // cleanExitAt: 화면이 알려 준 마지
 let gpuLevel = null, envReady;
 const envWait = new Promise((res) => { envReady = res; });
 const levelNow = async () => {
-  await Promise.race([envWait, new Promise((r) => setTimeout(r, 4000))]);
+  await Promise.race([envWait, new Promise((r) => setTimeout(r, 10000))]);
   if (gpuLevel != null) return gpuLevel;
   const set = (await S.get("kv", "settings")) || {};
-  return typeof set.gpuLevel === "number" ? set.gpuLevel : set.gpu === false ? 0 : 4;
+  // 화면이 기기를 못 알려 주면(느린 기기) 안전하게 CPU — 예전엔 「전부」였는데 플립3 같은 기기에서 크롬이 꺼질 수 있었다
+  return typeof set.gpuLevel === "number" ? set.gpuLevel : 0;
 };
-let ort = null, whisper = null, camp = null, vad = null, busy = false, stopId = null, manifest = null;
+let ort = null, whisper = null, camp = null, vad = null, busy = false, manifest = null;
+const stops = new Set(); // 멈춰 달라고 한 작업들(여러 개를 잇달아 멈춰도 놓치지 않게)
 
 /* ------------------------------------------------------------------ 모델 */
 // 모델 파일마다 내용 해시로 캐시를 따로 둔다(pb-m-<sha>). 모델 하나를 더하거나 바꿔도 나머지는 다시 받지 않는다.
@@ -70,8 +72,8 @@ async function loadFile(info, onBytes, fromNet = false) {
   }
   const bad = o !== info.size || (legacy && hex(await crypto.subtle.digest("SHA-256", out)) !== info.sha256);
   if (bad) {
-    if (fromNet || !legacy) throw new Error(`모델 크기가 맞지 않습니다: ${info.name}`);
-    await caches.delete(cacheName(info));
+    if (fromNet) throw new Error(`모델 크기가 맞지 않습니다: ${info.name}`);
+    await caches.delete(cacheName(info)); // 캐시에 깨진 조각이 있으면 지우고 한 번 새로 받는다(그대로 두면 계속 실패)
     return loadFile(info, onBytes, true); // 예전 캐시 내용이 달랐다 → 새로 받는다
   }
   return out;
@@ -128,7 +130,7 @@ async function cleanupOldCaches() {
 async function ensureModels(need = "all") {
   if (FAKE) {
     if (need === "all" && !whisper) await gpuGuard(await levelNow()); // 시험에서도 같은 묻기 절차를 거치게
-    whisper = whisper || {
+    whisper = whisper || (need !== "all" ? null : {
       transcribe: async (a) => (whisper.lang === "en" ? `fake transcript ${(a.length / 16000).toFixed(1)}s` : `가짜 전사 ${(a.length / 16000).toFixed(1)}초`),
       // 묶은 창: 0.3초 넘게 조용한 곳으로 나눠 구간마다 글 하나
       transcribeTs: async (a) => {
@@ -141,10 +143,10 @@ async function ensureModels(need = "all") {
         if (s0 >= 0) segs.push([s0, a.length]);
         return segs.map(([x, y]) => ({ s: x / 16000, e: y / 16000, text: whisper.lang === "en" ? `fake transcript ${((y - x) / 16000).toFixed(1)}s` : `가짜 전사 ${((y - x) / 16000).toFixed(1)}초` }));
       },
-    };
+    });
     camp = camp || { embed: async (a) => fakeEmbed(a) };
     vad = vad || { probs: async (x) => { const n = Math.floor(x.length / 512), p = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let k = i * 512; k < (i + 1) * 512; k++) s += x[k] * x[k]; p[i] = Math.sqrt(s / 512) > 0.01 ? 0.9 : 0.02; } return p; } };
-    post({ type: "models", phase: "ready", threads: 0, partial: false, device: "cpu", gpuParts: 0, nParts: 4 }); // 진짜 엔진처럼 「올림」 알림
+    post({ type: "models", phase: "ready", threads: 0, partial: !whisper, device: "cpu", gpuParts: 0, nParts: 4 }); // 진짜 엔진처럼 「올림」 알림
     return;
   }
   const m = await getManifest();
@@ -169,11 +171,9 @@ async function ensureModels(need = "all") {
     // 화면용으로 하나 남긴다(2코어 이하는 전부). 그래픽 칩이 인코더를 맡으면 CPU는 디코더만 하므로 둘을 남겨 화면이 덜 굼뜨게
     ort.env.wasm.numThreads = set.threads || Math.min(16, hc > 2 ? hc - (useGpu && hc > 4 ? 2 : 1) : hc);
   }
-  const st = await modelStatus();
-
   let got = 0, net = 0; // 이번에 읽는 양(net: 그중 인터넷에서 받은 양 — 0이면 화면에 「불러오는 중」)
   const toLoad = [...(haveDiar ? [] : [m.files.vad, m.files.campplus]), ...(need === "all" && !whisper ? [m.files.tokens, m.files.decoder, ...encFiles(m)] : [])].filter(Boolean);
-  const want = toLoad.reduce((x, f) => x + f.size, 0) || st.totalBytes;
+  const want = toLoad.reduce((x, f) => x + f.size, 0);
   const tick = (n, fromNet) => { got += n; if (fromNet) net += n; post({ type: "models", phase: "download", got, total: want, net }); };
   const { Whisper, CamPlus, SileroVad } = await import("./models.js");
   if (!haveDiar) {
@@ -209,7 +209,7 @@ async function ensureModels(need = "all") {
 async function gpuGuard(level) {
   const pend = await S.get("kv", "gpuLoading");
   if (pend && pend.v !== 2) { await S.del("kv", "gpuLoading"); return level; } // 예전 형식 표시는 버린다(판정 기준이 달랐음)
-  if (!pend || !gpuCrashed(pend, cleanExitAt)) return level;
+  if (!pend || !(pend.crashed || gpuCrashed(pend, cleanExitAt))) return level;
   const chosen = await askGpu(pend.level ?? level); // 그때 쓰던 단계를 알려 주고 고르게 한다
   await S.del("kv", "gpuLoading");
   await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpuLevel: chosen });
@@ -234,7 +234,11 @@ async function nextJob() {
 
 async function processJob(job) {
   const id = job.id;
-  await S.saveJob(id, { status: "처리중", error: null, startedAt: S.now(), progress: { pct: 1, msg: "모델 준비" } });
+  // 「대기」일 때만 가져간다(그 사이 화면에서 멈춤·지우기를 했으면 건너뜀)
+  let claimed = false;
+  await S.update("jobs", id, (j) => { if (!j || j.status !== "대기") return j; claimed = true; return { ...j, status: "처리중", error: null, startedAt: S.now(), progress: { pct: 1, msg: "모델 준비" } }; });
+  stops.delete(id);
+  if (!claimed) return;
   post({ type: "job", id });
   await ensureModels(isDiar(job.mode) && job.stage !== "transcribe" ? "diar" : "all");
   if (whisper) whisper.lang = job.lang || "ko"; // 말하는 언어(한국어·영어·자동) — 예전 작업은 한국어
@@ -262,7 +266,7 @@ async function processJob(job) {
     loadPartial: async () => (await S.get("partials", id)) || {},
     savePartial: (rec) => S.update("partials", id, (p) => ({ ...(p || {}), [rec.k]: rec })),
     progress,
-    shouldStop: () => stopId === id,
+    shouldStop: () => stops.has(id),
   };
   const { result, fresh, awaiting, diar } = await runJob(job, job.audioFiles, ctx);
   if (awaiting) {
@@ -312,11 +316,12 @@ async function loop() {
     for (;;) {
       const job = await nextJob();
       if (!job) break;
-      stopId = null;
       try {
         await processJob(job);
       } catch (e) {
         console.error(e);
+        // 그래픽 칩에서 계산하다 난 오류(장치 잃음 등)면 다음 작업에서 새로 올리게 버린다
+        if (whisper && whisper.device === "gpu") { whisper.release().catch(() => {}); whisper = null; }
         const msg = e && e.name === "QuotaExceededError"
           ? "저장 공간이 부족합니다. 시크릿 창이 아닌 일반 창에서 열고, 설정·백업 탭에서 남은 공간을 확인하세요."
           : String((e && e.message) || e).slice(0, 300);
@@ -391,9 +396,13 @@ self.onmessage = async (ev) => {
     if (m.type === "gpuAnswer" && gpuReply) { const r = gpuReply; gpuReply = null; r(Math.max(0, Math.min(4, +m.level || 0))); }
     if (m.type === "status" && gpuReply) post({ type: "gpuAsk", level: gpuAskLevel }); // 새로 연 화면에도 질문을 다시 보인다
     if (m.type === "kick" && owner) loop();
-    if (m.type === "stop") stopId = m.id;
+    if (m.type === "stop") {
+      stops.add(m.id);
+      if (gpuReply && busy) { const r = gpuReply; gpuReply = null; r(gpuAskLevel); } // 그래픽 칩 질문을 기다리던 중이면 풀어서 멈춤이 먹히게
+    }
     if (m.type === "status") post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE });
     if (m.type === "bench") {
+      if (!owner) { post({ type: "bench", error: "다른 탭에서 처리를 맡고 있어 여기서는 시험할 수 없습니다(메모리가 모자라 둘 다 꺼질 수 있음). 그 탭을 닫고 다시 누르세요." }); return; }
       if (busy) { post({ type: "bench", error: "작업을 처리하는 중에는 시험할 수 없습니다. 작업이 끝난 뒤 다시 누르세요." }); return; }
       busy = true;
       try { post({ type: "bench", result: await bench() }); }
@@ -418,9 +427,19 @@ let owner = false;
       return owner ? new Promise(() => {}) : undefined; // 가진 쪽은 끝까지 붙든다
     });
   });
-  if (owner) {
-    // 처리 중에 페이지를 닫았다가 다시 열면 「처리중」으로 남은 작업을 대기로 돌려 이어서 한다
-    for (const [id, j] of await S.all("jobs")) if (j.status === "처리중") await S.saveJob(id, { status: "대기" });
+  if (owner) await becomeOwner();
+  else if (self.navigator.locks) {
+    // 다른 탭이 닫히면(또는 빠른 새로 고침으로 앞 일꾼이 아직 놓지 않았으면) 그때 넘겨받는다
+    self.navigator.locks.request("plaud-booster-worker", () => { owner = true; becomeOwner().then(() => { post({ type: "hello", owner: true }); loop(); }); return new Promise(() => {}); });
   }
   post({ type: "hello", owner });
 })();
+async function becomeOwner() {
+  // 처리 중에 페이지를 닫았다가 다시 열면 「처리중」으로 남은 작업을 대기로 돌려 이어서 한다
+  for (const [id, j] of await S.all("jobs")) if (j.status === "처리중") await S.saveJob(id, { status: "대기" });
+  // 그래픽 칩 시험 중 꺼진 흔적은 지금 판정해 표시해 둔다 — 다음 정상 종료 기록에 묻혀 다음번엔 못 알아보는 일을 막음
+  Promise.race([envWait, new Promise((r) => setTimeout(r, 10000))]).then(async () => {
+    const pend = await S.get("kv", "gpuLoading");
+    if (pend && pend.v === 2 && !pend.crashed && gpuCrashed(pend, cleanExitAt)) await S.put("kv", "gpuLoading", { ...pend, crashed: true });
+  }).catch(() => {});
+}

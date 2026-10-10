@@ -17,6 +17,8 @@ export function db() {
   return dbp;
 }
 
+// 쓰기 끝을 기다림: 저장 공간이 모자라면 크롬은 error가 아니라 abort로 알리므로 둘 다 받는다(안 받으면 작업이 「처리중」에서 멈춤)
+const done = (tx) => new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new DOMException("저장이 취소되었습니다", "AbortError")); });
 function req(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
 
 export async function get(store, key) {
@@ -27,13 +29,13 @@ export async function put(store, key, value) {
   const d = await db();
   const tx = d.transaction(store, "readwrite");
   tx.objectStore(store).put(value, key);
-  return new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
+  return done(tx);
 }
 export async function del(store, key) {
   const d = await db();
   const tx = d.transaction(store, "readwrite");
   tx.objectStore(store).delete(key);
-  return new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
+  return done(tx);
 }
 export async function all(store) {
   const d = await db();
@@ -55,7 +57,7 @@ export async function update(store, key, fn) {
   const cur = await req(s.get(key));
   out = fn(cur);
   s.put(out, key);
-  await new Promise((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
+  await done(tx);
   return out;
 }
 

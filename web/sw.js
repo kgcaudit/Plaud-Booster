@@ -9,7 +9,7 @@ self.addEventListener("fetch", (e) => {
   // 화면 파일(html·js·css)은 매번 서버와 대조해(바뀌었으면 새로) 받는다 — 고친 화면이 휴대폰 캐시 때문에 늦게 반영되지 않게.
   // 모델 조각은 일꾼이 Cache Storage에서 따로 관리하므로 그대로 둔다.
   const path = new URL(r.url).pathname;
-  const fresh = r.mode === "navigate" || /\.(?:html|js|mjs|css)$/.test(path);
+  const fresh = r.mode === "navigate" || /\.(?:html|js|mjs|css|wasm)$/.test(path);
   e.respondWith(
     fetch(fresh ? new Request(r, { cache: "no-cache" }) : r).then((res) => {
       if (res.status === 0) return res;

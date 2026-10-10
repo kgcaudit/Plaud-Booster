@@ -442,38 +442,12 @@ export function splitCluster(diar, ci, known = {}, opt = {}) {
   const nc = diar.clusters.length;
   const turns = T.map((t) => ({ ...t }));
   ks.forEach((k, i) => { if (lab[i] === moved) turns[k].c = nc; });
-  const maxId = Math.max(0, ...diar.clusters.map((c) => +String(c.id).replace(/\D/g, "") || 0));
-  const tt = turns.map((t) => ({ f: t.f, s: t.s, e: t.e, w: { length: t.n || 1 }, v: unit(t.v) }));
-  const labels = turns.map((t) => t.c);
-  const tv = tt.map((t) => t.v), tw = tt.map((t) => t.w.length);
-  const cl = [...diar.clusters.map((c) => ({ ...c })), { id: "S" + (maxId + 1), label: "Speaker " + (maxId + 1), suggest: null, alt: null }];
-  const q = (v) => Array.from(v, (x) => Math.round(x * 1e4) / 1e4);
-  const vecs = cl.map((c, i) => {
-    const idx = labels.map((l, k) => (l === i ? k : -1)).filter((k) => k >= 0);
-    return idx.length ? meanOf(tv, idx, tw) : unit(c.vec);
-  });
-  const units = unitsOf(tt, labels, vecs.map((vec) => ({ vec })), o);
-  const names = Object.keys(known);
-  cl.forEach((c, i) => {
-    c.nunit = units.filter((u) => u.c === i).length;
-    c.samples = samplesOf(units, i);
-    if (i !== ci && i !== nc) return;
-    const idx = labels.map((l, k) => (l === i ? k : -1)).filter((k) => k >= 0);
-    c.vec = q(vecs[i]);
-    c.dur = Math.round(idx.reduce((m, k) => m + tt[k].e - tt[k].s, 0));
-    c.nturn = idx.length;
-    const sims = names.map((n) => [n, Math.round(dot(known[n], vecs[i]) * 100) / 100]).sort((a, b) => b[1] - a[1]);
-    c.suggest = sims[0] && sims[0][1] >= o.weak ? { name: sims[0][0], sim: sims[0][1], strong: sims[0][1] >= o.suggest } : null;
-    c.alt = sims.filter((s) => !c.suggest || s[0] !== c.suggest.name).slice(0, 1).map(([name, sim]) => ({ name, sim }))[0] || null;
-  });
-  return {
-    ...diar,
-    turns,
-    clusters: cl,
-    units: units.map((u) => ({ f: u.f, s: u.s, e: u.e, c: u.c, sim: u.sim, margin: u.margin, n: u.nwin, v: q(u.v) })),
-    splits: [...(diar.splits || []), { from: diar.clusters[ci].id, to: "S" + (maxId + 1) }],
-  };
+  const id = nextId(diar);
+  const nd = relabelDiar(diar, turns, [{ id, label: "Speaker " + id.slice(1), suggest: null, alt: null, vec: diar.clusters[ci].vec }], new Set([ci, nc]), known, o);
+  return { ...nd, splits: [...(diar.splits || []), { from: diar.clusters[ci].id, to: id }] };
 }
+/** 새 묶음 번호(S 다음 숫자) */
+const nextId = (diar) => "S" + (Math.max(0, ...diar.clusters.map((c) => +String(c.id).replace(/\D/g, "") || 0)) + 1);
 
 /* ------------------------------------------------------------------ 구간 손보기(이름 대기 중)
  * 사람이 시작·끝을 정한 구간을 한 사람(기존 묶음 · 새 사람 · 빼기)으로 못 박는다.
@@ -506,8 +480,17 @@ const relabelDiar = (diar, turns, extraCl, touched, known, o) => {
     c.suggest = sims[0] && sims[0][1] >= o.weak ? { name: sims[0][0], sim: sims[0][1], strong: sims[0][1] >= o.suggest } : null;
     c.alt = sims.filter((s) => !c.suggest || s[0] !== c.suggest.name).slice(0, 1).map(([name, sim]) => ({ name, sim }))[0] || null;
   });
-  return { ...diar, turns, clusters: cl, units: units.map((u) => ({ f: u.f, s: u.s, e: u.e, c: u.c, sim: u.sim, margin: u.margin, n: u.nwin, v: q(u.v) })) };
+  return pruneEmpty({ ...diar, turns, clusters: cl, units: units.map((u) => ({ f: u.f, s: u.s, e: u.e, c: u.c, sim: u.sim, margin: u.margin, n: u.nwin, v: q(u.v) })) });
 };
+/** 차례가 하나도 남지 않은 묶음은 지우고 번호를 당긴다(이름 정하기 「n묶음 중 k개」가 빈 묶음 때문에 끝나지 않던 문제). id는 그대로라 붙인 이름은 유지 */
+function pruneEmpty(d) {
+  const used = new Set(d.turns.map((t) => t.c).filter((c) => c >= 0));
+  if (used.size === d.clusters.length) return d;
+  const remap = []; let n = 0;
+  d.clusters.forEach((_, i) => { remap[i] = used.has(i) ? n++ : -1; });
+  const m = (c) => (c >= 0 ? remap[c] : c);
+  return { ...d, clusters: d.clusters.filter((_, i) => used.has(i)), turns: d.turns.map((t) => ({ ...t, c: m(t.c) })), units: d.units.map((u) => ({ ...u, c: m(u.c) })) };
+}
 
 /**
  * 구간 [s, e](파일 f)를 target으로: 묶음 번호 · "new"(새 사람) · "drop"(빼기).
@@ -520,8 +503,8 @@ export function relabelRange(diar, f, s, e, target, known = {}, opt = {}) {
   const to = target === "new" ? nc : target === "drop" ? -1 : +target;
   const extra = [];
   if (target === "new") {
-    const maxId = Math.max(0, ...diar.clusters.map((c) => +String(c.id).replace(/\D/g, "") || 0));
-    extra.push({ id: "S" + (maxId + 1), label: "Speaker " + (maxId + 1), suggest: null, alt: null, vec: diar.clusters[0] ? diar.clusters[0].vec : [] });
+    const id = nextId(diar);
+    extra.push({ id, label: "Speaker " + id.slice(1), suggest: null, alt: null, vec: diar.clusters[0] ? diar.clusters[0].vec : [] });
   }
   const turns = [];
   const had = {};
@@ -529,6 +512,7 @@ export function relabelRange(diar, f, s, e, target, known = {}, opt = {}) {
   for (const t of diar.turns) {
     if ((t.f || 0) !== f || t.e <= s || t.s >= e) { turns.push({ ...t }); continue; }
     const a = Math.max(s, t.s), b = Math.min(e, t.e);
+    if (b - a < 0.1) { turns.push({ ...t }); continue; } // 0.1초도 안 걸친 이웃 차례는 그대로(남의 목소리 특징이 기준으로 섞이지 않게)
     had[t.c] = (had[t.c] || 0) + (b - a);
     if (t.s < a - 0.05) turns.push({ ...t, e: r2(a) }); // 앞 자투리는 그대로
     turns.push({ ...t, s: r2(a), e: r2(b), c: to, m: 1, ...(opt.ref === false || to < 0 ? {} : { ref: 1 }) });
@@ -538,9 +522,12 @@ export function relabelRange(diar, f, s, e, target, known = {}, opt = {}) {
   if (!hit) return null;
   const from = +Object.entries(had).sort((x, y) => y[1] - x[1])[0][0];
   const touched = new Set([to, ...Object.keys(had).map(Number)].filter((x) => x >= 0));
+  const toId = to < 0 ? null : (to === nc ? extra[0].id : diar.clusters[to].id), fromId = from >= 0 ? diar.clusters[from].id : null;
   const nd = relabelDiar(diar, turns, extra, touched, known, o);
-  nd.manual = [...(diar.manual || []), { f, s: r2(s), e: r2(e), to: to < 0 ? null : nd.clusters[to].id }];
-  return { diar: nd, to, from };
+  nd.manual = [...(diar.manual || []), { f, s: r2(s), e: r2(e), to: toId }];
+  // 빈 묶음을 지워 번호가 당겨졌을 수 있으니 id로 다시 찾는다
+  const idx = (id) => (id == null ? -1 : nd.clusters.findIndex((c) => c.id === id));
+  return { diar: nd, to: idx(toId), from: idx(fromId) };
 }
 
 /**
