@@ -120,7 +120,7 @@ async function renderLevelNow() {
   const want = effectiveLevel((await S.get("kv", "settings")) || {}, await detectDevice());
   // 평소에는 비워 두고, 설정과 지금 올라간 단계가 달라 새로 고쳐야 할 때·그래픽 칩을 못 켰을 때만 한 줄로 알린다
   let html = "";
-  if (WSTATE.engineLoaded && WSTATE.loadedLevel !== want) html = `새로 고쳐야 <b>${esc(levelLabel(want))}</b>로 바뀝니다(지금은 ${esc(levelLabel(WSTATE.loadedLevel ?? 0))}). <button type="button" id="btnReload">새로 고침</button>`;
+  if (WSTATE.engineLoaded && WSTATE.loadedLevel !== want) html = `새로 고쳐야 <b>${esc(levelLabel(want))}</b>으로 바뀝니다(지금은 ${esc(levelLabel(WSTATE.loadedLevel ?? 0))}). <button type="button" id="btnReload">새로 고침</button>`;
   else if (WSTATE.whisperLoaded && WSTATE.device !== "gpu" && want > 0) html = '<span class="err">그래픽 칩을 켜지 못해 CPU로 돌고 있습니다.</span>';
   el.innerHTML = html;
   const b = $("#btnReload"); if (b) b.addEventListener("click", () => location.reload());
@@ -210,7 +210,7 @@ $("#gpuAsk").addEventListener("click", async (ev) => {
   $("#gpuAsk").classList.add("hidden");
   worker.postMessage({ type: "gpuAnswer", level: v });
   if ($("#gpuLevel").options.length) $("#gpuLevel").value = String(v);
-  toast(v ? `그래픽 칩 가속 ${levelLabel(v)}로 이어 갑니다` : "이 기기는 CPU로 전사합니다(설정에서 다시 바꿀 수 있음)");
+  toast(v ? `그래픽 칩 가속 「${levelLabel(v)}」으로 이어 갑니다` : "이 기기는 CPU로 전사합니다(설정에서 다시 바꿀 수 있음)");
 });
 
 /* ================================================================== 새 작업 */
@@ -1164,7 +1164,7 @@ async function loadSettings() {
   $("#threads").value = set.threads || 0;
   const dev = await detectDevice();
   const auto = dev.level;
-  $("#gpuLevel").innerHTML = `<option value="auto">자동 — ${esc(levelLabel(auto))}(권장)</option>` + LEVELS.map((l) => `<option value="${l.v}">${esc(l.label)}</option>`).join("");
+  $("#gpuLevel").innerHTML = `<option value="auto">자동(권장) → ${esc(levelLabel(auto))}</option>` + LEVELS.map((l) => `<option value="${l.v}">${esc(l.label)}</option>`).join("");
   $("#gpuLevel").value = typeof set.gpuLevel === "number" ? String(set.gpuLevel) : set.gpu === false ? "0" : "auto";
   // 한 줄로: 기기 · 그래픽 칩 → 자동 단계(근거는 말풍선으로)
   $("#devInfo").textContent = `이 기기: ${[dev.name || dev.model, dev.gpu].filter(Boolean).join(" · ") || "알 수 없음"} → 자동: ${levelLabel(auto)}`;
@@ -1196,7 +1196,11 @@ async function gpuInfo() {
 }
 const sec = (ms) => (ms >= 3600000 ? `${Math.floor(ms / 3600000)}시간 ${Math.round((ms % 3600000) / 60000)}분` : ms >= 60000 ? `${Math.floor(ms / 60000)}분 ${Math.round((ms % 60000) / 1000)}초` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}초`);
 let BENCH_GPU = null;
-const levelText = (r) => (r.device === "gpu" ? `그래픽 칩 ${r.gpuParts || "?"}/${r.nParts || 4}` : "끄기(CPU)");
+// 시험 기록의 가속 단계 — 설정 목록과 같은 이름(사용 - 빠름·보통·느림, 끔)
+const levelText = (r) => {
+  const n = r.device === "gpu" ? (r.gpuParts ?? r.nParts ?? 4) : 0;
+  return LEVELS.some((l) => l.v === n) ? levelLabel(n) : `사용(${n}/${r.nParts || 4})`;
+};
 function renderBench(r, gpu) {
   const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
   const enc = r.enc.map(sec).join(" → ");
@@ -1206,9 +1210,9 @@ function renderBench(r, gpu) {
     row("그래픽 칩", gpu ? (gpu.ok ? `WebGPU 사용 가능 · 16비트 연산 ${gpu.f16 ? "지원" : "없음"} · ${esc(gpu.name)}` : esc(gpu.why)) : "-"),
     row("처리 스레드", r.threads || "-"),
     row("기기", esc(r.dev ? devText(r.dev) : "-")),
-    row("가속 단계", levelText(r) + (r.device === "gpu" && r.gpuParts < (r.nParts || 4) ? " + 나머지 CPU" : "")
+    row("가속 단계", levelText(r)
       + (r.want != null && r.want !== (r.device === "gpu" ? r.gpuParts : 0)
-        ? `<br><span class="err">설정은 ${esc(levelLabel(r.want))}였지만 적용되지 않음 — ${esc(r.why || "모델을 먼저 다른 단계로 올려 둠(새로 고침 필요)")}</span>` : "")),
+        ? `<br><span class="err">설정은 「${esc(levelLabel(r.want))}」이었지만 적용되지 않음 — ${esc(r.why || "모델을 먼저 다른 단계로 올려 둠(새로 고침 필요)")}</span>` : "")),
     row("모델 올리기", r.load < 100 ? "이미 올라가 있음" : sec(r.load)),
     row("말소리 찾기", r.vadMin != null ? `음성 1분에 ${sec(r.vadMin)}` : "-"),
     row("목소리 특징", `3초 창 하나에 ${sec(r.emb)}`),
@@ -1245,7 +1249,7 @@ $("#btnBench").addEventListener("click", async () => {
   $("#benchMsg").textContent = "그래픽 칩 확인 …";
   keepAwake("bench", true);
   const want = effectiveLevel((await S.get("kv", "settings")) || {}, await detectDevice());
-  if (WSTATE.engineLoaded && WSTATE.loadedLevel !== want) toast(`설정(${levelLabel(want)})은 새로 고친 뒤 적용됩니다 — 이번 시험은 ${levelLabel(WSTATE.loadedLevel ?? 0)}로 잽니다`);
+  if (WSTATE.engineLoaded && WSTATE.loadedLevel !== want) toast(`설정(${levelLabel(want)})은 새로 고친 뒤 적용됩니다 — 이번 시험은 「${levelLabel(WSTATE.loadedLevel ?? 0)}」으로 잽니다`);
   BENCH_GPU = await gpuInfo();
   worker.postMessage({ type: "bench" });
 });

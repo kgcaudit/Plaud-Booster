@@ -29,12 +29,13 @@ export const GPU_TABLE = [
 
 /** 가속 단계: 인코더 4조각 중 그래픽 칩에 올릴 조각 수 */
 export const LEVELS = [
-  { v: 4, label: "전부(4/4) — 가장 빠름" },
-  { v: 2, label: "절반(2/4)" },
-  { v: 1, label: "1/4 — 가볍게" },
-  { v: 0, label: "끄기(CPU) — 느리지만 안전" },
+  { v: 4, label: "사용 - 빠름" },
+  { v: 2, label: "사용 - 보통" },
+  { v: 1, label: "사용 - 느림" },
+  { v: 0, label: "끔" },
 ];
-export const levelLabel = (v) => (LEVELS.find((l) => l.v === v) || LEVELS[3]).label.split(" — ")[0];
+// 단계 이름은 모두 받침으로 끝나므로 뒤에 붙는 조사는 「으로」「이었지만」
+export const levelLabel = (v) => (LEVELS.find((l) => l.v === v) || LEVELS[3]).label;
 
 /**
  * 점수 → 기본 단계. 기준점(실측):

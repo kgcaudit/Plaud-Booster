@@ -295,19 +295,19 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   assert.ok(await page.locator("#benchMsg:has-text('끝났습니다')").count() === 0); // 답하기 전에는 진행하지 않음
   // 그때 쓰던 단계(전부 4/4)를 알리고 「한 단계 낮추기(절반) · CPU로 · 그대로」를 고르게 한다
   assert.deepEqual(await page.locator("#gpuAsk button").evaluateAll((bs) => bs.map((b) => b.dataset.level)), ["2", "0", "4"]);
-  assert.match(await page.locator("#gpuAskNow").textContent(), /전부/);
+  assert.match(await page.locator("#gpuAskNow").textContent(), /사용 - 빠름/);
   await page.click("#gpuAsk button[data-level='0']");
   await page.waitForSelector("#benchMsg:has-text('끝났습니다')", { timeout: 60000 });
   const setGpu = await page.evaluate(async () => { const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); }); return new Promise((r) => { const q = db.transaction("kv").objectStore("kv").get("settings"); q.onsuccess = () => r(q.result && q.result.gpuLevel); }); });
   assert.equal(setGpu, 0);
-  // 설정의 가속 단계: 자동(기기 성능 자료) + 전부·절반·1/4·끄기, 고른 값이 반영됨
+  // 설정의 가속 단계: 자동(기기 성능 자료) + 빠름·보통·느림·끔, 고른 값이 반영됨
   assert.equal(await page.locator("#gpuLevel").inputValue(), "0");
   assert.equal(await page.locator("#gpuLevel option").count(), 5);
   assert.match(await page.locator("#devInfo").textContent(), /^이 기기: .* → 자동: /);
   // 모델을 올린 뒤 단계를 바꾸면 「새로 고쳐야 적용」을 알리고, 지금 실제 단계를 함께 보인다
   await page.selectOption("#gpuLevel", "4");
   await page.waitForSelector("#levelNow #btnReload");
-  assert.match(await page.locator("#levelNow").textContent(), /새로 고쳐야 전부\(4\/4\)로 바뀝니다\(지금은 끄기/);
+  assert.match(await page.locator("#levelNow").textContent(), /새로 고쳐야 사용 - 빠름으로 바뀝니다\(지금은 끔/);
   await page.selectOption("#gpuLevel", "auto");
   await page.waitForFunction(() => !document.querySelector("#levelNow #btnReload"));
   assert.equal((await page.locator("#levelNow").textContent()).trim(), ""); // 평소에는 비워 둠
