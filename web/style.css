@@ -477,3 +477,15 @@ body.rg-open { overflow: hidden; }
 .rg-in .sim input { width: 22px; height: 22px; }
 .rg-in .sim .tt { font-variant-numeric: tabular-nums; }
 .rg-in .sim .pc { font-weight: 600; color: var(--ok); } .rg-in .sim .pc.lo { color: var(--warn); }
+
+/* 발언 듣기 조작 줄(재생 중인 발언·조각 아래에만) */
+button.play.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.segctl { grid-column: 1 / -1; margin-top: 8px; background: var(--bg); border-radius: 10px; padding: 8px; }
+.segtt { display: flex; justify-content: space-between; font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; margin-bottom: 6px; }
+.segbar { position: relative; height: 22px; cursor: pointer; touch-action: none; }
+.segbar::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 6px; border-radius: 3px; background: var(--line); }
+.segbar i { position: absolute; left: 0; top: 8px; height: 6px; border-radius: 3px; background: var(--accent); }
+.segbar b { position: absolute; top: 3px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: var(--accent); border: 2px solid var(--panel); box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+.segbtns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 6px; margin-top: 4px; }
+.segbtns button { min-height: 44px; padding: 0; font-size: 13.5px; }
+.segbtns button.primary { font-size: 16px; }

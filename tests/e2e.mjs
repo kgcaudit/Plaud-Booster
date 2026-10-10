@@ -116,6 +116,15 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   // 재생(구간 음원 만들기)
   await first.locator("button.play").click();
   await page.waitForFunction(() => document.getElementById("player").currentSrc.startsWith("blob:"));
+  // 발언 ▶는 재생·일시정지 겸용, 재생 중인 발언 아래에 조작 줄(처음·−5초·❚❚·+5초·다음)
+  await page.waitForFunction(() => { const b = document.querySelector("#rvBody tr[data-i='1'] button.play"); return b && b.textContent === "❚❚"; });
+  assert.equal(await first.locator("#segCtl").count(), 1);
+  await first.locator("button.play").click();
+  await page.waitForFunction(() => document.getElementById("player").paused && document.querySelector("#rvBody tr[data-i='1'] button.play").textContent === "▶");
+  const tp0 = await page.evaluate(() => document.getElementById("player").currentTime);
+  await page.click("#segCtl [data-x='f5']");
+  assert.ok((await page.evaluate(() => document.getElementById("player").currentTime)) > tp0, "+5초가 움직이지 않음");
+  await first.locator("button.play").click(); // 이어 듣기
   // 전체 녹음 재생 막대: 발언 시각부터 이어 재생, 녹음 전체 길이, ±5초 이동
   assert.ok(await page.locator("#tl").isVisible());
   await page.waitForFunction(() => document.getElementById("player").duration > 80); // 90초 음원 전체
@@ -130,7 +139,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   assert.equal(ms.album, "Diarized Transcription");
   assert.match(ms.title, /\.(mp3|wav)/);
   assert.ok(ms.art >= 1 && !/chrome-native/.test(ms.title));
-  console.log("✓ 검수 수정·자동 저장·전체 녹음 재생 막대(발언 앞 2초부터·±이동)");
+  console.log("✓ 검수 수정·자동 저장·발언 ▶ 재생·멈춤 겸용과 조작 줄·전체 녹음 재생 막대(±이동)");
 
   const dl = page.waitForEvent("download");
   await page.click("#exTxt");

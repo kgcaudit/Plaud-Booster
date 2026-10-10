@@ -746,6 +746,7 @@ function renderReview() {
   }).join("");
   $$("#rvBody textarea").forEach(fitTa);
   renderScope();
+  if (SEG.key) segUi(); // 다시 그린 뒤에도 조작 줄을 재생 중인 발언에 붙임
   if (sp) { const ta = $(`#rvBody tr[data-i="${sp.i}"] textarea.splitta`); if (ta) { ta.focus(); splitPreview(ta); } }
   TL.cur = null; tlDraw();
 }
@@ -1033,6 +1034,7 @@ function tlDraw(scrollToCur = false) {
   $("#tlTime").textContent = `${hms(t)} / ${hms(dur)}`;
   $("#tlNow").textContent = cur ? cur.name : "";
   $("#tlPlay").textContent = player.paused || TL.loaded !== fi ? "▶" : "❚❚";
+  if (SEG.key) segUi();
   // 지금 발언(나눈 발언은 조각까지) — 「i」 또는 「i/조각」. 행을 다시 그리면 TL.cur를 비워 다시 찾는다
   const curI = cur && cur.i != null ? String(cur.i) + (cur.k != null ? "/" + cur.k : "") : null;
   if (curI !== TL.cur) {
@@ -1102,14 +1104,99 @@ async function playRange(f, s, e) {
   await seekPlay(f, s);
   stopWatch();
 }
-// 발언 ▶ — 발언 시각부터 이어서 재생(같은 발언을 재생 중이면 멈춤)
-function playFrom(f, s) {
-  if (!player.paused && TL.loaded === f && TL.t >= s - PRE - 0.1 && TL.t < s + 0.5) { player.pause(); return; }
-  seekPlay(f, Math.max(0, s - PRE));
+/* ---- 발언 듣기: ▶는 재생·일시정지 겸용, 재생 중인 발언(조각) 아래에만 조작 줄(처음 · −5초 · ❚❚ · +5초 · 다음)
+ * 전사 편집기들의 일반 방식(한 단추로 재생/멈춤, 5초 되감기, 지금 위치 표시)을 휴대폰 크기에 맞춤. 발언 끝에서 멈추고,
+ * 멈춘 뒤 다시 누르면 1초 앞부터 이어 듣는다. 녹음 전체를 이어 듣기는 아래 재생 막대. */
+const SEG = { f: 0, s: 0, e: 0, key: null };
+const segKey = (b) => `${b.dataset.f}|${b.dataset.s}|${b.dataset.e}`;
+async function segPlay(f, s, e, key, from) {
+  Object.assign(SEG, { f, s, e, key });
+  STOP.at = e;
+  await seekPlay(f, from ?? Math.max(0, s - PRE));
+  stopWatch();
+  segUi();
+}
+function segToggle(b) {
+  const f = +b.dataset.f, s = +b.dataset.s, e = +b.dataset.e, key = segKey(b);
+  if (SEG.key === key && TL.loaded === f) {
+    if (!player.paused) { player.pause(); return; }
+    const t = player.currentTime;
+    const from = t >= e - 0.1 || t < s - 1 ? Math.max(0, s - PRE) : Math.max(s - PRE, t - 1); // 멈춘 곳 1초 앞부터(끝까지 들었으면 처음부터)
+    segPlay(f, s, e, key, from); return;
+  }
+  segPlay(f, s, e, key);
+}
+function segSeek(d) {
+  if (!SEG.key || TL.loaded !== SEG.f) return;
+  const t = Math.max(SEG.s - PRE, Math.min(SEG.e - 0.05, player.currentTime + d));
+  player.currentTime = t; TL.t = t;
+  if (!player.paused) { STOP.at = SEG.e; stopWatch(); }
+  segUi(); tlDraw();
+}
+function segNext() {
+  const all = $$("#rvBody button.play");
+  const i = all.findIndex((b) => segKey(b) === SEG.key);
+  const nx = all.slice(i + 1).find((b) => +b.dataset.s >= SEG.e - 0.05) || all[i + 1];
+  if (nx) { segToggle(nx); nx.scrollIntoView({ block: "center", behavior: REDUCE_MOTION ? "auto" : "smooth" }); }
+}
+// 단추 모양·조작 줄 자리·진행 막대를 지금 상태에 맞춤(재생 막대 그리기와 함께 불림)
+function segUi() {
+  const playing = !player.paused;
+  // 아래 재생 막대로 다른 곳을 듣기 시작하면 발언 조작 줄은 걷는다
+  if (SEG.key && playing && TL.loaded === SEG.f && (player.currentTime < SEG.s - PRE - 0.6 || player.currentTime > SEG.e + 0.6)) SEG.key = null;
+  let host = null;
+  for (const b of $$("#rvBody button.play")) {
+    const on = SEG.key && segKey(b) === SEG.key;
+    b.textContent = on && playing ? "❚❚" : "▶";
+    b.classList.toggle("on", !!on);
+    b.title = on && playing ? "멈춤" : "듣기";
+    if (on) host = b.closest(".part") || b.closest("tr")?.querySelector("td:nth-child(4)");
+  }
+  let bar = $("#segCtl");
+  if (!host) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement("div"); bar.id = "segCtl"; bar.className = "segctl";
+    bar.innerHTML = `<div class="segtt"><span data-x="now"></span><span data-x="span"></span></div>
+      <div class="segbar" data-x="bar"><i data-x="fill"></i><b data-x="knob"></b></div>
+      <div class="segbtns"><button type="button" data-x="head">↺ 처음</button><button type="button" data-x="b5">−5초</button>
+      <button type="button" class="primary" data-x="pp">▶</button><button type="button" data-x="f5">+5초</button><button type="button" data-x="next">다음 ▸</button></div>`;
+  }
+  if (bar.parentElement !== host) host.appendChild(bar);
+  const t = TL.loaded === SEG.f ? player.currentTime : SEG.s;
+  const pct = Math.max(0, Math.min(100, ((t - SEG.s) / Math.max(0.1, SEG.e - SEG.s)) * 100));
+  $("[data-x='now']", bar).textContent = fmt1(Math.max(SEG.s, t));
+  $("[data-x='span']", bar).textContent = `${fmt1(SEG.s)} ~ ${fmt1(SEG.e)}`;
+  $("[data-x='fill']", bar).dataset.w = pct.toFixed(1); $("[data-x='knob']", bar).dataset.left = pct.toFixed(1);
+  $("[data-x='pp']", bar).textContent = playing ? "❚❚" : "▶";
+  applyGeom(bar);
 }
 $("#rvBody").addEventListener("click", (ev) => {
+  const x = ev.target.closest("#segCtl [data-x]");
+  if (x) {
+    const k = x.dataset.x;
+    if (k === "pp") { const b = $$("#rvBody button.play").find((y) => segKey(y) === SEG.key); if (b) segToggle(b); }
+    if (k === "b5") segSeek(-5); if (k === "f5") segSeek(5);
+    if (k === "head") segPlay(SEG.f, SEG.s, SEG.e, SEG.key, SEG.s);
+    if (k === "next") segNext();
+    return;
+  }
   const b = ev.target.closest("button.play");
-  if (b) playFrom(+b.dataset.f, +b.dataset.s);
+  if (b) segToggle(b);
+});
+// 발언 안 위치 막대: 누르거나 끌어서 옮기기
+$("#rvBody").addEventListener("pointerdown", (ev) => {
+  const bar = ev.target.closest("#segCtl .segbar");
+  if (!bar || TL.loaded !== SEG.f) return;
+  const move = (e2) => { const r = bar.getBoundingClientRect(); const t = SEG.s + Math.max(0, Math.min(1, (e2.clientX - r.left) / r.width)) * (SEG.e - SEG.s); player.currentTime = Math.min(SEG.e - 0.05, t); TL.t = player.currentTime; segUi(); };
+  move(ev); bar.setPointerCapture(ev.pointerId);
+  const up = () => { bar.removeEventListener("pointermove", move); if (!player.paused) { STOP.at = SEG.e; stopWatch(); } };
+  bar.addEventListener("pointermove", move); bar.addEventListener("pointerup", up, { once: true });
+});
+// 자판(폴드 펼침·PC): Ctrl+Space 재생/멈춤, Ctrl+←/→ 5초
+document.addEventListener("keydown", (ev) => {
+  if (!$("#tab-review").classList.contains("on") || !(ev.ctrlKey || ev.metaKey)) return;
+  if (ev.code === "Space") { ev.preventDefault(); const b = SEG.key && $$("#rvBody button.play").find((y) => segKey(y) === SEG.key); if (b) segToggle(b); else $("#tlPlay").click(); }
+  else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") { ev.preventDefault(); const d = ev.key === "ArrowLeft" ? -5 : 5; if (SEG.key) segSeek(d); else $(`#tl button[data-j='${d}']`).click(); }
 });
 async function doExport(fmt) {
   if (!REVIEW.id) return;
