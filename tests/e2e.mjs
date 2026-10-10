@@ -182,6 +182,23 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 3);
   await page.click("#spkPanel button[data-a='undo']");
   await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 2);
+  // 구간 손보기: 대표 구간 → 파형에서 끝 옮기기 → 새 사람으로 → 묶음 3개 → 되돌리기
+  await page.locator("#spkPanel .cl").first().locator("button.rgbtn").first().click();
+  await page.waitForSelector("#rgSheet:not(.hidden)");
+  const s0 = await page.locator("#rgS").textContent();
+  await page.click("#rgSheet button[data-rg='s+']");
+  assert.notEqual(await page.locator("#rgS").textContent(), s0);
+  const box = await page.locator("#rgWave").boundingBox();
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height / 2); await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2, { steps: 5 }); await page.mouse.up(); // 끌어서 새로 고르기
+  assert.ok(await page.locator("#rgSheet button[data-rg='apply']").isDisabled()); // 누구인지 고르기 전
+  await page.click("#rgWho button[data-to='new']");
+  if (process.env.SHOTS) { await page.setViewportSize({ width: 412, height: 900 }); await page.locator("#rgSheet .rg-in").screenshot({ path: path.join(process.env.SHOTS, "range.png") }); await page.setViewportSize({ width: 1280, height: 720 }); }
+  await page.click("#rgSheet button[data-rg='apply']");
+  await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 3);
+  if (!(await page.locator("#rgSheet").isHidden())) await page.click("#rgSheet #rgSim button[data-rg='close']");
+  await page.click("#spkPanel button[data-a='undo']");
+  await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 2);
   assert.ok(await page.locator("#rvMain").isHidden());
   await page.locator("#spkPanel .cl").first().locator("button.play").first().click();
   await page.waitForFunction(() => document.getElementById("player").currentSrc.startsWith("blob:"));

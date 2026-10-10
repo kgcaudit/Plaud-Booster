@@ -89,3 +89,41 @@ test("묶음 둘로 나누기: 한 묶음에 섞인 두 목소리를 가르고, 
   assert.equal(splitCluster(diar, 1, {}), null); // 한 목소리뿐이면 나누지 않음
   assert.equal(splitCluster({ ...diar, turns: turns.slice(0, 3) }, 0), null); // 너무 적으면 못 나눔
 });
+
+import { relabelRange, similarRegions, mixSuspects } from "../../web/src/diar.js";
+test("구간 손보기: 경계에서 잘라 옮기고, 비슷한 곳을 찾고, 섞인 곳을 알려 준다", () => {
+  const D = 8, e0 = (j) => Array.from({ length: D }, (_, i) => (i === j ? 1 : 0));
+  const vA = e0(0), vB = e0(1), vC = e0(7);
+  const jit = (v, k) => v.map((x, j) => x + (j === 2 + (k % 5) ? 0.05 : 0));
+  // 0~30초 묶음 0: A가 대부분, 9~12초·21~24초에 B. 31초 뒤 묶음 1(C)
+  const turns = [];
+  for (let k = 0; k < 20; k++) { const s = k * 1.5, b = (s >= 9 && s < 12) || (s >= 21 && s < 24); turns.push({ f: 0, s, e: s + 1.5, n: 1, c: 0, v: jit(b ? vB : vA, k) }); }
+  for (let k = 0; k < 6; k++) turns.push({ f: 0, s: 31 + k * 1.5, e: 32.5 + k * 1.5, n: 1, c: 1, v: vC });
+  const diar = { kind: "diar", turns, clusters: [{ id: "S1", label: "Speaker 1", vec: vA }, { id: "S2", label: "Speaker 2", vec: vC }], units: [] };
+  // 섞였을 수 있는 곳: B 두 곳
+  const mx = mixSuspects(diar, { minDur: 1 });
+  assert.equal(mx.length, 2);
+  assert.deepEqual(mx.map((r) => [r.s, r.e]), [[9, 12], [21, 24]]);
+  // 9.4~11.8초를 새 사람으로 — 경계에서 잘림
+  const r = relabelRange(diar, 0, 9.4, 11.8, "new", { 갑: vB });
+  assert.equal(r.to, 2); assert.equal(r.from, 0);
+  const moved = r.diar.turns.filter((t) => t.c === 2);
+  assert.equal(Math.min(...moved.map((t) => t.s)), 9.4);
+  assert.equal(Math.max(...moved.map((t) => t.e)), 11.8);
+  assert.ok(moved.every((t) => t.m && t.ref));
+  assert.ok(r.diar.turns.some((t) => t.c === 0 && t.s === 9 && t.e === 9.4)); // 앞 자투리는 원래 묶음
+  assert.equal(r.diar.clusters[2].suggest.name, "갑");
+  assert.equal(r.diar.manual.length, 1);
+  // 비슷한 곳: 21~24초가 나와야
+  const sim = similarRegions(r.diar, 0, 2);
+  assert.equal(sim.length, 1);
+  assert.deepEqual([sim[0].s, sim[0].e], [21, 24]);
+  // 옮긴 뒤엔 섞인 곳 목록에서 빠짐(사람이 정한 차례 제외)
+  const r2 = relabelRange(r.diar, 0, 21, 24, 2, {}, { ref: false });
+  assert.equal(similarRegions(r2.diar, 0, 2).length, 0);
+  // 빼기: 전사 발언 단위에서 빠짐
+  const r3 = relabelRange(diar, 0, 31, 34, "drop");
+  assert.ok(r3.diar.turns.filter((t) => t.s >= 31 && t.e <= 34).every((t) => t.c === -1));
+  assert.ok(!r3.diar.units.some((u) => u.s < 34 && u.e > 31.1 && u.s >= 31));
+  assert.equal(relabelRange(diar, 0, 50, 60, 0), null); // 말소리 없는 곳
+});

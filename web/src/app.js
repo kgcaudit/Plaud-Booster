@@ -3,7 +3,7 @@ import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
 import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
 import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, sourceOf, isDiar } from "./export.js";
-import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster } from "./diar.js";
+import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster, relabelRange, similarRegions, mixSuspects } from "./diar.js";
 import { isGeneric, knownPrints } from "./engine.js";
 import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd } from "./review.js";
 import { describeDevice, LEVELS, levelLabel, lowerLevel } from "./devices.js";
@@ -1171,18 +1171,32 @@ function renderPanel() {
       <div class="nm"><input data-a="name" list="dlNames" value="${esc(nm)}" placeholder="이름(예: 김○○ 팀장)" aria-label="${esc(c.label)} 이름"> ${sug}
         ${same.length ? `<span class="merged">↳ ${esc(same.join(", "))}와 같은 사람(합쳐짐)</span>` : ""}</div>
       <div class="smp">${smp.map((x) => `<div><button type="button" class="play" data-a="play" data-f="${x.f}" data-s="${x.s}" data-e="${x.e}" title="듣기">▶</button>
-        <span class="msg">${(d.job.audioFiles || []).length > 1 ? x.f + 1 + "번 " : ""}${hms(x.s)}~${hms(x.e)} (${Math.round(x.e - x.s)}초)</span> <span class="tx">${esc(textNear(x.f, x.s).slice(0, 90))}</span></div>`).join("") || '<span class="msg">들어 볼 구간 없음</span>'}
+        <span class="msg">${(d.job.audioFiles || []).length > 1 ? x.f + 1 + "번 " : ""}${hms(x.s)}~${hms(x.e)} (${Math.round(x.e - x.s)}초)</span> <span class="tx">${esc(textNear(x.f, x.s).slice(0, 90))}</span>${pending && REVIEW.diar ? `<button type="button" class="act rgbtn" data-a="rg" data-f="${x.f}" data-s="${x.s}" data-e="${x.e}" title="이 구간에서 다른 사람 목소리를 발라내기">✂ 손보기</button>` : ""}</div>`).join("") || '<span class="msg">들어 볼 구간 없음</span>'}
         ${(c.samples || []).length > per ? `<button type="button" class="link" data-a="more">다른 구간 ▸ ${page + 1}/${Math.ceil(c.samples.length / per)}</button>` : ""}</div>
     </div>`;
   }).join("");
+  // 섞였을 수 있는 곳(이름 대기 중): 한 묶음 안에서 목소리가 바뀌는 듯한 곳을 먼저 보여 준다
+  const mix = pending && REVIEW.diar ? mixSuspects(REVIEW.diar) : [];
+  const multiF = (d.job.audioFiles || []).length > 1;
+  const mixHtml = mix.length ? `<div class="mixalert"><b>⚠ 다른 목소리가 섞였을 수 있는 곳 ${mix.length}곳</b>
+      <div class="msg">한 묶음 안에서 목소리가 바뀌는 듯한 곳입니다. 들어 보고 손봐 주세요.</div>
+      ${mix.map((r) => {
+        const span = r.ctxE - r.ctxS || 1, l = ((r.s - r.ctxS) / span) * 100, w = ((r.e - r.s) / span) * 100;
+        return `<div class="mixrow"><span class="chip cc${r.c % 8}">${esc(cl[r.c].label.replace("Speaker ", "S"))}</span>
+          <span class="mixbar cc${r.c % 8}"><i data-left="${l.toFixed(1)}" data-w="${w.toFixed(1)}"></i></span>
+          <button type="button" class="act" data-a="rg" data-f="${r.f}" data-s="${r.s}" data-e="${r.e}">✂ 손보기</button>
+          <span class="t">${multiF ? r.f + 1 + "번 " : ""}${hms(r.ctxS)}~${hms(r.ctxE)} · ${hms(r.s)} 무렵 ${Math.round(r.e - r.s)}초쯤${r.other >= 0 ? ` · ${esc(cl[r.other].label.replace("Speaker ", "S"))}와 닮음` : " · 다른 목소리"}</span></div>`;
+      }).join("")}</div>` : "";
   el.innerHTML = `<div class="bar"><span class="msg">${pending ? "대표 구간을 들어 보고 이름을 붙이세요. 같은 이름을 붙이면 한 사람으로 합쳐집니다. 이름은 전사 뒤에도 바꿀 수 있습니다." : "이름을 바꾸면 그 묶음 발언 전체에 적용됩니다(발언별로 따로 지정한 것은 그대로)."}</span>
       <span class="spacer"></span>
       ${strong.length ? `<button type="button" data-a="sugall">추천 ${strong.length}건 모두 적용</button>` : ""}
       <button type="button" id="spUndo" data-a="undo" ${REVIEW.undo.length ? "" : "disabled"} title="Ctrl+Z / ⌘Z">되돌리기</button>
       ${pending ? `<button type="button" class="primary" data-a="go" ${d.job.status === "이름 대기" ? "" : "disabled"}>이 이름으로 전사 시작</button>`
         : `<button type="button" data-a="vp" title="이름 붙인 사람의 목소리를 다음 녹음에서 추천하도록 저장합니다(30초 이상 말한 사람만)">목소리 기준 저장</button>`}</div>
+    ${mixHtml}
     <div class="clgrid">${cards}</div>
     <datalist id="dlNames">${names.map((n) => `<option value="${esc(n)}">`).join("")}</datalist>`;
+  applyGeom(el);
 }
 
 $("#spkPanel").addEventListener("change", async (ev) => {
@@ -1214,6 +1228,7 @@ $("#spkPanel").addEventListener("click", async (ev) => {
   const a = b.dataset.a, card = b.closest(".cl"), id = card && card.dataset.c;
   const c = id && clustersOf().find((x) => x.id === id);
   if (a === "play") return playFrom(+b.dataset.f, +b.dataset.s);
+  if (a === "rg") return openRange(+b.dataset.f, +b.dataset.s, +b.dataset.e);
   if (a === "more") { REVIEW.page[id] = ((REVIEW.page[id] || 0) + 1) % Math.ceil(c.samples.length / 2); renderPanel(); return; }
   if (a === "only") { REVIEW.only = REVIEW.only === id ? null : id; REVIEW.split = null; renderReview(); if (REVIEW.only) $("#rvMain").scrollIntoView({ block: "start" }); return; }
   if (a === "sug") { pushUndo(); REVIEW.names[id] = c.suggest.name; saveEdits(); renderReview(); return; }
@@ -1524,3 +1539,175 @@ $("#restoreFile").addEventListener("change", async (ev) => {
   showTab(["jobs", "review", "voices", "glossary", "settings"].includes(start) ? start : "jobs");
   setInterval(() => { if ($("#tab-jobs").classList.contains("on")) loadJobs(); }, 5000);
 })();
+
+/* ================================================================== 구간 손보기(이름 대기 중)
+ * 1 구간 정하기(파형 끌기·손잡이·⏱ 지금·±0.2초) → 2 누구 말인지(기존 묶음·새 사람·빼기) → 3 비슷한 곳(들어 보고 고른 것만 옮김).
+ * 규칙은 diar.js(relabelRange·similarRegions·mixSuspects). 되돌리기는 손보기 전 화자 나누기 결과를 다시 저장한다. */
+const RG = { open: false };
+const fmt1 = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? "0" : ""}${s.toFixed(1)}`; };
+const rgNameOf = (i) => { const c = clustersOf()[i]; return c ? (REVIEW.names[c.id] ? `${REVIEW.names[c.id]}(${c.label.replace("Speaker ", "S")})` : c.label) : "빼기"; };
+async function rgKnown() { const vp = Object.fromEntries(await S.all("voiceprints")); return knownPrints(vp, REVIEW.data.job.speakers); }
+function rgMajority(f, s, e) {
+  const had = {};
+  for (const t of REVIEW.diar.turns) { if ((t.f || 0) !== f || t.e <= s || t.s >= e) continue; had[t.c] = (had[t.c] || 0) + Math.min(e, t.e) - Math.max(s, t.s); }
+  const top = Object.entries(had).sort((a, b) => b[1] - a[1])[0];
+  return top ? +top[0] : -1;
+}
+async function openRange(f, s, e) {
+  if (!REVIEW.diar || REVIEW.data.result) return;
+  const dur = fileDur(f) || e + 10;
+  const pad = Math.max(4, Math.min(8, (e - s) * 0.4));
+  let vs = Math.max(0, s - pad), ve = Math.min(dur, e + pad);
+  if (ve - vs > 45) { const mid = (s + e) / 2; vs = Math.max(0, mid - 22.5); ve = Math.min(dur, vs + 45); }
+  Object.assign(RG, { open: true, f, vs, ve, s, e, target: null, drag: null, peaks: null, stopAt: null, from: rgMajority(f, s, e) });
+  $("#rgEdit").classList.remove("hidden"); $("#rgSim").classList.add("hidden");
+  $("#rgSheet").classList.remove("hidden");
+  document.body.classList.add("rg-open");
+  rgRender();
+  try {
+    const x = await S.readAudio(REVIEW.id, f, vs, ve);
+    const n = 400, step = Math.max(1, Math.floor(x.length / n)), pk = new Float32Array(n);
+    for (let k = 0; k < n; k++) { let m = 0; for (let j = k * step; j < Math.min(x.length, (k + 1) * step); j += 2) { const v = Math.abs(x[j]); if (v > m) m = v; } pk[k] = m; }
+    const top = Math.max(1e-4, ...pk); for (let k = 0; k < n; k++) pk[k] /= top;
+    if (RG.open && RG.f === f && RG.vs === vs) { RG.peaks = pk; rgDraw(); }
+  } catch (err) { toast("파형을 읽지 못했습니다: " + err.message); }
+}
+function closeRange() {
+  RG.open = false; RG.stopAt = null;
+  $("#rgSheet").classList.add("hidden");
+  document.body.classList.remove("rg-open");
+}
+function rgRender() {
+  const cl = clustersOf();
+  $("#rgFrom").textContent = `${(REVIEW.data.job.audioFiles || []).length > 1 ? RG.f + 1 + "번 " : ""}${fmt1(RG.vs)}~${fmt1(RG.ve)}`;
+  $("#rgS").textContent = fmt1(RG.s); $("#rgE").textContent = fmt1(RG.e);
+  $("#rgWhoQ").textContent = `이 구간(${(RG.e - RG.s).toFixed(1)}초)은 누구 말인가요?`;
+  const chip = (v, html, cls) => `<button type="button" data-to="${v}" class="${cls}${String(RG.target) === String(v) ? " on" : ""}">${html}</button>`;
+  $("#rgWho").innerHTML = cl.map((c, i) => chip(i, esc(rgNameOf(i)) + (i === RG.from ? " <small>(지금)</small>" : ""), `who cc${i % 8}`)).join("")
+    + chip("new", "＋ 새 사람", "") + chip("drop", "🚫 빼기 <small>잡음·제3자</small>", "");
+  $("#rgLegend").innerHTML = cl.map((c, i) => `<span><i class="cc${i % 8}"></i>${esc(c.label.replace("Speaker ", "S"))}</span>`).join("") + '<span><i class="sel"></i>고른 구간</span><span><i class="ph"></i>재생 위치</span>';
+  const ticks = 5;
+  $("#rgAxis").innerHTML = Array.from({ length: ticks }, (_, k) => `<span>${hms(RG.vs + ((RG.ve - RG.vs) * k) / (ticks - 1))}</span>`).join("");
+  $("#rgSheet [data-rg='apply']").disabled = RG.target == null;
+  $("#rgFindWrap").classList.toggle("hidden", RG.target === "drop");
+  $$("#rgSheet .flow span").forEach((x) => x.classList.toggle("on", x.dataset.st === "1" || (x.dataset.st === "2" && RG.target != null)));
+  rgDraw();
+}
+function rgDraw() {
+  if (!RG.open) return;
+  const [g, w, h] = canvasCtx($("#rgWave"));
+  const X = (t) => ((t - RG.vs) / (RG.ve - RG.vs)) * w;
+  const css = getComputedStyle(document.body);
+  g.fillStyle = css.getPropertyValue("--bg") || "#f6f5f1"; g.fillRect(0, 0, w, h);
+  // 위 띠: 지금 묶음(사람이 정한 곳은 진하게)
+  for (const t of REVIEW.diar.turns) {
+    if ((t.f || 0) !== RG.f || t.e <= RG.vs || t.s >= RG.ve) continue;
+    g.globalAlpha = t.m ? 1 : 0.75; g.fillStyle = t.c >= 0 ? PAL[t.c % 8] : "#9aa0a8";
+    g.fillRect(X(t.s), 0, Math.max(1, X(t.e) - X(t.s)), 9);
+  }
+  g.globalAlpha = 1;
+  // 고른 구간
+  g.fillStyle = "rgba(31,95,139,.16)"; g.fillRect(X(RG.s), 10, X(RG.e) - X(RG.s), h - 10);
+  // 파형
+  if (RG.peaks) {
+    const n = RG.peaks.length, bw = w / n, mid = (h + 10) / 2, amp = (h - 30) / 2;
+    g.fillStyle = css.getPropertyValue("--mute") || "#6b7078";
+    for (let k = 0; k < n; k++) { const v = Math.max(0.5, RG.peaks[k] * amp); g.fillRect(k * bw, mid - v, Math.max(1, bw - 0.6), 2 * v); }
+  } else { g.fillStyle = css.getPropertyValue("--mute"); g.font = "12px system-ui"; g.fillText("파형 읽는 중…", 8, h / 2); }
+  // 손잡이
+  g.fillStyle = "#1f5f8b";
+  for (const t of [RG.s, RG.e]) { const x = X(t); g.fillRect(x - 1.5, 10, 3, h - 10); g.beginPath(); g.roundRect(x - 10, h - 24, 20, 24, 4); g.fill(); }
+  g.strokeStyle = "#fff"; g.lineWidth = 1.6;
+  for (const t of [RG.s, RG.e]) { const x = X(t); g.beginPath(); g.moveTo(x - 3, h - 17); g.lineTo(x - 3, h - 7); g.moveTo(x + 3, h - 17); g.lineTo(x + 3, h - 7); g.stroke(); }
+  // 재생 위치
+  if (TL.loaded === RG.f) { const p = player.currentTime; if (p >= RG.vs && p <= RG.ve) { g.fillStyle = "#d33"; g.fillRect(X(p) - 1, 0, 2, h); } }
+}
+// 파형 끌기: 손잡이 가까이면 그 끝을, 아니면 새로 고르기. 끌지 않고 누르면 그 자리로 재생 위치를 옮김
+(() => {
+  const c = $("#rgWave");
+  const tOf = (ev) => { const r = c.getBoundingClientRect(); return RG.vs + Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * (RG.ve - RG.vs); };
+  c.addEventListener("pointerdown", (ev) => {
+    if (!RG.open) return;
+    const r = c.getBoundingClientRect(), x = ev.clientX - r.left, X = (t) => ((t - RG.vs) / (RG.ve - RG.vs)) * r.width;
+    const ds = Math.abs(x - X(RG.s)), de = Math.abs(x - X(RG.e));
+    RG.drag = { kind: Math.min(ds, de) < 24 ? (ds <= de ? "s" : "e") : "new", t0: tOf(ev), x0: ev.clientX, moved: false };
+    c.setPointerCapture(ev.pointerId);
+  });
+  c.addEventListener("pointermove", (ev) => {
+    const d = RG.drag; if (!d) return;
+    if (Math.abs(ev.clientX - d.x0) > 4) d.moved = true;
+    if (!d.moved) return;
+    const t = tOf(ev);
+    if (d.kind === "s") RG.s = Math.min(t, RG.e - 0.2);
+    else if (d.kind === "e") RG.e = Math.max(t, RG.s + 0.2);
+    else { RG.s = Math.min(d.t0, t); RG.e = Math.max(d.t0, t); }
+    RG.s = Math.round(RG.s * 10) / 10; RG.e = Math.round(RG.e * 10) / 10;
+    rgRender();
+  });
+  c.addEventListener("pointerup", (ev) => {
+    const d = RG.drag; RG.drag = null;
+    if (!d) return;
+    if (!d.moved) seekPlay(RG.f, tOf(ev), !player.paused);
+    else if (RG.e - RG.s < 0.2) { RG.e = RG.s + 0.2; rgRender(); }
+  });
+})();
+queueMicrotask(() => player.addEventListener("timeupdate", () => {
+  if (!RG.open) return;
+  if (RG.stopAt != null && player.currentTime >= RG.stopAt) { player.pause(); RG.stopAt = null; }
+  rgDraw();
+}));
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && RG.open) closeRange(); });
+$("#rgSheet").addEventListener("click", async (ev) => {
+  if (ev.target === $("#rgSheet")) { closeRange(); return; } // 바깥(어두운 곳) 누르면 닫기
+  const who = ev.target.closest("button[data-to]");
+  if (who) { RG.target = who.dataset.to; rgRender(); return; }
+  const pl = ev.target.closest("button[data-ps]");
+  if (pl) { RG.stopAt = +pl.dataset.pe; seekPlay(RG.f, +pl.dataset.ps); return; }
+  const b = ev.target.closest("button[data-rg]");
+  if (!b) return;
+  const a = b.dataset.rg, now = TL.loaded === RG.f ? player.currentTime : null, dur = fileDur(RG.f) || RG.ve;
+  const set = (k, v) => { RG[k] = Math.round(Math.max(0, Math.min(dur, v)) * 10) / 10; if (RG.e - RG.s < 0.2) { if (k === "s") RG.s = RG.e - 0.2; else RG.e = RG.s + 0.2; } RG.vs = Math.min(RG.vs, RG.s); RG.ve = Math.max(RG.ve, RG.e); rgRender(); };
+  if (a === "close") { closeRange(); return; }
+  if (a === "s-") set("s", RG.s - 0.2); if (a === "s+") set("s", RG.s + 0.2);
+  if (a === "e-") set("e", RG.e - 0.2); if (a === "e+") set("e", RG.e + 0.2);
+  if (a === "snow" || a === "enow") { if (now == null) { toast("먼저 재생하다가 누르세요"); return; } set(a[0], now); }
+  if (a === "play") { RG.stopAt = RG.e; seekPlay(RG.f, RG.s); }
+  if (a === "playctx") { RG.stopAt = RG.e + 2; seekPlay(RG.f, Math.max(0, RG.s - 2)); }
+  if (a === "apply") {
+    const known = await rgKnown();
+    const res = relabelRange(REVIEW.diar, RG.f, RG.s, RG.e, RG.target, known);
+    if (!res) { toast("이 구간에는 말소리 구간이 없습니다"); return; }
+    pushUndo(REVIEW.diar);
+    REVIEW.diar = res.diar;
+    await S.put("chunks", REVIEW.id, res.diar);
+    renderReview();
+    const toName = res.to >= 0 ? rgNameOf(res.to) : "빼기";
+    const sim = $("#rgFind").checked && res.to >= 0 && res.from >= 0 && res.from !== res.to ? similarRegions(res.diar, res.from, res.to) : [];
+    if (!sim.length) { closeRange(); toast(`${fmt1(RG.s)}~${fmt1(RG.e)} → ${toName} (되돌리기 가능)${$("#rgFind").checked && res.to >= 0 ? " · 비슷한 곳은 없었습니다" : ""}`); return; }
+    Object.assign(RG, { simTo: res.to, sim });
+    $("#rgDone").textContent = `✓ ${fmt1(RG.s)}~${fmt1(RG.e)} → ${toName} (되돌리기 가능)`;
+    $("#rgSimT").textContent = `${toName}와 닮은 곳 ${sim.length}곳 (${Math.round(sim.reduce((m, r) => m + r.e - r.s, 0))}초)`;
+    $("#rgSimH").textContent = `${rgNameOf(res.from)}으로 묶였지만 방금 고른 목소리에 더 가까운 곳입니다. 들어 보고 맞는 것만 고르세요.`;
+    $("#rgSimList").innerHTML = sim.map((r, k) => `<label class="sim"><input type="checkbox" data-k="${k}" ${r.sim >= 0.7 ? "checked" : ""}>
+      <button type="button" class="play" data-ps="${r.s}" data-pe="${r.e}" title="듣기">▶</button>
+      <span class="tt">${fmt1(r.s)}~${fmt1(r.e)} <small>(${(r.e - r.s).toFixed(1)}초)</small></span><span class="pc${r.sim < 0.7 ? " lo" : ""}">${Math.round(r.sim * 100)}%</span></label>`).join("");
+    $("#rgEdit").classList.add("hidden"); $("#rgSim").classList.remove("hidden");
+    $$("#rgSheet .flow span").forEach((x) => x.classList.toggle("on", x.dataset.st === "3"));
+    rgSimCount();
+    return;
+  }
+  if (a === "moveSim") {
+    const pick = $$("#rgSimList input:checked").map((x) => RG.sim[+x.dataset.k]);
+    if (!pick.length) { closeRange(); return; }
+    const known = await rgKnown();
+    pushUndo(REVIEW.diar);
+    let d = REVIEW.diar;
+    for (const r of pick) { const res = relabelRange(d, r.f, r.s, r.e, RG.simTo, known, { ref: false }); if (res) d = res.diar; }
+    REVIEW.diar = d;
+    await S.put("chunks", REVIEW.id, d);
+    renderReview(); closeRange();
+    toast(`${pick.length}곳을 ${rgNameOf(RG.simTo)}(으)로 옮겼습니다 (되돌리기 가능)`);
+  }
+});
+function rgSimCount() { const n = $$("#rgSimList input:checked").length; const b = $("#rgSheet [data-rg='moveSim']"); b.textContent = n ? `고른 ${n}곳 옮기기` : "닫기"; }
+$("#rgSimList").addEventListener("change", rgSimCount);

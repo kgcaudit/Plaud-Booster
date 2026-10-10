@@ -421,7 +421,7 @@ export function titleFromFiles(names) {
 export function splitCluster(diar, ci, known = {}, opt = {}) {
   const o = { ...DEFAULTS, ...opt };
   const T = diar.turns;
-  const ks = T.map((t, k) => (t.c === ci ? k : -1)).filter((k) => k >= 0);
+  const ks = T.map((t, k) => (t.c === ci && !t.m ? k : -1)).filter((k) => k >= 0); // 사람이 정한 차례는 그대로
   if (ks.length < 4) return null;
   const V = ks.map((k) => unit(T[k].v)), W = ks.map((k) => T[k].n || 1);
   let lab = cutTree(ks.length, linkage(V, W), Infinity, 2);
@@ -470,4 +470,134 @@ export function splitCluster(diar, ci, known = {}, opt = {}) {
     units: units.map((u) => ({ f: u.f, s: u.s, e: u.e, c: u.c, sim: u.sim, margin: u.margin, n: u.nwin, v: q(u.v) })),
     splits: [...(diar.splits || []), { from: diar.clusters[ci].id, to: "S" + (maxId + 1) }],
   };
+}
+
+/* ------------------------------------------------------------------ 구간 손보기(이름 대기 중)
+ * 사람이 시작·끝을 정한 구간을 한 사람(기존 묶음 · 새 사람 · 빼기)으로 못 박는다.
+ *  - 구간에 걸친 차례는 경계에서 잘라, 안쪽만 옮긴다(목소리 특징은 원래 창 것을 그대로 씀).
+ *  - 사람이 정한 차례는 m: 1로 표시해 둘로 나누기·비슷한 곳 찾기가 다시 건드리지 않는다.
+ *  - 기준 구간(ref: 1)은 그 사람 목소리 기준으로 쓴다(사람이 고친 구간을 기준에 더하면 화자 오류가 크게 준다 — arXiv 2509.18377).
+ *  - 빼기는 c: -1(발언 단위에서 빠져 전사하지 않음).
+ */
+const relabelDiar = (diar, turns, extraCl, touched, known, o) => {
+  const tt = turns.map((t) => ({ f: t.f, s: t.s, e: t.e, w: { length: t.n || 1 }, v: unit(t.v) }));
+  const labels = turns.map((t) => (t.c == null ? -1 : t.c));
+  const tv = tt.map((t) => t.v), tw = tt.map((t) => t.w.length);
+  const cl = [...diar.clusters.map((c) => ({ ...c })), ...extraCl];
+  const q = (v) => Array.from(v, (x) => Math.round(x * 1e4) / 1e4);
+  const vecs = cl.map((c, i) => {
+    const idx = labels.map((l, k) => (l === i ? k : -1)).filter((k) => k >= 0);
+    return idx.length ? meanOf(tv, idx, tw) : unit(c.vec);
+  });
+  const units = unitsOf(tt, labels, vecs.map((vec) => ({ vec })), o);
+  const names = Object.keys(known || {});
+  cl.forEach((c, i) => {
+    c.nunit = units.filter((u) => u.c === i).length;
+    c.samples = samplesOf(units, i);
+    if (!touched.has(i)) return;
+    const idx = labels.map((l, k) => (l === i ? k : -1)).filter((k) => k >= 0);
+    c.vec = q(vecs[i]);
+    c.dur = Math.round(idx.reduce((m, k) => m + tt[k].e - tt[k].s, 0));
+    c.nturn = idx.length;
+    const sims = names.map((n) => [n, Math.round(dot(known[n], vecs[i]) * 100) / 100]).sort((a, b) => b[1] - a[1]);
+    c.suggest = sims[0] && sims[0][1] >= o.weak ? { name: sims[0][0], sim: sims[0][1], strong: sims[0][1] >= o.suggest } : null;
+    c.alt = sims.filter((s) => !c.suggest || s[0] !== c.suggest.name).slice(0, 1).map(([name, sim]) => ({ name, sim }))[0] || null;
+  });
+  return { ...diar, turns, clusters: cl, units: units.map((u) => ({ f: u.f, s: u.s, e: u.e, c: u.c, sim: u.sim, margin: u.margin, n: u.nwin, v: q(u.v) })) };
+};
+
+/**
+ * 구간 [s, e](파일 f)를 target으로: 묶음 번호 · "new"(새 사람) · "drop"(빼기).
+ * opt.ref: 이 구간을 그 사람 목소리 기준으로 표시(기본 true). 반환: { diar, to(묶음 번호 또는 -1), from(구간을 가장 많이 갖고 있던 묶음) } 또는 null
+ */
+export function relabelRange(diar, f, s, e, target, known = {}, opt = {}) {
+  const o = { ...DEFAULTS, ...opt };
+  if (!(e - s >= 0.2)) return null;
+  const nc = diar.clusters.length;
+  const to = target === "new" ? nc : target === "drop" ? -1 : +target;
+  const extra = [];
+  if (target === "new") {
+    const maxId = Math.max(0, ...diar.clusters.map((c) => +String(c.id).replace(/\D/g, "") || 0));
+    extra.push({ id: "S" + (maxId + 1), label: "Speaker " + (maxId + 1), suggest: null, alt: null, vec: diar.clusters[0] ? diar.clusters[0].vec : [] });
+  }
+  const turns = [];
+  const had = {};
+  let hit = 0;
+  for (const t of diar.turns) {
+    if ((t.f || 0) !== f || t.e <= s || t.s >= e) { turns.push({ ...t }); continue; }
+    const a = Math.max(s, t.s), b = Math.min(e, t.e);
+    had[t.c] = (had[t.c] || 0) + (b - a);
+    if (t.s < a - 0.05) turns.push({ ...t, e: r2(a) }); // 앞 자투리는 그대로
+    turns.push({ ...t, s: r2(a), e: r2(b), c: to, m: 1, ...(opt.ref === false || to < 0 ? {} : { ref: 1 }) });
+    if (t.e > b + 0.05) turns.push({ ...t, s: r2(b) }); // 뒤 자투리
+    hit++;
+  }
+  if (!hit) return null;
+  const from = +Object.entries(had).sort((x, y) => y[1] - x[1])[0][0];
+  const touched = new Set([to, ...Object.keys(had).map(Number)].filter((x) => x >= 0));
+  const nd = relabelDiar(diar, turns, extra, touched, known, o);
+  nd.manual = [...(diar.manual || []), { f, s: r2(s), e: r2(e), to: to < 0 ? null : nd.clusters[to].id }];
+  return { diar: nd, to, from };
+}
+
+/**
+ * 비슷한 곳 찾기: 묶음 from 안에서(사람이 정하지 않은 차례만) 묶음 to의 기준 구간 목소리에 더 가까운 곳.
+ * 기준 = to의 기준 구간(ref) 차례 평균(없으면 to 전체 평균). from 자신의 평균보다 기준에 더 닮고 minSim 이상인 차례를
+ * 이어지는 것끼리 한 곳으로 묶어 닮은 순으로 돌려준다: [{ f, s, e, sim }]
+ */
+export function similarRegions(diar, from, to, { minSim = 0.45, max = 12, gap = 0.5, minDur = 0.8 } = {}) {
+  const T = diar.turns;
+  const refIdx = T.map((t, k) => (t.c === to && t.ref ? k : -1)).filter((k) => k >= 0);
+  const toIdx = refIdx.length ? refIdx : T.map((t, k) => (t.c === to ? k : -1)).filter((k) => k >= 0);
+  const fromIdx = T.map((t, k) => (t.c === from ? k : -1)).filter((k) => k >= 0);
+  if (!toIdx.length || !fromIdx.length) return [];
+  const V = T.map((t) => unit(t.v)), W = T.map((t) => t.n || 1);
+  const ref = meanOf(V, toIdx, W), own = meanOf(V, fromIdx, W);
+  const cand = fromIdx.filter((k) => !T[k].m).map((k) => ({ k, sim: dot(V[k], ref), self: dot(V[k], own) })).filter((x) => x.sim >= minSim && x.sim > x.self);
+  cand.sort((a, b) => (T[a.k].f || 0) - (T[b.k].f || 0) || T[a.k].s - T[b.k].s);
+  const out = [];
+  for (const x of cand) {
+    const t = T[x.k], last = out[out.length - 1];
+    if (last && last.f === (t.f || 0) && t.s - last.e <= gap) { last.e = Math.max(last.e, t.e); last.sims.push(x.sim); }
+    else out.push({ f: t.f || 0, s: t.s, e: t.e, sims: [x.sim] });
+  }
+  return out.filter((r) => r.e - r.s >= minDur).map((r) => ({ f: r.f, s: r.s, e: r.e, sim: Math.round((r.sims.reduce((m, v) => m + v, 0) / r.sims.length) * 100) / 100 }))
+    .sort((a, b) => b.sim - a.sim).slice(0, max);
+}
+
+/**
+ * 섞였을 수 있는 곳: 묶음 안에서 (1) 다른 묶음 평균에 더 가까운 차례, 또는 (2) 제 묶음과 유난히 덜 닮은 차례
+ * (제 묶음 안 닮음 분포의 평균 − 2×표준편차 밑, 묶음이 하나뿐인 녹음에서도 잡히게)가 이어진 곳. 사람이 정한 차례는 뺀다.
+ * 반환: [{ c, f, s, e, ctxS, ctxE, other(가까운 다른 묶음 번호 또는 -1) }] 긴 순으로 max개
+ */
+export function mixSuspects(diar, { max = 5, gap = 0.5, minDur = 1.4, ctx = 6 } = {}) {
+  const T = diar.turns, V = T.map((t) => unit(t.v)), W = T.map((t) => t.n || 1);
+  const cs = diar.clusters.map((c, i) => { const idx = T.map((t, k) => (t.c === i ? k : -1)).filter((k) => k >= 0); return idx.length ? meanOf(V, idx, W) : null; });
+  const flag = new Array(T.length).fill(null);
+  diar.clusters.forEach((c, i) => {
+    const idx = T.map((t, k) => (t.c === i && !t.m ? k : -1)).filter((k) => k >= 0);
+    if (idx.length < 6 || !cs[i]) return;
+    const own = idx.map((k) => dot(V[k], cs[i]));
+    const mu = own.reduce((m, v) => m + v, 0) / own.length, sd = Math.sqrt(own.reduce((m, v) => m + (v - mu) ** 2, 0) / own.length);
+    idx.forEach((k, j) => {
+      let best = -1, bo = -1;
+      cs.forEach((v, o) => { if (o !== i && v) { const d = dot(V[k], v); if (d > best) { best = d; bo = o; } } });
+      if (best > own[j] + 0.02) flag[k] = bo;
+      else if (own[j] < mu - 2 * sd && own[j] < 0.5) flag[k] = -1;
+    });
+  });
+  const order = T.map((t, k) => k).sort((a, b) => (T[a].f || 0) - (T[b].f || 0) || T[a].s - T[b].s);
+  const out = [];
+  let cur = null;
+  for (const k of order) {
+    const t = T[k];
+    if (flag[k] === null) continue;
+    if (cur && cur.c === t.c && cur.f === (t.f || 0) && t.s - cur.e <= gap) { cur.e = Math.max(cur.e, t.e); if (flag[k] >= 0) cur.other = flag[k]; continue; }
+    cur = { c: t.c, f: t.f || 0, s: t.s, e: t.e, other: flag[k] };
+    out.push(cur);
+  }
+  const fileEnd = (f) => Math.max(...T.filter((t) => (t.f || 0) === f).map((t) => t.e));
+  return out.filter((r) => r.e - r.s >= minDur).sort((a, b) => (b.e - b.s) - (a.e - a.s)).slice(0, max)
+    .map((r) => ({ ...r, s: r2(r.s), e: r2(r.e), ctxS: r2(Math.max(0, r.s - ctx)), ctxE: r2(Math.min(fileEnd(r.f), r.e + ctx)) }))
+    .sort((a, b) => a.f - b.f || a.s - b.s);
 }

@@ -264,6 +264,35 @@
 </main>
 
 <div id="spkPop" class="spkpop hidden" role="dialog" aria-label="발언 화자 바꾸기"></div>
+<!-- 구간 손보기(이름 대기 중): 1 구간 정하기 → 2 누구 말인지 → 3 비슷한 곳 -->
+<div id="rgSheet" class="rgsheet hidden" role="dialog" aria-modal="true" aria-labelledby="rgTitle">
+  <div class="rg-in">
+    <div class="flow"><span data-st="1">1 구간 정하기</span>›<span data-st="2">2 누구 말인지</span>›<span data-st="3">3 비슷한 곳</span></div>
+    <div id="rgEdit">
+      <h3 id="rgTitle">✂ 구간 손보기 <span class="msg" id="rgFrom"></span></h3>
+      <p class="hint">파형을 끌어 고르거나 양 끝 손잡이를 옮기고, 재생하다가 「⏱ 지금」으로 시작·끝을 정합니다.</p>
+      <canvas id="rgWave" class="rgwave" aria-label="파형 — 끌어서 구간 고르기"></canvas>
+      <div class="rgaxis" id="rgAxis"></div>
+      <div class="rglegend" id="rgLegend"></div>
+      <div class="ends">
+        <div class="end"><div class="k">시작</div><div class="v" id="rgS"></div><div class="row3"><button type="button" data-rg="s-">−0.2</button><button type="button" data-rg="snow">⏱ 지금</button><button type="button" data-rg="s+">+0.2</button></div></div>
+        <div class="end"><div class="k">끝</div><div class="v" id="rgE"></div><div class="row3"><button type="button" data-rg="e-">−0.2</button><button type="button" data-rg="enow">⏱ 지금</button><button type="button" data-rg="e+">+0.2</button></div></div>
+      </div>
+      <div class="plays"><button type="button" class="primary" data-rg="play">▶ 구간만 듣기</button><button type="button" data-rg="playctx">▶ 앞뒤 2초까지</button></div>
+      <div class="who" id="rgWhoQ"></div>
+      <div class="whos" id="rgWho"></div>
+      <label class="opt" id="rgFindWrap"><input type="checkbox" id="rgFind" checked><span>이 구간을 그 사람 목소리 기준으로 써서 <b>비슷한 곳 찾기</b><small>원래 묶음 안에서 그 목소리와 더 닮은 곳을 보여 줍니다(확인한 것만 옮김)</small></span></label>
+      <div class="act2"><button type="button" data-rg="close">취소</button><button type="button" class="primary" data-rg="apply" disabled>적용</button></div>
+    </div>
+    <div id="rgSim" class="hidden">
+      <div class="done" id="rgDone"></div>
+      <h3 id="rgSimT"></h3>
+      <p class="hint" id="rgSimH"></p>
+      <div id="rgSimList"></div>
+      <div class="act2"><button type="button" data-rg="close">그대로 두기</button><button type="button" class="primary" data-rg="moveSim">옮기기</button></div>
+    </div>
+  </div>
+</div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script type="module" src="src/app.js"></script>
 </body>

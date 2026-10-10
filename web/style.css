@@ -431,3 +431,49 @@ table.bh th { color: var(--mute); font-weight: 500; }
 .rv textarea { min-height: 0; line-height: 1.45; padding: 4px 6px; overflow: hidden; resize: none; }
 .rv .part.playing { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 @media (pointer: coarse) { .rv textarea { font-size: 15.5px; } .filt button { min-height: 40px; } }
+
+/* ================================================================ 구간 손보기(이름 대기 중) */
+.mixalert { background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: 8px; padding: 10px 12px; margin: 0 0 10px; font-size: 13.5px; }
+.mixalert > b { color: var(--warn); }
+.mixrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 6px 0; border-top: 1px dashed color-mix(in srgb, var(--warn) 40%, transparent); margin-top: 6px; }
+.mixrow > * { min-width: 0; }
+.mixrow .t { grid-column: 1 / -1; font-size: 12.5px; color: var(--mute); }
+.mixbar { position: relative; display: block; height: 18px; border-radius: 4px; background: var(--cc); opacity: .85; }
+.mixbar i { position: absolute; top: 0; bottom: 0; background: #d08a1e; border-radius: 2px; }
+.rgbtn { margin-left: auto; flex: none; }
+body.rg-open { overflow: hidden; }
+.rgsheet { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, .35); display: flex; align-items: flex-end; justify-content: center; }
+.rg-in { background: var(--panel); width: min(100%, 560px); max-height: 92vh; overflow-y: auto; border-radius: 14px 14px 0 0;
+  padding: 12px 14px calc(16px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 24px rgba(0, 0, 0, .22); }
+.rg-in h3 { margin: 4px 0 2px; font-size: 16px; }
+.rg-in .flow { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--mute); }
+.rg-in .flow span { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+.rg-in .flow span.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.rgwave { display: block; width: 100%; height: 104px; border: 1px solid var(--line); border-radius: 8px; touch-action: none; cursor: crosshair; }
+.rgaxis { display: flex; justify-content: space-between; font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; margin: 2px 2px 4px; }
+.rglegend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--mute); margin-bottom: 8px; }
+.rglegend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; background: var(--cc); }
+.rglegend i.sel { background: rgba(31, 95, 139, .3); } .rglegend i.ph { background: #d33; }
+.ends { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 8px; }
+.end { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+.end .k { font-size: 12px; color: var(--mute); }
+.end .v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.end .row3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 4px; margin-top: 4px; }
+.end .row3 button { padding: 6px 0; font-size: 12.5px; min-height: 38px; }
+.plays, .act2 { display: grid; gap: 8px; margin-bottom: 10px; }
+.plays { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.act2 { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); margin: 8px 0 0; }
+.plays button, .act2 button { min-height: 44px; }
+.rg-in .who { font-size: 13.5px; font-weight: 600; margin: 2px 0 6px; }
+.whos { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.whos button { border-radius: 999px; padding: 6px 12px; min-height: 44px; white-space: normal; }
+.whos button.who { background: var(--cc); color: #fff; border-color: var(--cc); }
+.whos button.on { outline: 3px solid var(--accent); outline-offset: 2px; }
+.rg-in .opt { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
+.rg-in .opt input { width: 20px; height: 20px; margin-top: 1px; flex: none; }
+.rg-in .opt small { display: block; color: var(--mute); font-size: 12px; }
+.rg-in .done { background: var(--ok-bg); color: var(--ok); border-radius: 8px; padding: 10px 12px; font-size: 13.5px; margin: 8px 0; }
+.rg-in .sim { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.rg-in .sim input { width: 22px; height: 22px; }
+.rg-in .sim .tt { font-variant-numeric: tabular-nums; }
+.rg-in .sim .pc { font-weight: 600; color: var(--ok); } .rg-in .sim .pc.lo { color: var(--warn); }
