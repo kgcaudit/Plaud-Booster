@@ -164,7 +164,7 @@ function renderSys() {
   else if (WSTATE.dl && WSTATE.dl.loading) eng = "모델 여는 중";
   else if (m.ready) eng = '<span class="ok">엔진 준비됨</span>';
   else eng = `<span class="bad">모델 없음</span> (받은 양 ${Math.round((m.cachedBytes / Math.max(1, m.totalBytes)) * 100)}%)`;
-  const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? ` · 그래픽 칩 가속 ${WSTATE.gpuParts || "?"}/${WSTATE.nParts || 4}` : "") + (lock ? ' · <span class="ok">화면 켜 둠</span>' : "");
+  const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? ` · 그래픽 칩 ${LEVELS.some((l) => l.v === WSTATE.gpuParts) ? levelLabel(WSTATE.gpuParts) : "사용"}` : "") + (lock ? ' · <span class="ok">화면 켜 둠</span>' : "");
   $("#sysline").innerHTML = `${eng}${th}` + (WSTATE.coi ? "" : ' · <span class="bad">스레드 꺼짐(느림)</span>') + (WSTATE.owner ? "" : ' · <span class="bad">다른 탭에서 처리 중</span>');
   $("#engState").innerHTML = eng + (m && !m.ready && !WSTATE.fake ? "<br><small>모델을 받아 두면 대기 중인 작업이 바로 시작됩니다. 작업을 등록하면 자동으로 받습니다.</small>" : "");
   const pct = WSTATE.dl && WSTATE.dl.total ? (WSTATE.dl.got / WSTATE.dl.total) * 100 : m ? (m.cachedBytes / Math.max(1, m.totalBytes)) * 100 : 0;
