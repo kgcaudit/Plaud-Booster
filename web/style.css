@@ -345,3 +345,82 @@ table.bh th:first-child, table.bh td:first-child, table.bh th:nth-child(2), tabl
 table.bh th { color: var(--mute); font-weight: 500; }
 .benchhist { overflow-x: auto; max-width: 100%; }
 #rvNone p { margin: 0 0 16px; line-height: 1.6; }
+
+/* ================================================================ 검수 단계(① 화자 이름 → ② 발언 검수 → ③ 내보내기) */
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; min-width: 0; }
+.step > .sh { display: flex; align-items: center; gap: 8px; padding: 10px 14px; flex-wrap: wrap; }
+.step > .sh > * { min-width: 0; }
+.step > .sh .no { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); flex: none;
+  display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+.step > .sh .no.done { background: var(--ok); color: #fff; font-size: 0; }
+.step > .sh .no.done::before { content: "✓"; font-size: 14px; }
+.step > .sh h3 { margin: 0; font-size: 16px; }
+.step > .sh .prog { color: var(--mute); font-size: 13px; }
+.step > .sh .spacer { flex: 1; }
+.step > .sh .fold { color: var(--accent); background: none; border: 0; padding: 6px 4px; font-size: 13px; }
+.step.folded .sfold { display: none; }
+.step .sb { padding: 0 14px 14px; }
+.step .spkpanel { padding: 0 14px 14px; border: 0; margin: 0; background: none; }
+.step .spkpanel > .bar { margin-bottom: 10px; }
+.step .mini { display: none; flex-wrap: wrap; gap: 6px; padding: 0 14px 12px; }
+.step.folded .mini { display: flex; }
+.step .mini span { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 13px; background: var(--bg); }
+#rvMain > .sfold > .pbar { margin: 0 14px 12px; }
+#rvMain > .sfold > .pbar > i { background: var(--ok); }
+.hint, .scopehint { color: var(--mute); font-size: 12.5px; margin: 0 0 8px; }
+
+/* 보기 범위: 전체 ⊃ (확인함 | 미검수 ⊃ (확인 필요 | 판정 확실)) */
+.tree { display: grid; gap: 6px; margin-bottom: 6px; }
+.tree button { display: flex; align-items: baseline; justify-content: center; gap: 6px; min-height: 44px; border-radius: 8px; padding: 6px 4px; font-size: 13.5px; }
+.tree button b { font-size: 16px; }
+.tree button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.tree .lv0:not(.on) { background: var(--bg); }
+.tree .br { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 6px; position: relative; padding-left: 14px; }
+.tree .br::before { content: ""; position: absolute; left: 4px; top: -6px; height: 34px; border-left: 2px solid var(--line); }
+.tree .br > button { align-self: start; }
+.tree .sub { display: grid; gap: 6px; min-width: 0; }
+.tree .br2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; position: relative; padding-left: 12px; }
+.tree .br2::before { content: ""; position: absolute; left: 3px; top: -6px; height: 34px; border-left: 2px solid var(--line); }
+.filt { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 0 10px; border-bottom: 1px solid var(--line); }
+.filt > * { min-width: 0; }
+.filt .spacer { flex: 1; }
+.bulk { color: var(--ok); border-color: var(--ok); }
+.rvstats { color: var(--mute); font-size: 12.5px; padding: 6px 0 0; }
+.rvstats:empty { display: none; }
+.savemsg { margin: 8px 0 0; text-align: right; }
+
+/* 발언: 확인 단추 · 판정 줄의 나누기/합치기 · 나눈 조각 */
+.rv .c-ok { width: 92px; }
+.okbtn { white-space: nowrap; }
+.okbtn.done { background: var(--ok-bg); color: var(--ok); border-color: var(--ok); font-weight: 600; }
+.rv tr.need td { background: var(--warn-bg); }
+.rv .judge { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rv .judge .spacer { flex: 1; }
+.act { color: var(--accent); font-size: 13px; padding: 4px 10px; }
+.rv .parts { display: grid; gap: 8px; }
+.rv .part { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 6px 8px; align-items: center;
+  border-left: 3px solid var(--line); padding: 2px 0 2px 10px; }
+.rv .part .pt { font-size: 12.5px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.rv .part textarea, .rv .part .splitbox { grid-column: 1 / -1; }
+.rv .part select { width: 100%; }
+.rv tr.splitting td { background: var(--panel); }
+.rv textarea.splitta { border-color: var(--accent) !important; background: var(--panel) !important; }
+.splitbox { background: var(--bg); border-radius: 8px; padding: 10px; display: grid; gap: 8px; font-size: 13px; margin-top: 6px; }
+.splitbox .row2 { display: flex; gap: 6px; flex-wrap: wrap; }
+.splitbox .row2 button { flex: 1 1 auto; white-space: normal; }
+
+/* 내보내기 */
+.exp .chk { display: flex; padding: 4px 0; }
+.exp .btns { display: flex; gap: 8px; margin: 8px 0; }
+.exp .btns button { flex: 1; min-height: 44px; font-size: 15px; }
+.warnline { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 8px 10px; font-size: 13px; margin-bottom: 8px; }
+
+@media (max-width: 720px) {
+  .rv tr.need { background: var(--warn-bg); border-radius: 8px; margin: 4px 0; }
+  .rv tr.need td { background: none; }
+  .rv tr.splitting { outline: 2px solid var(--accent); border-radius: 8px; outline-offset: -2px; }
+  .step > .sh { padding: 10px 12px; }
+  .step .sb, .step .spkpanel { padding-left: 12px; padding-right: 12px; }
+  #rvMain .tablewrap { margin: 0 -4px; }
+}
+@media (pointer: coarse) { .okbtn, .act { min-height: 40px; } .step > .sh .fold { min-height: 44px; } }

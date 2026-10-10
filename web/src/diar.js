@@ -373,3 +373,40 @@ export function orderFiles(list) {
     return a.x.name.localeCompare(b.x.name, "ko", { numeric: true });
   }).map((y) => ({ ...y.x, recordedAt: y.r ? y.r.at : null }));
 }
+
+/**
+ * 파일 이름 → 작업 이름(새 작업에서 자동 기입). 확장자·밑줄을 걷고, 이름 속 날짜·시각은 「26년 9월 14일 오전 7시 51분」처럼 풀어 앞에 둔다.
+ * 「음성」「녹음」「Recording」처럼 기기가 붙인 말만 남으면 뺀다. 파일이 여럿이면 「… 외 n개」.
+ *   "통화 녹음 홍길동_260914_075100.m4a" → "26년 9월 14일 오전 7시 51분 · 통화 녹음 홍길동"
+ *   "251009_1430.MP3" → "25년 10월 9일 오후 2시 30분"
+ */
+export function titleFromFiles(names) {
+  const list = (names || []).filter(Boolean);
+  if (!list.length) return "";
+  let base = String(list[0]).replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  let when = null;
+  const m1 = base.match(/(?:^|[^\d])((\d{2}|\d{4})(\d{2})(\d{2})[_\- ]?(\d{2})(\d{2})(\d{2})?(?:[_\- ]\d{1,3})?)(?=[^\d]|$)/);
+  const m2 = base.match(/((\d{4})[-.](\d{1,2})[-.](\d{1,2})(?:[ _T]+(\d{1,2})[:.\-](\d{2})(?:[:.\-]\d{2})?)?)/);
+  const r = m1 && recordedAt(m1[1]);
+  if (r) { when = r.at; base = base.replace(m1[1], " "); }
+  else if (m2 && +m2[3] >= 1 && +m2[3] <= 12 && +m2[4] >= 1 && +m2[4] <= 31) {
+    const p = (x) => String(x).padStart(2, "0");
+    when = `${m2[2]}-${p(m2[3])}-${p(m2[4])}` + (m2[5] != null && +m2[5] < 24 ? `T${p(m2[5])}:${m2[6]}:00` : "");
+    base = base.replace(m2[1], " ");
+  }
+  let rest = base.replace(/[_]+/g, " ").replace(/\s*[-·]+\s*$/g, "").replace(/^\s*[-·]+\s*/g, "").replace(/\s+/g, " ").trim();
+  if (/^(음성|녹음|새 녹음|음성 녹음|통화|recording|record|rec|voice|audio|memo|new recording)?\s*\d{0,3}$/i.test(rest)) rest = "";
+  let date = "";
+  if (when) {
+    const [d, t] = when.split("T");
+    const [y, mo, da] = d.split("-").map(Number);
+    date = `${String(y).slice(2)}년 ${mo}월 ${da}일`;
+    if (t) {
+      const [h, mi] = t.split(":").map(Number);
+      date += ` ${h < 12 ? "오전" : "오후"} ${h % 12 || 12}시${mi ? ` ${mi}분` : ""}`;
+    }
+  }
+  let title = [date, rest].filter(Boolean).join(" · ") || String(list[0]).replace(/\.[^.]+$/, "");
+  if (list.length > 1) title += ` 외 ${list.length - 1}개`;
+  return title;
+}

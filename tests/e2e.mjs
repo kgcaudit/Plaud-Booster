@@ -107,7 +107,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.fill("#glBody tr:first-child .t", "진짜");
   await page.click("#glSave");
   await goReview();
-  await page.click(".seg button[data-f='all']");
+  await page.click(".tree button[data-f='all']");
   const first = page.locator("#rvBody tr[data-i='1']");
   await first.locator("select.spk").selectOption("배소정");
   await first.locator("textarea").fill("고친 문장");
@@ -167,6 +167,8 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.setInputFiles("#audioFiles", [asFile(sony2, "audio/wav"), asFile(sony1, "audio/wav")]); // 거꾸로 골라도
   await page.waitForSelector("#audioList li:first-child:has-text('251009_1430.wav')"); // 녹음 시각 순
   await page.waitForSelector("#audioList li:nth-child(2):has-text('앞 파일과')");
+  // 작업 이름은 고른 파일 이름(녹음 시각)을 다듬어 저절로 채워짐
+  assert.equal(await page.locator("#jobTitle").inputValue(), "25년 10월 9일 오후 2시 30분 외 1개");
   await page.fill("#attendees", "2");
   await page.fill("#jobTitle", "소니 시험");
   await page.check("#notice");
@@ -189,7 +191,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   console.log("✓ 소니 녹음: 파일 순서·화자 묶음 2개·이름 붙이고 전사");
 
   await page.click(".job:has-text('소니 시험') button[data-a='review']");
-  await page.click(".seg button[data-f='all']");
+  await page.click(".tree button[data-f='all']");
   await page.waitForSelector("#rvBody button.spkbtn");
   const names0 = await page.locator("#rvBody button.spkbtn").allTextContents();
   assert.ok(names0.includes("갑") && names0.includes("을"), names0.join(","));
@@ -215,6 +217,54 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.waitForSelector("#rvSave:has-text('저장됨')");
   console.log("✓ 발언별 화자 창(이 발언만·묶음 전체)·되돌리기");
 
+  // 검수 단계: 범위(전체 ⊃ 확인함·미검수 ⊃ 확인 필요·판정 확실) · 확인 단추 · 한꺼번에 확인 · 발언 나누기
+  const cnt = async (f) => +(await page.locator(`.tree b[data-n='${f}']`).textContent());
+  const all0 = await cnt("all");
+  assert.equal((await cnt("ok")) + (await cnt("todo")), all0);
+  assert.equal((await cnt("need")) + (await cnt("sure")), await cnt("todo"));
+  assert.match(await page.locator("#stNames [data-no]").textContent(), /1/);
+  assert.match(await page.locator("#stExport [data-no]").textContent(), /3/);
+  const ok0 = await cnt("ok");
+  const r2 = page.locator("#rvBody tr[data-i]").nth(1);
+  if (!(await r2.locator("button.okbtn.done").count())) { await r2.locator("button.okbtn").click(); assert.equal(await cnt("ok"), ok0 + 1); }
+  await page.click(".tree button[data-f='todo']");
+  await page.click("#rvAllOk");
+  assert.equal(await cnt("todo"), 0);
+  assert.ok(await page.locator("#exWarn").isHidden());
+  await page.click("#rvUndo");
+  assert.ok((await cnt("todo")) > 0);
+  // 한 발언에 두 사람: 커서 위치에서 나누고 뒤 조각 화자를 바꿈 → 통합본에 두 줄
+  await page.click(".tree button[data-f='all']");
+  const r0 = page.locator("#rvBody tr[data-i]").first();
+  await r0.locator("button[data-a='split']").click();
+  const ta = page.locator("#rvBody textarea.splitta");
+  await ta.fill("앞사람 말입니다 뒷사람 대답입니다");
+  await ta.evaluate((t) => { const p = t.value.indexOf("뒷사람"); t.setSelectionRange(p, p); t.dispatchEvent(new Event("select", { bubbles: true })); });
+  await page.click("#rvBody button[data-a='doSplit']");
+  await page.waitForSelector("#rvBody tr[data-i] .part:nth-child(2)");
+  assert.equal(await page.locator("#rvBody .part").count(), 2);
+  const pick = page.locator("#rvBody .part").nth(1).locator("select.pspk");
+  const cur = await pick.inputValue();
+  const other = (await pick.locator("option").allTextContents()).find((n) => n !== cur && n !== "직접 입력…");
+  await pick.selectOption(other);
+  await page.waitForSelector("#rvSave:has-text('저장됨')");
+  console.log("✓ 검수 범위(포함 관계)·확인·한꺼번에 확인·되돌리기·발언 나누기");
+  if (process.env.SHOTS) { // 손으로 볼 화면 사진(휴대폰 폭) — 시험 판정에는 쓰지 않음
+    const vp = page.viewportSize();
+    await page.setViewportSize({ width: 412, height: 900 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: path.join(process.env.SHOTS, "review-top.png"), fullPage: true });
+    await page.locator("#rvBody tr[data-i]").nth(1).locator("button[data-a='split']").click();
+    await page.locator("#rvBody textarea.splitta").evaluate((t) => { t.setSelectionRange(3, 3); t.dispatchEvent(new Event("select", { bubbles: true })); });
+    await page.locator("#rvBody tr.splitting").screenshot({ path: path.join(process.env.SHOTS, "review-split.png") });
+    await page.click("#rvBody button[data-a='splitCancel']");
+    await page.click("#stNames .fold");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: path.join(process.env.SHOTS, "review-folded.png"), fullPage: true });
+    await page.click("#stNames .fold");
+    await page.setViewportSize(vp);
+  }
+
   const d4 = page.waitForEvent("download");
   await page.click("#exTxt");
   const t4 = fs.readFileSync(await (await d4).path(), "utf8");
@@ -222,6 +272,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   assert.match(t4, /녹음 출처: 소니 녹음기 · 할 일: 화자 나누기·전사/);
   assert.match(t4, /녹음 고지: 참석자에게 녹음 사실을 알림/);
   assert.match(t4, /\] 정: /);
+  assert.match(t4, new RegExp(`: 앞사람 말입니다\\n.*\\] ${other}: 뒷사람 대답입니다`)); // 나눈 발언은 조각마다 한 줄
   await page.click("#spkPanel button[data-a='vp']");
   await page.click(".tabs button[data-tab='voices']");
   await page.waitForSelector("#vpBody tr[data-n='정']");

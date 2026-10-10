@@ -44,6 +44,11 @@ export function mergedLines({ job, result, edits, plaud, glossary }, { usePlaud 
     const ed = e[g.i] || {};
     let tag = job.mode === "gap" || job.mode === "range" ? "보충" : "";
     if (!ed.speaker && g.kind === "혼재") tag = [tag, "화자 혼재"].filter(Boolean).join("·");
+    if (ed.parts && ed.parts.length) { // 검수에서 나눈 발언: 조각마다 한 줄(조각 화자 > 발언 화자)
+      const base = speakerOf(g, edits);
+      for (const p of ed.parts) lines.push({ t: p.start, file: g.file || 0, spk: p.speaker || base, text: p.text, src: tag.replace(/·?화자 혼재/, "") });
+      continue;
+    }
     lines.push({ t: g.start, file: g.file || 0, spk: speakerOf(g, edits), text: ed.text || g.text, src: tag });
   }
   lines.sort((a, b) => a.file - b.file || a.t - b.t);

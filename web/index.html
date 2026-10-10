@@ -130,35 +130,66 @@
 <section id="tab-review" class="tab">
   <div class="bar" id="rvBar">
     <select id="rvJob" aria-label="작업 선택"></select>
-    <div class="seg" role="group" aria-label="보기">
-      <button type="button" data-f="need" class="on">확인 필요</button>
-      <button type="button" data-f="all">전체</button>
-      <button type="button" data-f="edited">수정함</button>
-      <button type="button" data-f="todo">미검수</button>
-    </div>
-    <label class="chk" id="rvPlaudWrap"><input type="checkbox" id="rvPlaud"> Plaud 전사 함께 보기</label>
   </div>
   <div id="rvNone" class="empty hidden">
     <p>아직 검수할 결과가 없습니다.<br>전사가 끝난 작업이 여기에 나옵니다.</p>
     <button type="button" id="rvGoJobs" class="primary">작업 목록으로</button>
   </div>
-  <div id="spkPanel" class="spkpanel card hidden"></div>
-  <div id="rvMain">
-  <div id="rvStats" class="stats"></div>
-  <div class="bar small">
-    <span class="msg" id="rvSave"></span>
-    <span class="spacer"></span>
-    <label class="chk" id="exPlaudWrap"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
-    <label class="chk" title="인명·용어 사전의 「잘못 적힌 말 → 바로잡을 말」을 통합본 TXT·CSV에 적용합니다(원문은 그대로)"><input type="checkbox" id="exGl" checked> 내보낼 때 사전 적용</label>
-    <button type="button" id="exTxt">통합본 TXT</button>
-    <button type="button" id="exCsv">CSV</button>
-  </div>
-  <div class="tablewrap"><table class="rv">
-    <thead><tr><th class="c-t">시각</th><th class="c-p"></th><th class="c-s">화자</th><th>발언</th><th class="c-k">판정</th><th class="c-ok">확인</th></tr></thead>
-    <tbody id="rvBody"></tbody>
-  </table></div>
-  <p id="rvEmpty" class="empty hidden">표시할 발언이 없습니다.</p>
-  </div>
+  <!-- 검수는 할 일 순서대로: ① 화자 이름 정하기(화자 나누기 작업만) → ② 발언 검수 → ③ 내보내기 -->
+  <section class="step" id="stNames">
+    <div class="sh"><span class="no" data-no></span><h3>화자 이름 정하기</h3><span class="prog" id="stNamesProg"></span><span class="spacer"></span>
+      <button type="button" class="fold" data-fold="stNames" aria-expanded="true">접기 ▴</button></div>
+    <div class="sfold"><div id="spkPanel" class="spkpanel"></div></div>
+    <div class="mini" id="stNamesMini"></div>
+  </section>
+  <section class="step" id="rvMain">
+    <div class="sh"><span class="no" data-no></span><h3>발언 검수</h3><span class="prog" id="rvProg"></span><span class="spacer"></span>
+      <button type="button" class="fold" data-fold="rvMain" aria-expanded="true">접기 ▴</button></div>
+    <div class="sfold">
+    <div class="pbar"><i id="rvPbar"></i></div>
+    <div class="sb">
+      <!-- 보기 범위: 전체 ⊃ (확인함 | 미검수 ⊃ (확인 필요 | 판정 확실)) -->
+      <div class="tree" role="group" aria-label="보기 범위">
+        <button type="button" class="lv0" data-f="all"><b data-n="all">0</b> 전체</button>
+        <div class="br">
+          <button type="button" data-f="ok"><b data-n="ok">0</b> 확인함</button>
+          <div class="sub">
+            <button type="button" data-f="todo"><b data-n="todo">0</b> 미검수</button>
+            <div class="br2">
+              <button type="button" data-f="need" class="on"><b data-n="need">0</b> 확인 필요</button>
+              <button type="button" data-f="sure"><b data-n="sure">0</b> 판정 확실</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="scopehint">확인 필요 = 미검수 중 화자 판정이 불확실한 것 · 판정 확실 = 자동 판정은 확실하나 아직 안 본 것</p>
+      <div class="filt">
+        <label class="chk"><input type="checkbox" id="rvEdited"> 고친 발언만 <span class="msg" id="rvEditedN"></span></label>
+        <label class="chk" id="rvPlaudWrap"><input type="checkbox" id="rvPlaud"> Plaud 전사 함께 보기</label>
+        <span class="spacer"></span>
+        <button type="button" id="rvAllOk" class="bulk">✓ 보이는 발언 모두 확인</button>
+        <button type="button" id="rvUndo" disabled title="Ctrl+Z / ⌘Z">되돌리기</button>
+      </div>
+      <div id="rvStats" class="rvstats"></div>
+      <div class="tablewrap"><table class="rv">
+        <thead><tr><th class="c-t">시각</th><th class="c-p"></th><th class="c-s">화자</th><th>발언</th><th class="c-k">판정</th><th class="c-ok">확인</th></tr></thead>
+        <tbody id="rvBody"></tbody>
+      </table></div>
+      <p id="rvEmpty" class="empty hidden">이 범위에 발언이 없습니다.</p>
+      <p class="savemsg"><span class="msg" id="rvSave"></span></p>
+    </div>
+    </div>
+  </section>
+  <section class="step" id="stExport">
+    <div class="sh"><span class="no" data-no></span><h3>내보내기</h3></div>
+    <div class="sb exp">
+      <div class="warnline hidden" id="exWarn"></div>
+      <label class="chk" id="exPlaudWrap"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
+      <label class="chk" title="인명·용어 사전의 「잘못 적힌 말 → 바로잡을 말」을 통합본 TXT·CSV에 적용합니다(원문은 그대로)"><input type="checkbox" id="exGl" checked> 내보낼 때 사전 적용 <span class="msg" id="exGlN"></span></label>
+      <div class="btns"><button type="button" id="exTxt" class="primary">통합본 TXT</button><button type="button" id="exCsv">CSV</button></div>
+      <p class="hint">나눈 발언은 조각마다 한 줄씩, 각자의 화자·시각으로 나갑니다.</p>
+    </div>
+  </section>
   <div id="tl" class="tl hidden" aria-label="전체 녹음 재생">
     <div class="tl-top"><select id="tlFile" aria-label="파일"></select><button type="button" id="tlTime" class="link" title="지금 발언으로 이동">0:00 / 0:00</button><span id="tlNow" class="tl-now"></span><span class="spacer"></span>
       <select id="tlRate" aria-label="재생 속도"><option value="1">1배</option><option value="1.25">1.25배</option><option value="1.5">1.5배</option><option value="2">2배</option></select>

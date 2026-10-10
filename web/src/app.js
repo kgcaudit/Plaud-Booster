@@ -3,8 +3,9 @@ import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
 import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
 import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, sourceOf, isDiar } from "./export.js";
-import { orderFiles, printsFromReview, recordedAt } from "./diar.js";
+import { orderFiles, printsFromReview, recordedAt, titleFromFiles } from "./diar.js";
 import { isGeneric } from "./engine.js";
+import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd } from "./review.js";
 import { describeDevice, LEVELS, levelLabel, lowerLevel } from "./devices.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -231,6 +232,7 @@ $("#btnNew").addEventListener("click", async () => {
 $("#btnCancel").addEventListener("click", () => { $("#newJob").classList.add("hidden"); $("#btnNew").classList.remove("hidden"); });
 function resetForm() {
   $("#newJob").reset();
+  $("#jobTitle").dataset.auto = "1";
   F.audio = []; F.tr = null; F.picked = new Set();
   $("#audioList").innerHTML = ""; $("#trInfo").innerHTML = ""; $("#spkMap").innerHTML = ""; $("#gapTape").classList.add("hidden");
   setMsg("");
@@ -317,10 +319,19 @@ function mediaDuration(file) {
 $("#audioFiles").addEventListener("change", async (ev) => {
   F.audio = [...ev.target.files].map((file) => ({ file, dur: null, name: file.name }));
   renderAudioList();
+  autoTitle();
   for (const a of F.audio) { a.dur = await mediaDuration(a.file); renderAudioList(); }
-  if (source() !== "plaud" || MULTI(mode())) { await stampTimes(); if (MULTI(mode())) F.audio = orderFiles(F.audio); renderAudioList(); }
+  if (source() !== "plaud" || MULTI(mode())) { await stampTimes(); if (MULTI(mode())) F.audio = orderFiles(F.audio); renderAudioList(); autoTitle(); }
   drawTape();
 });
+// 작업 이름: 사람이 직접 쓰기 전까지는 고른 파일 이름을 다듬어 채운다(직접 쓰면 그대로 둠)
+function autoTitle() {
+  const el = $("#jobTitle");
+  if (el.dataset.auto !== "1" && el.value.trim()) return;
+  el.value = titleFromFiles(F.audio.map((a) => a.file.name));
+  el.dataset.auto = "1";
+}
+$("#jobTitle").addEventListener("input", (e) => { e.target.dataset.auto = e.target.value.trim() ? "" : "1"; });
 /** 앞 파일 녹음 끝과 이 파일 녹음 시작 사이(초). 시각을 모르면 null */
 function gapBefore(i) {
   const a = F.audio[i - 1], b = F.audio[i];
@@ -522,7 +533,9 @@ $("#jobList").addEventListener("click", async (ev) => {
 });
 
 /* ================================================================== 검수 */
-const REVIEW = { id: null, want: null, data: null, edits: {}, filter: "need", saveT: null, gl: [] };
+// 할 일 순서대로 세 단계: ① 화자 이름 정하기(화자 나누기 작업만) → ② 발언 검수 → ③ 내보내기.
+// 보기 범위는 포함 관계(전체 ⊃ 확인함·미검수, 미검수 ⊃ 확인 필요·판정 확실) — 규칙은 review.js.
+const REVIEW = { id: null, want: null, data: null, edits: {}, filter: "need", editedOnly: false, saveT: null, gl: [], split: null, visible: [], fold: {} };
 async function loadReviewJobs() {
   JOBS = await jobsList();
   const done = JOBS.filter((j) => (j.hasResult && j.mode !== "enroll") || j.status === "이름 대기");
@@ -530,23 +543,42 @@ async function loadReviewJobs() {
   sel.innerHTML = done.length ? done.map((j) => `<option value="${esc(j.id)}">${esc(j.title)} (${esc(jobKind(j))}${j.status === "이름 대기" ? " · 이름 대기" : ""})</option>`).join("") : '<option value="">검수할 결과가 없습니다</option>';
   const id = REVIEW.want && done.some((j) => j.id === REVIEW.want) ? REVIEW.want : REVIEW.id && done.some((j) => j.id === REVIEW.id) ? REVIEW.id : done[0]?.id;
   REVIEW.want = null;
-  // 결과가 하나도 없으면 빈 선택 칸·보기 단추·내보내기 대신 안내와 「작업 목록으로」만 보인다
+  // 결과가 하나도 없으면 빈 선택 칸·단계 상자 대신 안내와 「작업 목록으로」만 보인다
   const none = !done.length;
   $("#rvNone").classList.toggle("hidden", !none);
-  $("#rvBar").classList.toggle("hidden", none);
-  $("#rvMain").classList.toggle("hidden", none);
+  for (const q of ["#rvBar", "#stNames", "#rvMain", "#stExport"]) $(q).classList.toggle("hidden", none);
   if (id) { sel.value = id; await openReview(id); }
   else {
     REVIEW.id = null; REVIEW.data = null;
     if (!player.paused) player.pause();
-    $("#rvBody").innerHTML = ""; $("#rvStats").innerHTML = ""; $("#spkPanel").classList.add("hidden"); $("#tl").classList.add("hidden");
+    $("#rvBody").innerHTML = ""; $("#rvStats").innerHTML = ""; $("#tl").classList.add("hidden");
   }
   syncSticky();
 }
 $("#rvGoJobs").addEventListener("click", () => showTab("jobs"));
 $("#rvJob").addEventListener("change", (e) => openReview(e.target.value));
-$$(".seg button").forEach((b) => b.addEventListener("click", () => { $$(".seg button").forEach((x) => x.classList.toggle("on", x === b)); REVIEW.filter = b.dataset.f; renderReview(); }));
+$$(".tree button[data-f]").forEach((b) => b.addEventListener("click", () => { REVIEW.filter = b.dataset.f; REVIEW.only = null; REVIEW.split = null; renderReview(); }));
+$("#rvEdited").addEventListener("change", (e) => { REVIEW.editedOnly = e.target.checked; renderReview(); });
 $("#rvPlaud").addEventListener("change", renderReview);
+// 단계 접기·펼치기(작업마다 기억)
+$$(".step .fold").forEach((b) => b.addEventListener("click", () => {
+  const st = b.dataset.fold, f = (REVIEW.fold[REVIEW.id] = REVIEW.fold[REVIEW.id] || {});
+  f[st] = !$("#" + st).classList.contains("folded");
+  applyStepFold();
+}));
+function applyStepFold() {
+  const f = REVIEW.fold[REVIEW.id] || {};
+  for (const st of ["stNames", "rvMain"]) {
+    const el = $("#" + st), folded = !!f[st];
+    el.classList.toggle("folded", folded);
+    const b = $(".fold", el); b.textContent = folded ? "펼치기 ▾" : "접기 ▴"; b.setAttribute("aria-expanded", String(!folded));
+  }
+}
+// 보이는 단계에 차례로 1·2·3
+function numberSteps() {
+  let n = 0;
+  for (const st of ["#stNames", "#rvMain", "#stExport"]) { const el = $(st); if (!el.classList.contains("hidden")) $("[data-no]", el).textContent = ++n; }
+}
 async function reviewData(id) {
   const [job, result, edits, plaud, gl] = await Promise.all([S.get("jobs", id), S.get("results", id), S.get("edits", id), S.get("plaud", id), S.get("kv", "glossary")]);
   return { job: { ...job, id }, result, edits: { e: {}, ...(edits || {}) }, plaud: plaud || [], glossary: (gl && gl.pairs) || [] };
@@ -558,6 +590,7 @@ async function openReview(id) {
   REVIEW.names = REVIEW.data.edits.names || {};
   REVIEW.gl = REVIEW.data.glossary;
   REVIEW.undo = [];
+  REVIEW.split = null;
   REVIEW.diar = isDiar(REVIEW.data.job.mode) ? await S.get("chunks", id) : null;
   const plaudish = REVIEW.data.job.mode === "gap" || REVIEW.data.job.mode === "range";
   $("#rvPlaudWrap").classList.toggle("hidden", !plaudish);
@@ -565,16 +598,59 @@ async function openReview(id) {
   REVIEW.vpNames = (await S.all("voiceprints")).map(([n]) => n);
   REVIEW.page = {};
   $("#rvSave").textContent = "";
+  // ① 이름을 다 붙였고 전사가 끝났으면 처음부터 접어 둔다(이름 대기 중이면 펼침)
+  if (!REVIEW.fold[id]) REVIEW.fold[id] = { stNames: !!(REVIEW.data.result && namesDone().done) };
+  applyStepFold();
+  updUndo();
   renderReview();
 }
 const gloss = (t) => { for (const p of REVIEW.gl || []) if (p.from) t = t.split(p.from).join(p.to); return t; };
 const isNeed = (g) => {
   if (g.cluster) { // 소니 녹음: 이름 없는 묶음 · 묶음과 덜 닮음 · 다른 묶음과 차이 작음 · 2초 미만
-    const named = (REVIEW.edits[g.i] && REVIEW.edits[g.i].speaker) || (REVIEW.names[g.cluster] && !isGeneric(REVIEW.names[g.cluster]));
+    const e = REVIEW.edits[g.i];
+    const named = (e && (e.speaker || (e.parts && e.parts.every((p) => p.speaker)))) || (REVIEW.names[g.cluster] && !isGeneric(REVIEW.names[g.cluster]));
     return !named || g.conf < 0.5 || g.margin < 0.1 || g.end - g.start < 2;
   }
   return g.kind !== "단일" || g.conf < 0.6;
 };
+// ① 진행: 전사할 묶음 중 이름(임시 이름 제외)이 붙은 수
+function namesDone() {
+  const skip = new Set((REVIEW.data && REVIEW.data.job.skip) || []);
+  const cl = clustersOf().filter((c) => !skip.has(c.id));
+  const named = cl.filter((c) => REVIEW.names[c.id] && !isGeneric(REVIEW.names[c.id])).length;
+  return { total: cl.length, named, done: cl.length > 0 && named === cl.length };
+}
+function renderNamesStep() {
+  const d = REVIEW.data, show = d && isDiar(d.job.mode);
+  $("#stNames").classList.toggle("hidden", !show);
+  if (!show) return;
+  const { total, named, done } = namesDone();
+  $("#stNamesProg").textContent = done ? `${total}묶음 모두 이름 붙음` : `${total}묶음 중 ${named}개 이름 붙음`;
+  $("#stNames [data-no]").classList.toggle("done", done);
+  // 접혔을 때: 사람별 발언 수만
+  const cnt = {};
+  for (const g of (d.result && d.result.segs) || []) { const n = speakerOf(g, { e: REVIEW.edits, names: REVIEW.names }); cnt[n] = (cnt[n] || 0) + 1; }
+  $("#stNamesMini").innerHTML = Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([n, k]) => `<span>${esc(n)} ${k}</span>`).join("");
+}
+// ② 머리·범위 개수·③ 안내 — 확인 단추를 누를 때는 이것만 다시 그린다(행은 그대로)
+function renderScope() {
+  const d = REVIEW.data;
+  if (!d || !d.result) return;
+  const c = scopeCounts(d.result.segs, REVIEW.edits, isNeed);
+  for (const f of SCOPES) $(`.tree b[data-n='${f}']`).textContent = c[f];
+  $$(".tree button[data-f]").forEach((b) => b.classList.toggle("on", !REVIEW.only && b.dataset.f === REVIEW.filter));
+  $("#rvProg").textContent = `${c.ok} / ${c.all} 확인`;
+  $("#rvPbar").dataset.w = c.all ? (100 * c.ok) / c.all : 0;
+  $("#rvEditedN").textContent = `(${c.edited})`;
+  const left = REVIEW.visible.filter((i) => !(REVIEW.edits[i] && REVIEW.edits[i].ok)).length;
+  $("#rvAllOk").textContent = `✓ 보이는 ${left}개 모두 확인`;
+  $("#rvAllOk").disabled = !left;
+  $("#exWarn").textContent = `아직 확인 안 한 발언 ${c.todo}개 — 그대로 내보낼 수 있습니다`;
+  $("#exWarn").classList.toggle("hidden", !c.todo);
+  $("#exGlN").textContent = REVIEW.gl.length ? `(용어 ${REVIEW.gl.length}쌍)` : "";
+  renderNamesStep();
+  applyGeom($("#rvMain"));
+}
 function renderReview() {
   const d = REVIEW.data;
   if (!d) return;
@@ -582,25 +658,28 @@ function renderReview() {
   tlOpen();
   const sony = isDiar(d.job.mode);
   $("#rvMain").classList.toggle("hidden", !d.result);
-  if (!d.result) { $("#rvStats").innerHTML = ""; $("#rvBody").innerHTML = ""; return; }
+  $("#stExport").classList.toggle("hidden", !d.result);
+  renderNamesStep();
+  numberSteps();
+  if (!d.result) { $("#rvStats").innerHTML = ""; $("#rvBody").innerHTML = ""; REVIEW.visible = []; return; }
   const segs = d.result.segs, s = d.result.stats, job = d.job, smap = job.speakerMap || {};
   const names = new Set(s.speakersUsed || []);
   segs.forEach((g) => { if (g.kind === "단일") names.add(g.speaker); });
-  Object.values(REVIEW.edits).forEach((e) => e.speaker && names.add(e.speaker));
+  Object.values(REVIEW.edits).forEach((e) => { e.speaker && names.add(e.speaker); (e.parts || []).forEach((p) => p.speaker && names.add(p.speaker)); });
   Object.values(REVIEW.names).forEach((n) => n && names.add(n));
-  const nameList = [...names].sort((a, b) => a.localeCompare(b, "ko"));
-  const checked = Object.values(REVIEW.edits).filter((e) => e.ok).length;
+  const nameList = [...names].filter(Boolean).sort((a, b) => a.localeCompare(b, "ko"));
   const multi = (s.files || []).length > 1;
-  $("#rvStats").innerHTML = (sony ? [["발언", s.segments], ["확인 필요", segs.filter(isNeed).length], ["화자 묶음", s.clusters], ["전사 제외", s.skipped], ["환각 제거", s.droppedHallucination], ["검수 완료", checked]]
-    : [["발언", s.segments], ["확인 필요", segs.filter(isNeed).length], ["혼재", s.mixed], ["미상", s.unknown], ["저신뢰", s.lowConf], ["환각 제거", s.droppedHallucination], ["검수 완료", checked]])
-    .map(([k, v]) => `<span class="stat"><b>${v ?? 0}</b>${k}</span>`).join("")
-    + (s.targets ? `<span class="stat">대상 ${s.targets.map((t) => (multi ? t.file + 1 + "번 " : "") + hms(t.from) + "~" + hms(t.to)).join(", ")}</span>` : "");
+  // 범위와 상관없는 처리 정보는 작게 한 줄
+  $("#rvStats").textContent = [
+    ...(sony ? [["전사 제외", s.skipped], ["환각 제거", s.droppedHallucination]] : [["혼재", s.mixed], ["미상", s.unknown], ["저신뢰", s.lowConf], ["환각 제거", s.droppedHallucination]])
+      .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`),
+    ...(s.targets ? ["대상 " + s.targets.map((t) => (multi ? t.file + 1 + "번 " : "") + hms(t.from) + "~" + hms(t.to)).join(", ")] : []),
+  ].join(" · ");
   let rows = segs.map((g) => ({ g, e: REVIEW.edits[g.i] || {} }));
-  const f = REVIEW.filter;
-  if (f === "need") rows = rows.filter((r) => isNeed(r.g) && !r.e.ok);
-  if (f === "edited") rows = rows.filter((r) => r.e.speaker || r.e.text);
   if (REVIEW.only) rows = rows.filter((r) => r.g.cluster === REVIEW.only);
-  if (f === "todo") rows = rows.filter((r) => !r.e.ok);
+  else rows = rows.filter((r) => inScope(REVIEW.filter, r.e, isNeed(r.g)));
+  if (REVIEW.editedOnly) rows = rows.filter((r) => isEdited(r.e));
+  REVIEW.visible = rows.map((r) => r.g.i);
   const items = rows.map((r) => ({ t: r.g.start, file: r.g.file || 0, r }));
   if ($("#rvPlaud").checked && !MULTI(job.mode)) {
     const tg = s.targets || [];
@@ -612,57 +691,148 @@ function renderReview() {
   items.sort((a, b) => a.file - b.file || a.t - b.t);
   $("#rvEmpty").classList.toggle("hidden", items.length > 0);
   const canPlay = !job.audioDeleted;
+  const playBtn = (f, s0, e0) => (canPlay ? `<button type="button" class="play" title="듣기" data-s="${s0}" data-e="${e0}" data-f="${f}">▶</button>` : "");
+  const optsFor = (cur) => (nameList.includes(cur) ? nameList : [cur, ...nameList]).map((n) => `<option ${n === cur ? "selected" : ""}>${esc(n)}</option>`).join("") + '<option value="__new">직접 입력…</option>';
+  const sp = REVIEW.split;
   $("#rvBody").innerHTML = items.map((it) => {
     if (it.p) return `<tr class="plaud"><td class="c-t">${hms(it.p.start)}</td><td></td><td>${esc(smap[it.p.speaker] || it.p.speaker)}</td><td>${esc(gloss(it.p.text))}</td><td><span class="msg">Plaud</span></td><td></td></tr>`;
-    const { g, e } = it.r;
+    const { g, e } = it.r, f = g.file || 0;
     const spk = speakerOf(g, { e: REVIEW.edits, names: REVIEW.names });
+    const parts = e.parts && e.parts.length ? e.parts : null;
+    const splitting = sp && String(sp.i) === String(g.i);
+    const splitBox = () => {
+      const pe = parts ? partEnd(g, parts, sp.k) : g.end, ps = parts ? parts[sp.k].start : g.start;
+      return `<div class="splitbox"><div class="spv">글에서 나눌 곳을 누르면 커서가 놓입니다.</div>
+        <div class="row2"><button type="button" class="primary" data-a="doSplit">커서 위치에서 나누기</button>
+        <button type="button" data-a="doSplitPlay" data-s="${ps}" data-e="${pe}">재생 위치에서</button></div>
+        <button type="button" data-a="splitCancel">취소</button></div>`;
+    };
+    let body;
+    if (parts) {
+      body = `<div class="parts">${parts.map((p, k) => {
+        const pspk = p.speaker || spk, on = splitting && sp.k === k;
+        return `<div class="part" data-k="${k}"><span class="pt">${hms(p.start)}</span>
+          <select class="pspk" aria-label="조각 화자">${optsFor(pspk)}</select>${playBtn(f, p.start, partEnd(g, parts, k))}
+          <button type="button" class="act" data-a="split" data-k="${k}" title="이 조각을 다시 나누기">✂</button>
+          <textarea class="ptx${on ? " splitta" : ""}" rows="1" aria-label="조각 발언">${esc(p.text)}</textarea>${on ? splitBox() : ""}</div>`;
+      }).join("")}</div>`;
+    } else body = `<textarea rows="2" aria-label="발언"${splitting ? ' class="splitta"' : ""}>${esc(e.text ?? gloss(g.text))}</textarea>${splitting ? splitBox() : ""}`;
+    let spkCell, judge;
+    if (parts) spkCell = `<span class="msg">${parts.length}조각으로 나눔</span>`;
+    else if (sony) spkCell = `<button type="button" class="spkbtn cc${clusterIndex(g.cluster) % 8}${e.speaker ? " own" : ""}" title="${esc(clusterLabel(g.cluster))}${e.speaker ? " · 이 발언만 따로 지정" : ""}">${esc(spk)}</button>`;
+    else spkCell = `<select class="spk" aria-label="화자">${optsFor(spk)}</select>`;
     if (sony) {
-      const ci = clusterIndex(g.cluster), why = [];
+      const why = [];
       if (g.conf < 0.5) why.push("묶음과 덜 닮음");
       if (g.margin < 0.1) why.push("다른 묶음과 비슷");
       if (g.end - g.start < 2) why.push("짧음");
-      return `<tr data-i="${g.i}" class="${e.speaker || e.text ? "edited" : ""}">
-      <td class="c-t">${(multi ? `<small>${(g.file || 0) + 1}번</small> ` : "") + hms(g.start)}</td>
-      <td>${canPlay ? `<button type="button" class="play" title="듣기" data-s="${g.start}" data-e="${g.end}" data-f="${g.file || 0}">▶</button>` : ""}</td>
-      <td><button type="button" class="spkbtn cc${ci % 8}${e.speaker ? " own" : ""}" title="${esc(clusterLabel(g.cluster))}${e.speaker ? " · 이 발언만 따로 지정" : ""}">${esc(spk)}</button></td>
-      <td><textarea rows="2" aria-label="발언">${esc(e.text ?? gloss(g.text))}</textarea></td>
-      <td><span class="kind ${why.length ? "k-저신뢰" : "k-단일"}">${esc(clusterLabel(g.cluster).replace("Speaker ", "S"))} ${Math.round(g.conf * 100)}%</span><span class="votes">${esc(why.join(" · "))}</span></td>
-      <td class="c-ok"><input type="checkbox" class="ok" ${e.ok ? "checked" : ""} title="검수 완료" aria-label="검수 완료"></td></tr>`;
+      judge = `<span class="kind ${why.length ? "k-저신뢰" : "k-단일"}">${esc(clusterLabel(g.cluster).replace("Speaker ", "S"))} ${Math.round(g.conf * 100)}%</span><span class="votes">${esc(why.join(" · "))}</span>`;
+    } else {
+      const kl = g.kind === "단일" && g.conf < 0.6 ? "저신뢰" : g.kind;
+      const votes = Object.entries(g.votes || {}).slice(0, 3).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(" · ");
+      judge = `<span class="kind k-${kl}">${kl} ${Math.round(g.conf * 100)}%</span><span class="votes">${esc(votes)}</span>`;
     }
-    const kl = g.kind === "단일" && g.conf < 0.6 ? "저신뢰" : g.kind;
-    const votes = Object.entries(g.votes || {}).slice(0, 3).map(([k, v]) => `${k} ${Math.round(v * 100)}%`).join(" · ");
-    const opts = (nameList.includes(spk) ? nameList : [spk, ...nameList]).map((n) => `<option ${n === spk ? "selected" : ""}>${esc(n)}</option>`).join("") + '<option value="__new">직접 입력…</option>';
-    return `<tr data-i="${g.i}" class="${e.speaker || e.text ? "edited" : ""}">
-      <td class="c-t">${(multi ? `<small>${(g.file || 0) + 1}번</small> ` : "") + hms(g.start)}</td>
-      <td>${canPlay ? `<button type="button" class="play" title="듣기" data-s="${g.start}" data-e="${g.end}" data-f="${g.file || 0}">▶</button>` : ""}</td>
-      <td><select class="spk" aria-label="화자">${opts}</select></td>
-      <td><textarea rows="2" aria-label="발언">${esc(e.text ?? gloss(g.text))}</textarea></td>
-      <td><span class="kind k-${kl}">${kl} ${Math.round(g.conf * 100)}%</span><span class="votes">${esc(votes)}</span></td>
-      <td class="c-ok"><input type="checkbox" class="ok" ${e.ok ? "checked" : ""} title="검수 완료" aria-label="검수 완료"></td></tr>`;
+    const act = parts ? '<button type="button" class="act" data-a="merge" title="나눈 조각을 다시 한 발언으로">↺ 합치기</button>'
+      : splitting ? "" : '<button type="button" class="act" data-a="split" data-k="0" title="한 발언에 여러 사람 말이 섞였을 때">✂ 나누기</button>';
+    const cls = [isEdited(e) ? "edited" : "", isNeed(g) && !e.ok ? "need" : "", splitting ? "splitting" : ""].filter(Boolean).join(" ");
+    return `<tr data-i="${g.i}" class="${cls}">
+      <td class="c-t">${(multi ? `<small>${f + 1}번</small> ` : "") + hms(g.start)}</td>
+      <td>${playBtn(f, g.start, g.end)}</td>
+      <td>${spkCell}</td>
+      <td>${body}</td>
+      <td><div class="judge">${judge}<span class="spacer"></span>${act}</div></td>
+      <td class="c-ok"><button type="button" class="okbtn${e.ok ? " done" : ""}" data-a="ok" aria-pressed="${!!e.ok}" title="이 발언을 사람이 확인함 — 미검수에서 빠집니다">${e.ok ? "✓ 확인함" : "✓ 확인"}</button></td></tr>`;
   }).join("");
   $$("#rvBody textarea").forEach((t) => { t.style.height = "auto"; t.style.height = t.scrollHeight + 2 + "px"; });
+  renderScope();
+  if (sp) { const ta = $(`#rvBody tr[data-i="${sp.i}"] textarea.splitta`); if (ta) { ta.focus(); splitPreview(ta); } }
   TL.cur = null; tlDraw();
 }
 const editOf = (i) => (REVIEW.edits[i] = REVIEW.edits[i] || {});
+const segOf = (i) => REVIEW.data.result.segs.find((x) => String(x.i) === String(i));
 $("#rvBody").addEventListener("change", (ev) => {
   const tr = ev.target.closest("tr[data-i]");
   if (!tr) return;
-  const i = tr.dataset.i, g = REVIEW.data.result.segs.find((x) => String(x.i) === i);
-  if (ev.target.matches("select.spk")) {
+  const i = tr.dataset.i, g = segOf(i), part = ev.target.closest(".part");
+  if (ev.target.matches("select.spk, select.pspk")) {
     pushUndo();
     let v = ev.target.value;
-    if (v === "__new") { v = (prompt("화자 이름") || "").trim(); if (!v) { renderReview(); return; } }
+    if (v === "__new") { v = (prompt("화자 이름") || "").trim(); if (!v) { REVIEW.undo.pop(); renderReview(); return; } }
     const e = editOf(i);
-    if (v === g.speaker) delete e.speaker; else e.speaker = v;
+    if (part) { // 나눈 조각의 화자
+      const p = e.parts[+part.dataset.k], base = speakerOf(g, { e: { ...REVIEW.edits, [i]: { ...e, speaker: e.speaker } }, names: REVIEW.names });
+      if (v === base) delete p.speaker; else p.speaker = v;
+    } else if (v === g.speaker) delete e.speaker; else e.speaker = v;
     e.ok = true;
-  } else if (ev.target.matches("textarea")) {
+    saveEdits(); renderReview(); return;
+  }
+  if (ev.target.matches("textarea")) {
+    if (REVIEW.split) return; // 나누는 중에는 나눌 때 함께 반영
     pushUndo();
     const e = editOf(i), v = ev.target.value.trim();
-    if (v === gloss(g.text).trim()) delete e.text; else e.text = v;
-  } else if (ev.target.matches("input.ok")) editOf(i).ok = ev.target.checked;
-  tr.classList.toggle("edited", !!(REVIEW.edits[i].speaker || REVIEW.edits[i].text));
-  saveEdits();
+    if (part) e.parts[+part.dataset.k].text = v;
+    else if (v === gloss(g.text).trim()) delete e.text; else e.text = v;
+  }
+  tr.classList.toggle("edited", isEdited(REVIEW.edits[i]));
+  saveEdits(); renderScope();
 });
+// 확인 · 나누기 · 합치기
+function playPosIn(f, s0, e0) { return TL.loaded === f && player.currentTime > s0 + 0.1 && player.currentTime < e0 - 0.1 ? player.currentTime : null; }
+function splitPreview(ta) {
+  const tr = ta.closest("tr"), box = $(".splitbox", tr);
+  if (!box) return;
+  const pos = ta.selectionStart, v = ta.value, a = v.slice(0, pos).trim(), b = v.slice(pos).trim();
+  const short = (x) => (x.length > 14 ? x.slice(0, 14) + "…" : x);
+  $(".spv", box).textContent = a && b ? `앞: 「${short(a)}」 · 뒤: 「${short(b)}」` : "글에서 나눌 곳을 누르면 커서가 놓입니다.";
+  $("[data-a='doSplit']", box).disabled = !(a && b);
+  const pb = $("[data-a='doSplitPlay']", box), g = segOf(tr.dataset.i), t = playPosIn(g.file || 0, +pb.dataset.s, +pb.dataset.e);
+  pb.disabled = !(a && b) || t == null;
+  pb.textContent = t == null ? "재생 위치에서(이 구간 재생 중일 때)" : `재생 위치 ${hms(t)}에서`;
+}
+for (const evn of ["keyup", "click", "select", "input"]) $("#rvBody").addEventListener(evn, (ev) => { if (ev.target.matches("textarea.splitta")) splitPreview(ev.target); });
+// player는 아래(재생 막대)에서 만들어지므로 모듈을 다 읽은 뒤 건다
+queueMicrotask(() => player.addEventListener("timeupdate", () => { const ta = $("#rvBody textarea.splitta"); if (ta) splitPreview(ta); }));
+$("#rvBody").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-a]");
+  if (!b) return;
+  const tr = b.closest("tr[data-i]"), i = tr.dataset.i, g = segOf(i), a = b.dataset.a;
+  if (a === "ok") {
+    const e = editOf(i); e.ok = !e.ok;
+    b.classList.toggle("done", e.ok); b.textContent = e.ok ? "✓ 확인함" : "✓ 확인"; b.setAttribute("aria-pressed", String(e.ok));
+    tr.classList.toggle("need", isNeed(g) && !e.ok);
+    saveEdits(); renderScope(); return;
+  }
+  if (a === "split") { REVIEW.split = { i: g.i, k: +b.dataset.k }; renderReview(); return; }
+  if (a === "splitCancel") { REVIEW.split = null; renderReview(); return; }
+  if (a === "doSplit" || a === "doSplitPlay") {
+    const ta = $("textarea.splitta", tr), e = editOf(i), k = REVIEW.split.k;
+    const at = a === "doSplitPlay" ? playPosIn(g.file || 0, +b.dataset.s, +b.dataset.e) : undefined;
+    const parts = splitPart(g, e.parts, k, ta.value, ta.selectionStart, at ?? undefined);
+    if (!parts) { toast("나눌 곳을 글 중간에 두세요"); return; }
+    pushUndo();
+    e.parts = parts; delete e.text;
+    REVIEW.split = null;
+    saveEdits(); renderReview(); toast("나눴습니다 — 조각마다 화자를 고르세요");
+    return;
+  }
+  if (a === "merge") {
+    const e = editOf(i);
+    pushUndo();
+    const m = mergeParts(e.parts);
+    delete e.parts;
+    if (m.text !== gloss(g.text).trim()) e.text = m.text; else delete e.text;
+    if (m.speaker) e.speaker = m.speaker;
+    saveEdits(); renderReview(); toast("한 발언으로 합쳤습니다");
+  }
+});
+$("#rvAllOk").addEventListener("click", () => {
+  const todo = REVIEW.visible.filter((i) => !(REVIEW.edits[i] && REVIEW.edits[i].ok));
+  if (!todo.length) return;
+  pushUndo();
+  for (const i of todo) editOf(i).ok = true;
+  saveEdits(); renderReview(); toast(`${todo.length}개를 확인했습니다 — 「되돌리기」로 되돌릴 수 있습니다`);
+});
+$("#rvUndo").addEventListener("click", () => undo());
 function saveEdits() {
   $("#rvSave").textContent = "저장 대기…";
   clearTimeout(REVIEW.saveT);
@@ -742,8 +912,12 @@ function tlItems() {
   const ed = { e: REVIEW.edits, names: REVIEW.names };
   if (d.result) {
     for (const g of d.result.segs) {
-      const name = speakerOf(g, ed);
+      const name = speakerOf(g, ed), parts = REVIEW.edits[g.i] && REVIEW.edits[g.i].parts;
       const color = g.cluster && !(REVIEW.edits[g.i] && REVIEW.edits[g.i].speaker) ? PAL[clusterIndex(g.cluster) % 8] : g.kind === "단일" || g.cluster ? hashColor(name) : "#9aa0a8";
+      if (parts && parts.length) { // 나눈 발언은 조각마다 제 화자 색
+        parts.forEach((p, k) => out.push({ f: g.file || 0, s: p.start, e: partEnd(g, parts, k), name: p.speaker || name, color: p.speaker ? hashColor(p.speaker) : color, i: g.i }));
+        continue;
+      }
       out.push({ f: g.file || 0, s: g.start, e: g.end, name, color, i: g.i });
     }
     if (d.job.mode === "gap" || d.job.mode === "range") {
@@ -935,13 +1109,18 @@ const nameOfCluster = (c) => REVIEW.names[c.id] || c.label;
 function pushUndo() {
   REVIEW.undo.push(JSON.stringify({ e: REVIEW.edits, names: REVIEW.names }));
   if (REVIEW.undo.length > 100) REVIEW.undo.shift();
-  $("#spUndo") && ($("#spUndo").disabled = false);
+  updUndo();
+}
+function updUndo() {
+  const none = !(REVIEW.undo && REVIEW.undo.length);
+  for (const q of ["#spUndo", "#rvUndo"]) if ($(q)) $(q).disabled = none;
 }
 function undo() {
   const last = REVIEW.undo.pop();
   if (!last) { toast("되돌릴 것이 없습니다"); return; }
   const v = JSON.parse(last);
   REVIEW.edits = v.e; REVIEW.names = v.names;
+  REVIEW.split = null; updUndo();
   saveEdits(); renderReview(); toast("되돌렸습니다");
 }
 document.addEventListener("keydown", (ev) => {
@@ -958,8 +1137,8 @@ function textNear(f, s) {
 
 function renderPanel() {
   const d = REVIEW.data, el = $("#spkPanel");
-  if (!d || !isDiar(d.job.mode)) { el.classList.add("hidden"); return; }
-  el.classList.remove("hidden");
+  if (!d || !isDiar(d.job.mode)) { el.classList.add("hidden"); $("#stNames").classList.add("hidden"); return; }
+  el.classList.remove("hidden"); $("#stNames").classList.remove("hidden");
   const cl = clustersOf();
   const pending = !d.result;
   const skip = new Set(d.job.skip || []);
@@ -988,7 +1167,7 @@ function renderPanel() {
         ${(c.samples || []).length > per ? `<button type="button" class="link" data-a="more">다른 구간 ▸ ${page + 1}/${Math.ceil(c.samples.length / per)}</button>` : ""}</div>
     </div>`;
   }).join("");
-  el.innerHTML = `<div class="bar"><h3>화자 묶음 ${cl.length}개</h3><span class="msg">${pending ? "대표 구간을 들어 보고 이름을 붙이세요. 같은 이름을 붙이면 한 사람으로 합쳐집니다. 이름은 전사 뒤에도 바꿀 수 있습니다." : "이름을 바꾸면 그 묶음 발언 전체에 적용됩니다(발언별로 따로 지정한 것은 그대로)."}</span>
+  el.innerHTML = `<div class="bar"><span class="msg">${pending ? "대표 구간을 들어 보고 이름을 붙이세요. 같은 이름을 붙이면 한 사람으로 합쳐집니다. 이름은 전사 뒤에도 바꿀 수 있습니다." : "이름을 바꾸면 그 묶음 발언 전체에 적용됩니다(발언별로 따로 지정한 것은 그대로)."}</span>
       <span class="spacer"></span>
       ${strong.length ? `<button type="button" data-a="sugall">추천 ${strong.length}건 모두 적용</button>` : ""}
       <button type="button" id="spUndo" data-a="undo" ${REVIEW.undo.length ? "" : "disabled"} title="Ctrl+Z / ⌘Z">되돌리기</button>
@@ -1028,7 +1207,7 @@ $("#spkPanel").addEventListener("click", async (ev) => {
   const c = id && clustersOf().find((x) => x.id === id);
   if (a === "play") return playFrom(+b.dataset.f, +b.dataset.s);
   if (a === "more") { REVIEW.page[id] = ((REVIEW.page[id] || 0) + 1) % Math.ceil(c.samples.length / 2); renderPanel(); return; }
-  if (a === "only") { REVIEW.only = REVIEW.only === id ? null : id; if (REVIEW.only) { $$(".seg button").forEach((x) => x.classList.toggle("on", x.dataset.f === "all")); REVIEW.filter = "all"; } renderReview(); return; }
+  if (a === "only") { REVIEW.only = REVIEW.only === id ? null : id; REVIEW.split = null; renderReview(); if (REVIEW.only) $("#rvMain").scrollIntoView({ block: "start" }); return; }
   if (a === "sug") { pushUndo(); REVIEW.names[id] = c.suggest.name; saveEdits(); renderReview(); return; }
   if (a === "sugall") { pushUndo(); clustersOf().forEach((x) => { if (x.suggest && x.suggest.strong && !REVIEW.names[x.id]) REVIEW.names[x.id] = x.suggest.name; }); saveEdits(); renderReview(); return; }
   if (a === "undo") return undo();
