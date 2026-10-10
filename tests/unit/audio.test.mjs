@@ -1,5 +1,5 @@
 // 휴대폰 녹음(m4a·aac)을 ADTS 조각으로 바꾸는 부분 — ffmpeg로 만든 파일로 확인한다(ffmpeg가 없으면 건너뜀)
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -9,6 +9,7 @@ import { mp4Audio, adtsFrames, adtsChunk, parseAsc } from "../../web/src/audio.j
 
 const HAS = spawnSync("ffmpeg", ["-version"]).status === 0;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pb-aac-"));
+after(() => fs.rmSync(tmp, { recursive: true, force: true })); // 시험 뒤 임시 폴더를 남기지 않음
 const ff = (...a) => { const r = spawnSync("ffmpeg", ["-loglevel", "error", "-y", ...a]); assert.equal(r.status, 0, String(r.stderr)); };
 function pcm(file, ch = 1) { // ffmpeg로 풀어 16비트 표본
   const out = path.join(tmp, "o.raw");

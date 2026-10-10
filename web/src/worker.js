@@ -256,15 +256,15 @@ async function processJob(job) {
     transcribeTs: whisper && whisper.transcribeTs ? (a) => whisper.transcribeTs(a) : undefined,
     embed: (a) => camp.embed(a),
     vadProbs: vad ? (x) => vad.probs(x) : undefined,
-    clearPartial: () => S.del("partials", id),
+    clearPartial: () => S.clearPartials(id),
     plaud: (await S.get("plaud", id)) || [],
     vpStore,
     loadEnroll: () => S.get("enroll", id),
     saveEnroll: (v) => S.put("enroll", id, v),
     loadChunks: () => S.get("chunks", id),
     saveChunks: (c) => S.put("chunks", id, c),
-    loadPartial: async () => (await S.get("partials", id)) || {},
-    savePartial: (rec) => S.update("partials", id, (p) => ({ ...(p || {}), [rec.k]: rec })),
+    loadPartial: () => S.loadPartials(id),
+    savePartial: (rec) => S.savePartial(id, rec), // 기록 하나씩(작업 전체를 다시 쓰지 않음)
     progress,
     shouldStop: () => stops.has(id),
   };

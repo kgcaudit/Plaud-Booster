@@ -126,12 +126,37 @@ export async function deleteAudio(jobId) {
   } catch { /* 없음 */ }
 }
 
+/* ------------------------------------------------------------------ 중간 결과(partials)
+ * 이어서 하기용 기록. 예전에는 작업 하나를 한 덩어리({k: rec})로 두고 기록할 때마다 통째로 읽어 다시 썼다
+ * — 긴 녹음에서 저장 비용이 발언 수의 제곱으로 늘었다(2시간 회의 목소리 특징만 약 1천만 개 숫자를 복사).
+ * 지금은 기록 하나를 「작업id#k」 키 하나로 쓴다. 예전 덩어리(키 = 작업id)도 그대로 읽고, 지울 때 함께 지운다. */
+const pkey = (id, k) => id + "#" + k;
+const prange = (id) => IDBKeyRange.bound(id + "#", id + "#\uffff");
+export async function loadPartials(id) {
+  const d = await db();
+  const s = d.transaction("partials").objectStore("partials");
+  const [old, vals] = await Promise.all([req(s.get(id)), req(s.getAll(prange(id)))]);
+  const out = { ...(old || {}) };
+  for (const v of vals) out[v.k] = v;
+  return out;
+}
+export const savePartial = (id, rec) => put("partials", pkey(id, rec.k), rec);
+export async function clearPartials(id) {
+  const d = await db();
+  const tx = d.transaction("partials", "readwrite");
+  const s = tx.objectStore("partials");
+  s.delete(id); s.delete(prange(id));
+  return done(tx);
+}
+
 export async function deleteJob(id) {
-  for (const s of ["jobs", "plaud", "results", "edits", "partials", "enroll", "chunks"]) await del(s, id);
+  for (const s of ["jobs", "plaud", "results", "edits", "enroll", "chunks"]) await del(s, id);
+  await clearPartials(id);
   await deleteAudio(id);
 }
 
 /** 처음부터 다시: 중간 결과를 지운다(음원·전사·검수는 남김) */
 export async function resetJob(id) {
-  for (const s of ["results", "partials", "enroll", "chunks"]) await del(s, id);
+  for (const s of ["results", "enroll", "chunks"]) await del(s, id);
+  await clearPartials(id);
 }

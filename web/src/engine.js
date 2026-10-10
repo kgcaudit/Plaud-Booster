@@ -269,7 +269,7 @@ export async function runSony(job, files, ctx) {
       for (let i = b * B; i < Math.min(wins.length, (b + 1) * B); i++) {
         const w = wins[i];
         vecs[i] = await ctx.embed(await ctx.readAudio(w.f, w.es ?? w.s, w.ee ?? w.e)); // 짧은 말은 가운데 1.5초로 특징
-        v.push(Array.from(vecs[i], (x) => Math.round(x * 1e4) / 1e4));
+        v.push(Float32Array.from(vecs[i])); // 숫자 배열보다 저장·복사가 훨씬 가벼움(예전 기록의 숫자 배열도 그대로 읽힘)
       }
       await ctx.savePartial({ k: key, v });
       fresh++;

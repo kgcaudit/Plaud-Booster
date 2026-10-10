@@ -315,3 +315,14 @@ test("묶은 창에서 글을 못 받은 발언은 혼자 다시 전사하고, �
   const r2 = await runJob({ mode: "diar", stage: "transcribe", call: true }, files, ctx);
   assert.equal(ts, 0); assert.equal(alone, nu); assert.equal(r2.result.segs.length, nu);
 });
+
+test("음량 맞춤: 고른 소리면 묶음 앞뒤 가장자리도 가운데와 같은 배율(예전엔 가장자리를 +3dB 더 키움)", () => {
+  const x = new Float32Array(512 * 300).fill(0.01);
+  const g = agcGains(x);
+  const mid = g[150];
+  assert.ok(Math.abs(g[0] - mid) / mid < 1e-3 && Math.abs(g[g.length - 1] - mid) / mid < 1e-3, `${g[0]} ${mid} ${g[g.length - 1]}`);
+  const short = agcGains(new Float32Array(512 * 20).fill(0.01)); // 3초보다 짧은 묶음
+  assert.ok(Math.abs(short[0] - mid) / mid < 1e-3);
+  // 예전 방식(늘 3초로 나눔)이면 맨 앞 칸 배율이 √2배(+3dB)였다
+  assert.ok(g[0] < mid * 1.01);
+});

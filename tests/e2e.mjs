@@ -442,6 +442,21 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.setViewportSize(vp1);
   console.log("✓ 기기 성능 시험(결과표·시험 기록 목록)·화면 켜 둠 해제");
 
+  // ---- 중간 결과(이어서 하기): 기록 하나씩 저장, 예전 한 덩어리 기록도 읽고, 지울 때 둘 다
+  const pr = await page.evaluate(async () => {
+    const S = await import("/src/store.js");
+    await S.put("partials", "J1", { 0: { k: 0, text: "예전" }, 1: { k: 1, text: "예전1" } }); // 예전 형식
+    await S.put("partials", "J10", { 0: { k: 0, text: "다른 작업" } }); // 이름이 겹치는 다른 작업
+    await S.savePartial("J1", { k: 1, text: "새로" });
+    await S.savePartial("J1", { k: "e0", v: [Float32Array.of(0.5, -0.25)] });
+    const a = await S.loadPartials("J1");
+    await S.clearPartials("J1");
+    const b = await S.loadPartials("J1"), other = await S.loadPartials("J10");
+    return { keys: Object.keys(a).sort(), t0: a[0].text, t1: a[1].text, typed: a.e0.v[0] instanceof Float32Array && a.e0.v[0][1] === -0.25, left: Object.keys(b).length, other: Object.keys(other).length };
+  });
+  assert.deepEqual(pr, { keys: ["0", "1", "e0"], t0: "예전", t1: "새로", typed: true, left: 0, other: 1 });
+  console.log("✓ 중간 결과 기록 하나씩 저장·예전 기록 읽기·지우기");
+
   // ---- 백업 → 모두 지우기 → 복원
   await page.click(".tabs button[data-tab='settings']");
   const d3 = page.waitForEvent("download");

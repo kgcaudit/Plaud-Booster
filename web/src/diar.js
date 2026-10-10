@@ -48,6 +48,9 @@ const r2 = (v) => Math.round(v * 100) / 100;
  * Silero에 넣기 전 음량 맞추기: 512표본 칸마다 앞뒤 약 3초 평균 음량을 -26dBFS로 맞춘다(최대 +30dB).
  * 10-08 회의(멀리 앉은 사람 목소리가 작음)에서 그냥 넣으면 Plaud 발언 414개 중 50개를 놓쳤고, 맞춘 뒤에는 1개였다
  * (에너지 기준 방식은 5개). 칸별 배율을 돌려준다.
+ * 묶음(10분) 앞뒤에서 잘린 창은 실제 길이로 나눈다 — 예전에는 늘 3초로 나눠 음량을 낮게 보고 가장자리를 최대 +3dB 더 키웠다.
+ * 10-08 재측정(앱처럼 10분씩): Plaud 발언 덮음 84.86→84.95%, 놓친 발언 3→3, 화자 97.9→98.0%·5명 모두 따로.
+ * (창을 안쪽으로 밀어 3초를 채우는 방법은 97.7% — 가장자리에서 1.5초보다 먼 큰 소리까지 보게 되어 덜 국소적)
  */
 export function agcGains(x, frame = 512, span = 94, target = 0.0501, maxGain = 31.6) {
   const n = Math.floor(x.length / frame);
@@ -58,7 +61,7 @@ export function agcGains(x, frame = 512, span = 94, target = 0.0501, maxGain = 3
   const g = new Float32Array(n), h = Math.floor(span / 2);
   for (let i = 0; i < n; i++) {
     const a = Math.max(0, i - h), b = Math.min(n, i - h + span);
-    g[i] = Math.min(maxGain, Math.max(0.1, target / (Math.sqrt((c[b] - c[a]) / span) + 1e-6)));
+    g[i] = Math.min(maxGain, Math.max(0.1, target / (Math.sqrt((c[b] - c[a]) / Math.max(1, b - a)) + 1e-6)));
   }
   return g;
 }
