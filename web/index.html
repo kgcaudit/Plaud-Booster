@@ -11,17 +11,17 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- 위 한 줄(2026-10-11): [녹취] [1 작업 목록 › 2 검수·내보내기] … [상태] [☰]
+<!-- 위 한 줄(2026-10-11): [HAUD AI] [1 원본 음성 › 2 전사 결과] … [상태] [☰]
      자주 안 쓰는 목소리 기준·사전·설정과 엔진 상태 전체는 ☰ 메뉴로 — 위 고정 영역을 한 줄로 줄임 -->
 <nav class="tabs bar" aria-label="화면">
-  <span class="logo" aria-hidden="true">녹취</span>
+  <span class="logo" aria-hidden="true">HAUD AI</span>
   <strong class="appname">Diarized Transcription</strong>
   <div class="trow sub" id="subTabs" role="tablist" aria-label="작업 단계">
-    <button type="button" role="tab" data-tab="jobs" class="on"><b>1</b> <span class="lg">작업 목록</span><span class="sm">작업</span></button>
+    <button type="button" role="tab" data-tab="jobs" class="on"><b>1</b> 원본 음성</button>
     <span class="arrow" aria-hidden="true">›</span>
-    <button type="button" role="tab" data-tab="review"><b>2</b> 검수·내보내기</button>
+    <button type="button" role="tab" data-tab="review"><b>2</b> 전사 결과</button>
   </div>
-  <div class="crumb hidden" id="crumb"><button type="button" class="bk" data-sub="jobs">‹ 작업</button><b id="crumbName"></b></div>
+  <div class="crumb hidden" id="crumb"><button type="button" class="bk" data-sub="jobs">‹ 원본 음성</button><b id="crumbName"></b></div>
   <button type="button" class="stat" id="statBtn" aria-label="엔진 상태 보기"><span class="dot"></span><span class="stxt" id="statTxt"></span></button>
   <button type="button" class="menu" id="menuBtn" aria-label="메뉴" aria-expanded="false" aria-controls="menuPanel">☰</button>
   <div class="menupanel hidden" id="menuPanel" role="menu" aria-label="메뉴">

@@ -169,9 +169,9 @@ function renderSys() {
   $("#sysline").innerHTML = `${eng}${th}` + (WSTATE.coi ? "" : ' · <span class="bad">스레드 꺼짐(느림)</span>') + (WSTATE.owner ? "" : ' · <span class="bad">다른 탭에서 처리 중</span>');
   // 위 바의 상태 칸: 평소엔 초록 점만(넓은 화면은 짧은 글도), 처리 중·모델 받기·경고는 글로 바로 보인다. 누르면 메뉴에서 전체 상태
   let st = "ok", txt = "엔진 준비됨" + (WSTATE.device === "gpu" ? " · 그래픽 칩 " + (LEVELS.some((l) => l.v === WSTATE.gpuParts) ? levelLabel(WSTATE.gpuParts).replace("사용 - ", "") : "사용") : "");
-  if (!WSTATE.owner) { st = "bad"; txt = "다른 탭 처리"; }
+  if (!WSTATE.owner) { st = "bad"; txt = "다른 탭"; }
   else if (WSTATE.fake) { st = "bad"; txt = "가짜 엔진"; }
-  else if (WSTATE.dl && !WSTATE.dl.loading) { st = "busy"; txt = `${WSTATE.dl.net ? "⬇ 모델" : "모델 불러오기"} ${Math.round((WSTATE.dl.got / Math.max(1, WSTATE.dl.total)) * 100)}%`; }
+  else if (WSTATE.dl && !WSTATE.dl.loading) { st = "busy"; txt = `${WSTATE.dl.net ? "⬇" : "↻"} ${Math.round((WSTATE.dl.got / Math.max(1, WSTATE.dl.total)) * 100)}%`; }
   else if (WSTATE.dl) { st = "busy"; txt = "모델 여는 중"; }
   else if (WSTATE.job) { st = "busy"; txt = `⏳ ${WSTATE.job.pct}%`; }
   else if (!m) { st = "busy"; txt = "확인 중"; }
@@ -189,7 +189,7 @@ function renderSys() {
 $$(".tabs button[data-tab], .tabs button[data-sub]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab || b.dataset.sub)));
 const SECONDARY = { voices: "목소리 기준", glossary: "인명·용어 사전", settings: "설정·백업" };
 function showTab(name) {
-  // 위 한 줄: 작업 단계(1 작업 목록 › 2 검수·내보내기). 메뉴 화면(목소리·사전·설정)에서는 그 자리에 「‹ 작업 │ 화면 이름」
+  // 위 한 줄: 작업 단계(1 원본 음성 › 2 전사 결과). 메뉴 화면(목소리·사전·설정)에서는 그 자리에 「‹ 원본 음성 │ 화면 이름」
   closeMenu();
   const work = name === "jobs" || name === "review";
   $$("#subTabs button").forEach((x) => { x.classList.toggle("on", x.dataset.tab === name); x.setAttribute("aria-selected", String(x.dataset.tab === name)); });

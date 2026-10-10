@@ -41,14 +41,15 @@ input.wide { width: 100%; margin-bottom: 6px; }
 .tabs { padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 6px rgba(0, 0, 0, .05); }
 /* 위 한 줄 바: [녹취] (이름) [1 작업 › 2 검수] … [상태] [☰] */
-.bar { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 6px 12px 6px 24px; position: sticky; }
-.bar .logo { flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
-  display: grid; place-items: center; font-weight: 800; font-size: 12.5px; letter-spacing: -.5px; }
+nav.bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-height: 56px; padding: 6px 12px 6px 24px; position: sticky; margin: 0; }
+.stat .stxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* 좁으면 경고 글은 줄임표(전체는 메뉴에) */
+.bar .logo { flex: none; height: 32px; padding: 0 8px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-weight: 800; font-size: 13px; letter-spacing: .2px; white-space: nowrap; }
 .bar .appname { font-size: 15px; white-space: nowrap; margin-right: 6px; }
 .bar .crumb { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .bar .crumb b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
 .tabs .crumb .bk { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--accent); background: var(--bg); }
-.tabs .stat { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 12.5px; color: var(--mute); border-bottom: 0; }
+.tabs .stat { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 12.5px; color: var(--mute); border-bottom: 0; }
 .stat .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); flex: none; }
 .stat[data-st="busy"] .dot { background: var(--accent); animation: pbpulse 1.2s ease-in-out infinite; }
 .stat[data-st="warn"] .dot { background: var(--warn); } .stat[data-st="warn"] { color: var(--warn); font-weight: 600; }
@@ -288,11 +289,14 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 
 @media (max-width: 720px) {
-  .bar { padding: 4px 6px 4px 10px; gap: 6px; min-height: 52px; }
+  nav.bar { padding: 4px 6px 4px 8px; gap: 5px; min-height: 52px; }
+  .bar .logo { padding: 0 6px; font-size: 12px; }
+  .tabs .stat { padding: 4px 2px; gap: 4px; }
   .bar .appname { display: none; }
   .tabs .lg { display: none; } .tabs .sm { display: inline; }
   .tabs .trow.sub { gap: 3px; }
-  .tabs .trow.sub button { padding: 4px 9px; white-space: nowrap; }
+  .tabs .trow.sub button { padding: 4px 8px; white-space: nowrap; }
+  .tabs .trow.sub { flex: 0 0 auto; }
   .stat[data-st="ok"] .stxt { display: none; } /* 좁은 화면은 평소 초록 점만 */
   #rvBar { gap: 6px; }
   #rvBar #rvJob { flex: 1 1 100%; }
