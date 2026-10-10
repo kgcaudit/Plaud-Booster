@@ -98,14 +98,17 @@ export function packRegions(regions, maxlen = 25, gap = 1.2) {
     const n = Math.ceil((e - s) / maxlen - 1e-9);
     for (let k = 0; k < n; k++) out.push([r2(s + ((e - s) * k) / n), r2(s + ((e - s) * (k + 1)) / n)]);
   }
-  return out.filter(([s, e]) => e - s >= 0.5);
+  return out.filter(([s, e]) => e - s >= 0.3); // 0.3초 넘는 짧은 대답(「네」)도 전사(예전 0.5초)
 }
 
 /** 구간마다 win초 창을 hop초 간격으로. 마지막 창은 구간 끝에 맞춘다. 구간 번호 r 포함 */
-export function windowsOf(regions, { win = 3, hop = 1.5, minWin = 1.0 } = {}) {
+export function windowsOf(regions, { win = 3, hop = 1.5, minWin = 1.0, minShort = 0.3, shortSpan = 1.5 } = {}) {
   const out = [];
   regions.forEach(([s, e], r) => {
-    if (e - s < minWin) return;
+    if (e - s < minShort) return;
+    // 1초보다 짧은 말(조용한 뒤 「네」「아, 그건」)도 버리지 않는다: 목소리 특징은 가운데 1.5초(es~ee)로 뽑고, 차례 시각은 실제 말(s~e) 그대로.
+    // 예전에는 이런 덩어리가 어느 화자에도 속하지 못해 전사에서 통째로 빠졌다(10-08 회의: 1,517개 중 196개, 150초)
+    if (e - s < minWin) { const m = (s + e) / 2; out.push({ r, s, e, es: r2(Math.max(0, m - shortSpan / 2)), ee: r2(m + shortSpan / 2) }); return; }
     if (e - s <= win) { out.push({ r, s, e }); return; }
     let a = s;
     for (; a + win < e - 0.25; a += hop) out.push({ r, s: r2(a), e: r2(a + win) });

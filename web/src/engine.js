@@ -23,6 +23,12 @@ export function cleanText(t) {
   return /[\p{L}\p{N}]/u.test(s) ? s : "";
 }
 
+/**
+ * 전사할 때 발언 앞에 붙이는 여유(초). 말소리 감지는 조용한 뒤 작게 시작하는 첫소리를 늦게 잡아(확률 0.5를 넘는 순간부터)
+ * 0.15초만 붙이면 첫 음절·첫 낱말이 잘렸다. 앞 발언과 사이가 넓으면 0.5초까지 붙이고, 붙어 있으면 앞사람 말이 섞이지 않게 0.15초.
+ */
+export const leadPad = (gap) => Math.min(0.5, Math.max(0.15, (Number.isFinite(gap) ? gap : 9) - 0.05));
+
 export function isHallu(t) {
   t = t.trim();
   return !t || t === "-" || t === "." || HALLU.test(t) || /(.{4,})\1{3,}/u.test(t);
@@ -261,7 +267,7 @@ export async function runSony(job, files, ctx) {
       const v = [];
       for (let i = b * B; i < Math.min(wins.length, (b + 1) * B); i++) {
         const w = wins[i];
-        vecs[i] = await ctx.embed(await ctx.readAudio(w.f, w.s, w.e));
+        vecs[i] = await ctx.embed(await ctx.readAudio(w.f, w.es ?? w.s, w.ee ?? w.e)); // 짧은 말은 가운데 1.5초로 특징
         v.push(Array.from(vecs[i], (x) => Math.round(x * 1e4) / 1e4));
       }
       await ctx.savePartial({ k: key, v });
@@ -290,11 +296,18 @@ export async function runSony(job, files, ctx) {
   // 통화·전화 음질은 묶지 않는다: 짧게 주고받는 말이 많아 묶으면 발언이 통째로 빠지거나 옆 발언으로 옮겨 간다
   // (2026-09-14 통화 녹음: 묶었더니 발언 5개가 사라짐 — 사용자 확인)
   const canPack = ctx.transcribeTs && !diar.narrow && !job.call;
+  // 발언마다 바로 앞 발언(어느 화자든, 같은 파일)과의 사이 — 앞 여유를 정할 때 씀
+  const gapBefore = (() => {
+    const ord = diar.units.map((u, k) => k).sort((a, b) => diar.units[a].f - diar.units[b].f || diar.units[a].s - diar.units[b].s);
+    const g = {}; let pe = {};
+    for (const k of ord) { const u = diar.units[k]; g[k] = u.s - (pe[u.f] ?? -9); pe[u.f] = Math.max(pe[u.f] ?? -9, u.e); }
+    return g;
+  })();
   const groups = canPack ? packGroups(diar.units, todo.filter((k) => !done[k]), { gap: GAP }) : todo.filter((k) => !done[k]).map((k) => [k]);
   for (const g of groups) {
     if (ctx.shouldStop()) return { result: null, fresh: {} };
     const clips = [];
-    for (const k of g) { const u = diar.units[k]; clips.push(await ctx.readAudio(u.f, Math.max(0, u.s - PAD), u.e + PAD)); }
+    for (const k of g) { const u = diar.units[k]; clips.push(await ctx.readAudio(u.f, Math.max(0, u.s - leadPad(gapBefore[k])), u.e + PAD)); }
     let texts;
     if (g.length === 1) texts = [cleanText(await ctx.transcribe(clips[0]))];
     else {
@@ -413,7 +426,8 @@ export async function runJob(job, files, ctx) {
     if (done[k]) continue;
     if (ctx.shouldStop()) return { result: null, fresh };
     const [fi, s, e] = chunks[k];
-    const audio = await ctx.readAudio(fi, Math.max(0, s - 0.15), e + 0.15);
+    const prev = chunks[k - 1] && chunks[k - 1][0] === fi ? chunks[k - 1][2] : -9;
+    const audio = await ctx.readAudio(fi, Math.max(0, s - leadPad(s - prev)), e + 0.15);
     const text = cleanText(await ctx.transcribe(audio));
     const rec = { k, file: fi, start: s, end: e, text };
     if (isHallu(text)) rec.hallu = true;

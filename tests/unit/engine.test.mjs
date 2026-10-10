@@ -147,3 +147,11 @@ test("영어 녹음의 영상 자막 말투는 환각으로 거르고, 「Thank 
   assert.ok(!_isHallu("Thank you."));
   assert.ok(!_isHallu("We reviewed the progress billing for March."));
 });
+
+import { leadPad } from "../../web/src/engine.js";
+test("전사 앞 여유: 조용한 뒤엔 0.5초까지, 앞 발언에 붙어 있으면 0.15초", () => {
+  assert.equal(leadPad(3), 0.5);
+  assert.equal(leadPad(0.3), 0.25);
+  assert.equal(leadPad(0.05), 0.15);
+  assert.equal(leadPad(undefined), 0.5); // 첫 발언
+});
