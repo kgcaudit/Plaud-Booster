@@ -1315,7 +1315,7 @@ function renderPanel() {
   const vp = new Set(REVIEW.vpNames);
   const names = [...new Set([...REVIEW.vpNames, ...Object.values(REVIEW.names).filter(Boolean)])].sort((a, b) => a.localeCompare(b, "ko"));
   const strong = cl.filter((c) => c.suggest && c.suggest.strong && !REVIEW.names[c.id]);
-  const cards = [...cl].sort((a, b) => skip.has(a.id) - skip.has(b.id) || b.dur - a.dur).map((c) => { // 뺀 묶음은 맨 아래로
+  const cards = [...cl].sort((a, b) => b.dur - a.dur).map((c) => {
     const ci = clusterIndex(c.id), nm = REVIEW.names[c.id] || "";
     const same = nm && byName[nm].length > 1 ? byName[nm].filter((x) => x !== c).map((x) => x.label) : [];
     const page = REVIEW.page[c.id] || 0, per = 2;
@@ -1325,20 +1325,18 @@ function renderPanel() {
     return `<div class="cl${skip.has(c.id) ? " skipped" : ""}${REVIEW.only === c.id ? " focus" : ""}" data-c="${esc(c.id)}">
       <div class="hd"><span class="chip cc${ci % 8}">${esc(c.label)}</span>
         <span class="msg">${pending ? `발언 ${c.nunit}` : `발언 ${nseg}`} · ${hms(c.dur)}</span><span class="spacer"></span>
-        ${skip.has(c.id) ? '<button type="button" class="act" data-a="skip" title="다시 사람 목소리로 보고 전사합니다">↩ 되살리기</button>'
-          : '<button type="button" class="act noise" data-a="skip" title="차 소리·바람·음악·기계음처럼 사람 말이 아닌 묶음 — 전사하지 않고 통합본에서도 뺍니다">🚫 잡음·빼기</button>'}
-        ${pending ? (nFree(ci) >= 4 && !skip.has(c.id) ? '<button type="button" class="link" data-a="split2" title="두 사람이 쉼 없이 주고받아 한 사람으로 묶였을 때 — 목소리로 다시 둘로 나눕니다">둘로 나누기</button>' : "")
+        <label class="chk" title="빼면 이 묶음의 발언은 전사하지 않습니다(잡음·음악 묶음 등)"><input type="checkbox" data-a="inc" ${skip.has(c.id) ? "" : "checked"}> 전사</label>
+        ${pending ? (nFree(ci) >= 4 ? '<button type="button" class="link" data-a="split2" title="두 사람이 쉼 없이 주고받아 한 사람으로 묶였을 때 — 목소리로 다시 둘로 나눕니다">둘로 나누기</button>' : "")
           : `<button type="button" class="link" data-a="only">${REVIEW.only === c.id ? "모두 보기" : "이 묶음만 보기"}</button>`}</div>
-      ${skip.has(c.id) ? '<div class="nm skipnote">🚫 잡음으로 뺐습니다 — 전사하지 않고 통합본에도 넣지 않습니다. 아래 구간을 들어 보고 사람 말이면 「되살리기」.</div>'
-        : `<div class="nm"><input data-a="name" list="dlNames" value="${esc(nm)}" placeholder="이름(예: 김○○ 팀장)" aria-label="${esc(c.label)} 이름"> ${sug}
-        ${same.length ? `<span class="merged">↳ ${esc(same.join(", "))}와 같은 사람(합쳐짐)</span>` : ""}</div>`}
+      <div class="nm"><input data-a="name" list="dlNames" value="${esc(nm)}" placeholder="이름(예: 김○○ 팀장)" aria-label="${esc(c.label)} 이름"> ${sug}
+        ${same.length ? `<span class="merged">↳ ${esc(same.join(", "))}와 같은 사람(합쳐짐)</span>` : ""}</div>
       <div class="smp">${smp.map((x) => `<div><button type="button" class="play" data-a="play" data-f="${x.f}" data-s="${x.s}" data-e="${x.e}" title="듣기">▶</button>
         <span class="msg">${(d.job.audioFiles || []).length > 1 ? x.f + 1 + "번 " : ""}${fmt1(x.s)}~${fmt1(x.e)} (${(x.e - x.s).toFixed(1)}초)</span> <span class="tx">${esc(textNear(x.f, x.s).slice(0, 90))}</span>${pending && REVIEW.diar ? `<button type="button" class="act rgbtn" data-a="rg" data-f="${x.f}" data-s="${x.s}" data-e="${x.e}" title="이 구간에서 다른 사람 목소리를 발라내기">✂ 손보기</button>` : ""}</div>`).join("") || '<span class="msg">들어 볼 구간 없음</span>'}
         ${(c.samples || []).length > per ? `<button type="button" class="link" data-a="more">다른 구간 ▸ ${page + 1}/${Math.ceil(c.samples.length / per)}</button>` : ""}</div>
     </div>`;
   }).join("");
   // 섞였을 수 있는 곳(이름 대기 중): 한 묶음 안에서 목소리가 바뀌는 듯한 곳을 먼저 보여 준다
-  const mix = pending && REVIEW.diar ? mixSuspects(REVIEW.diar).filter((r) => !skip.has((cl[r.c] || {}).id)) : []; // 뺀(잡음) 묶음은 알리지 않음
+  const mix = pending && REVIEW.diar ? mixSuspects(REVIEW.diar) : [];
   const multiF = (d.job.audioFiles || []).length > 1;
   const mixHtml = mix.length ? `<div class="mixalert"><b>⚠ 다른 목소리가 섞였을 수 있는 곳 ${mix.length}곳</b>
       <div class="msg">한 묶음 안에서 목소리가 바뀌는 듯한 곳입니다. 들어 보고 손봐 주세요.</div>
@@ -1380,29 +1378,25 @@ $("#spkPanel").addEventListener("change", async (ev) => {
       if (g) g.focus({ preventScroll: true });
     }, 0);
   }
+  if (t.dataset.a === "inc") {
+    const job = await S.get("jobs", REVIEW.id);
+    const skip = new Set(job.skip || []);
+    if (t.checked) skip.delete(id); else skip.add(id);
+    await S.saveJob(REVIEW.id, { skip: [...skip] });
+    REVIEW.data.job.skip = [...skip];
+    if (REVIEW.data.result && t.checked) toast("작업 목록에서 「이어서 처리」를 누르면 이 묶음 발언을 전사해 더합니다");
+    if (REVIEW.data.result && !t.checked) toast("내보내기에서 빠지려면 「이어서 처리」로 결과를 다시 만드세요");
+    if (REVIEW.data.result && job.status === "완료" && t.checked) await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: "더할 발언이 있습니다 — 이어서 처리" } });
+    if (REVIEW.data.result && job.status === "완료" && !t.checked) await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: "뺀 묶음이 있습니다 — 이어서 처리" } });
+    renderPanel(); renderNamesStep();
+  }
 });
-/** 묶음을 잡음으로 빼기 / 되살리기(job.skip) — 뺀 묶음은 전사하지 않고, 이름 정하기 개수·「이름 없는 묶음」 확인에서도 빠진다 */
-async function toggleSkip(id) {
-  const job = await S.get("jobs", REVIEW.id);
-  if (!job) return;
-  const skip = new Set(job.skip || []), on = !skip.has(id);
-  if (on) skip.add(id); else skip.delete(id);
-  await S.saveJob(REVIEW.id, { skip: [...skip] });
-  REVIEW.data.job.skip = [...skip];
-  const c = clustersOf().find((x) => x.id === id), lb = c ? c.label : id;
-  if (REVIEW.data.result) {
-    if (job.status === "완료") await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: on ? "뺀 묶음이 있습니다 — 이어서 처리" : "더할 발언이 있습니다 — 이어서 처리" } });
-    toast(on ? `${lb}을 뺐습니다 — 결과에서 지우려면 작업 목록에서 「이어서 처리」` : `${lb}을 되살렸습니다 — 작업 목록에서 「이어서 처리」를 누르면 전사해 더합니다`);
-  } else toast(on ? `${lb}을 잡음으로 뺐습니다 — 전사하지 않습니다(되살리기 가능)` : `${lb}을 되살렸습니다`);
-  renderPanel(); renderNamesStep();
-}
 $("#spkPanel").addEventListener("click", async (ev) => {
   const b = ev.target.closest("button[data-a]");
   if (!b) return;
   const a = b.dataset.a, card = b.closest(".cl"), id = card && card.dataset.c;
   const c = id && clustersOf().find((x) => x.id === id);
   if (a === "play") return playRange(+b.dataset.f, +b.dataset.s, +b.dataset.e); // 대표 구간은 적힌 시각 그대로(앞 2초 없이)
-  if (a === "skip" && id) return toggleSkip(id);
   if (a === "rg") return openRange(+b.dataset.f, +b.dataset.s, +b.dataset.e);
   if (a === "more") { REVIEW.page[id] = ((REVIEW.page[id] || 0) + 1) % Math.ceil(c.samples.length / 2); renderPanel(); return; }
   if (a === "only") { REVIEW.only = REVIEW.only === id ? null : id; REVIEW.split = null; renderReview(); if (REVIEW.only) $("#rvMain").scrollIntoView({ block: "start" }); return; }
@@ -1423,8 +1417,8 @@ $("#spkPanel").addEventListener("click", async (ev) => {
     return;
   }
   if (a === "go") {
-    const un = clustersOf().filter((x) => !REVIEW.names[x.id] && !(REVIEW.data.job.skip || []).includes(x.id));
-    if (un.length && !confirm(`이름 없는 묶음이 ${un.length}개 있습니다(${un.map((x) => x.label).join(", ")}).\n차 소리·바람·음악 같은 잡음이면 「취소」를 누르고 그 묶음의 「🚫 잡음·빼기」를 누르세요.\n\n그대로 전사할까요? (이름은 전사 뒤에도 붙일 수 있습니다)`)) return;
+    const unnamed = clustersOf().filter((x) => !REVIEW.names[x.id] && !(REVIEW.data.job.skip || []).includes(x.id)).length;
+    if (unnamed && !confirm(`이름 없는 묶음이 ${unnamed}개 있습니다. 그대로 전사할까요? (이름은 전사 뒤에도 붙일 수 있습니다)`)) return;
     saveEdits(); await flushEdits();
     await S.saveJob(REVIEW.id, { stage: "transcribe", status: "대기", progress: { pct: 0, msg: "전사 대기" } });
     kick(); toast("전사를 시작합니다 — 작업 탭에서 진행을 볼 수 있습니다"); showTab("jobs");
