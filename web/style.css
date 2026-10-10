@@ -164,7 +164,10 @@ th { font-size: 12.5px; color: var(--mute); font-weight: 600; background: color-
 .clgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 10px; }
 .cl { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
 .cl.focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.cl.skipped { opacity: .55; }
+.cl.skipped { border-style: dashed; background: transparent; }
+.cl.skipped .chip, .cl.skipped .smp { opacity: .6; }
+.cl .skipnote { color: var(--bad); font-size: 13px; line-height: 1.45; }
+.act.noise { color: var(--bad); }
 .cl .hd, .cl .nm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .cl .nm input { flex: 1 1 12em; min-width: 0; }
 .cl .smp > div { display: flex; gap: 6px; align-items: baseline; font-size: 13px; padding: 2px 0; }

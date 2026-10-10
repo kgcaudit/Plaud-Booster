@@ -210,6 +210,15 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.click("#spkPanel button[data-a='undo']");
   await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 2);
   assert.ok(await page.locator("#rvMain").isHidden());
+  // 잡음 묶음 빼기 → 이름 칸 대신 안내·맨 아래로·이름 정하기 개수에서 빠짐 → 되살리기
+  const nz = await page.locator("#spkPanel .cl").nth(0).getAttribute("data-c");
+  await page.click(`#spkPanel .cl[data-c='${nz}'] button[data-a='skip']`);
+  await page.waitForSelector(`#spkPanel .cl.skipped[data-c='${nz}'] .skipnote`);
+  assert.equal(await page.locator(`#spkPanel .cl[data-c='${nz}'] input[data-a='name']`).count(), 0);
+  assert.equal(await page.locator("#spkPanel .cl").last().getAttribute("data-c"), nz);
+  assert.match(await page.locator("#stNamesProg").textContent(), /^1묶음/);
+  await page.click(`#spkPanel .cl[data-c='${nz}'] button[data-a='skip']`);
+  await page.waitForSelector(`#spkPanel .cl:not(.skipped)[data-c='${nz}'] input[data-a='name']`);
   await page.locator("#spkPanel .cl").first().locator("button.play").first().click();
   await page.waitForFunction(() => document.getElementById("player").currentSrc.startsWith("blob:"));
   const cards = page.locator("#spkPanel .cl");
