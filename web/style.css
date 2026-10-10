@@ -333,3 +333,6 @@ dl.bench dd { margin: 0; min-width: 0; overflow-wrap: break-word; }
 /* 가속 단계 */
 .gpulv { margin: 10px 0; }
 .gpulv select { display: block; width: 100%; max-width: 420px; margin: 6px 0; }
+
+.levelnow { margin: 6px 0; overflow-wrap: break-word; }
+.levelnow button { margin-left: 6px; }

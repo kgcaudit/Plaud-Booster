@@ -143,6 +143,7 @@ async function ensureModels(need = "all") {
     };
     camp = camp || { embed: async (a) => fakeEmbed(a) };
     vad = vad || { probs: async (x) => { const n = Math.floor(x.length / 512), p = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let k = i * 512; k < (i + 1) * 512; k++) s += x[k] * x[k]; p[i] = Math.sqrt(s / 512) > 0.01 ? 0.9 : 0.02; } return p; } };
+    post({ type: "models", phase: "ready", threads: 0, partial: false, device: "cpu", gpuParts: 0, nParts: 4 }); // 진짜 엔진처럼 「올림」 알림
     return;
   }
   const m = await getManifest();

@@ -304,7 +304,13 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   assert.equal(await page.locator("#gpuLevel").inputValue(), "0");
   assert.equal(await page.locator("#gpuLevel option").count(), 5);
   assert.match(await page.locator("#devInfo").textContent(), /이 기기:.*근거:.*자동 단계/);
+  // 모델을 올린 뒤 단계를 바꾸면 「새로 고쳐야 적용」을 알리고, 지금 실제 단계를 함께 보인다
+  await page.selectOption("#gpuLevel", "4");
+  await page.waitForSelector("#levelNow #btnReload");
+  assert.match(await page.locator("#levelNow").textContent(), /설정은 전부.*지금은 끄기/);
   await page.selectOption("#gpuLevel", "auto");
+  await page.waitForFunction(() => !document.querySelector("#levelNow #btnReload"));
+  assert.match(await page.locator("#levelNow").textContent(), /지금/);
   const lv = await page.evaluate(async () => { const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); }); return new Promise((r) => { const q = db.transaction("kv").objectStore("kv").get("settings"); q.onsuccess = () => r(q.result && ("gpuLevel" in q.result)); }); });
   assert.equal(lv, false);
   assert.ok(await page.locator("#gpuAsk").isHidden());
@@ -314,6 +320,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.click("#btnBench");
   await page.waitForSelector("#benchMsg:has-text('끝났습니다')", { timeout: 60000 });
   const bt = await page.locator("#benchOut").textContent();
+  assert.match(bt, /\(방금\)/); // 지난 결과가 아니라 방금 잰 결과임을 표시
   assert.match(bt, /그래픽 칩/); assert.match(bt, /1시간 회의 어림/); assert.match(bt, /가속 단계/); assert.match(bt, /기기/);
   await page.waitForSelector("#benchPrev:has-text('지난 시험')");
   const vp0 = page.viewportSize();
