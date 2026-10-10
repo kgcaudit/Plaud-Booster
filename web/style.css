@@ -34,9 +34,7 @@ input.wide { width: 100%; margin-bottom: 6px; }
 /* 작업 단계 줄: 위 탭보다 한 단계 낮게(작게·옅은 바탕) — 작업 목록 › 검수·내보내기 */
 .tabs .trow.sub { gap: 4px; align-items: center; flex: 1 1 auto; min-width: 0; overflow: visible; }
 .tabs .trow.sub button { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--mute); background: var(--bg); }
-.tabs .trow.sub button b { display: inline-block; min-width: 1.4em; margin-right: 4px; border-radius: 999px; background: var(--line); color: var(--ink); font-size: 11.5px; text-align: center; }
 .tabs .trow.sub button.on { border-color: var(--accent); color: var(--accent); background: var(--panel); font-weight: 600; }
-.tabs .trow.sub button.on b { background: var(--accent); color: var(--accent-ink); }
 .tabs .trow.sub .arrow { color: var(--mute); }
 .tabs { padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 6px rgba(0, 0, 0, .05); }

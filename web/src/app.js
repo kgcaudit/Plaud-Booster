@@ -189,7 +189,7 @@ function renderSys() {
 $$(".tabs button[data-tab], .tabs button[data-sub]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab || b.dataset.sub)));
 const SECONDARY = { voices: "목소리 기준", glossary: "인명·용어 사전", settings: "설정·백업" };
 function showTab(name) {
-  // 위 한 줄: 작업 단계(1 원본 음성 › 2 전사 결과). 메뉴 화면(목소리·사전·설정)에서는 그 자리에 「‹ 원본 음성 │ 화면 이름」
+  // 위 한 줄: 작업 단계(원본 음성 › 전사 결과). 메뉴 화면(목소리·사전·설정)에서는 그 자리에 「‹ 원본 음성 │ 화면 이름」
   closeMenu();
   const work = name === "jobs" || name === "review";
   $$("#subTabs button").forEach((x) => { x.classList.toggle("on", x.dataset.tab === name); x.setAttribute("aria-selected", String(x.dataset.tab === name)); });
