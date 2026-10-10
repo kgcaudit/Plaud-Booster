@@ -6,6 +6,7 @@ import { isDiar } from "./export.js";
 
 const FAKE = new URL(self.location.href).searchParams.get("fake") === "1";
 const post = (m) => self.postMessage(m);
+let wantLevel = 0, gpuOffWhy = ""; // 모델을 올릴 때 설정 단계와, 그래픽 칩을 못 쓴 까닭
 let useGpu = false, cleanExitAt = 0; // cleanExitAt: 화면이 알려 준 마지막 정상 종료 시각(ms)
 // 가속 단계(그래픽 칩에 올릴 인코더 조각 수 0~4): 화면이 기기를 알아본 뒤 정해 알려 준다(env). 받을 때까지 잠시 기다린다.
 let gpuLevel = null, envReady;
@@ -153,8 +154,14 @@ async function ensureModels(need = "all") {
     const set = (await S.get("kv", "settings")) || {};
     // 그래픽 칩 가속: 단계가 0보다 크고, 인코더가 그래픽 칩용 형식(MatMulNBits)이고, 이 기기에 WebGPU가 있을 때만
     let adapter = null;
-    if ((await levelNow()) > 0 && /^nbits/.test(encFiles(m)[0].format || "") && self.navigator.gpu) {
+    wantLevel = await levelNow();
+    // 그래픽 칩을 못 쓰게 된 까닭(설정과 실제 단계가 다를 때 성능 시험에 보여 줌)
+    if (wantLevel <= 0) gpuOffWhy = "";
+    else if (!/^nbits/.test(encFiles(m)[0].format || "")) gpuOffWhy = "인코더가 그래픽 칩용 형식이 아님";
+    else if (!self.navigator.gpu) gpuOffWhy = "이 브라우저의 일꾼에서 WebGPU를 쓸 수 없음";
+    else {
       try { adapter = await self.navigator.gpu.requestAdapter(); } catch { adapter = null; }
+      gpuOffWhy = adapter ? "" : "그래픽 칩(어댑터)을 얻지 못함";
     }
     useGpu = !!adapter;
     ort = useGpu ? await import("../vendor/ort/ort.webgpu.min.mjs") : await import("../vendor/ort/ort.wasm.min.mjs");
@@ -187,6 +194,7 @@ async function ensureModels(need = "all") {
     if (gpu) await S.put("kv", "gpuLoading", { v: 2, at: S.now(), level: gpu });
     whisper = await Whisper.create(ort, encFiles(m).map((f) => () => loadFile(f, tick)), () => loadFile(m.files.decoder, tick), tokens, {},
       { gpu, onLoad: () => post({ type: "models", phase: "load" }) });
+    whisper.wantParts = gpu ? gpu : wantLevel; // 꺼짐 흔적 질문에서 고른 단계 포함
     if (whisper.device === "gpu") whisper.onFirstRun = () => S.del("kv", "gpuLoading").catch(() => {}); // 첫 계산이 끝나야 시험 통과
     else await S.del("kv", "gpuLoading");
     await cleanupOldCaches();
@@ -347,6 +355,8 @@ async function bench() {
   r.threads = FAKE ? 0 : ort.env.wasm.numThreads;
   r.device = whisper.device || "cpu";
   r.gpuParts = whisper.gpuParts || 0; r.nParts = whisper.nParts || 4;
+  r.want = whisper.wantParts ?? wantLevel; // 설정했던 단계
+  r.why = whisper.gpuError ? `그래픽 칩에 올리다 오류: ${whisper.gpuError}` : gpuOffWhy;
   r.load = now() - t;
   const a60 = synth(60);
   if (vad) { say("말소리 찾기(Silero) 1분"); t = now(); await vad.probs(a60); r.vadMin = now() - t; }

@@ -320,16 +320,28 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.click("#btnBench");
   await page.waitForSelector("#benchMsg:has-text('끝났습니다')", { timeout: 60000 });
   const bt = await page.locator("#benchOut").textContent();
-  assert.match(bt, /\(방금\)/); // 지난 결과가 아니라 방금 잰 결과임을 표시
   assert.match(bt, /그래픽 칩/); assert.match(bt, /1시간 회의 어림/); assert.match(bt, /가속 단계/); assert.match(bt, /기기/);
-  await page.waitForSelector("#benchPrev:has-text('지난 시험')");
+  // 시험 기록 목록: 시각·가속 단계·전사 창·어림·느려짐(최근 것부터)
+  await page.waitForSelector("#benchHist table.bh tbody tr");
+  assert.ok(await page.locator("#benchHist tbody tr").count() >= 2);
   const vp0 = page.viewportSize();
   await page.setViewportSize({ width: 412, height: 900 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 412), "성능 시험 결과가 가로로 넘침");
   await page.setViewportSize(vp0);
   // 화면 꺼짐 방지: 처리할 것이 없으면 이유가 하나도 남지 않는다(시험·작업이 끝나면 놓음)
   await page.waitForFunction(() => document.body.dataset.awake === "", null, { timeout: 15000 });
-  console.log("✓ 기기 성능 시험(결과표·지난 기록)·화면 켜 둠 해제");
+  // 새로 고치면 자세한 결과는 비우고 기록 목록만 보인다(지난 결과를 지금 결과처럼 보이지 않게)
+  await page.reload();
+  await page.waitForSelector("#sysline:has-text('가짜 엔진')");
+  await page.click(".tabs button[data-tab='settings']");
+  await page.waitForSelector("#benchHist table.bh tbody tr");
+  assert.equal(await page.locator("#benchOut").innerHTML(), "");
+  const vp1 = page.viewportSize();
+  await page.setViewportSize({ width: 412, height: 900 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 412), "시험 기록 표가 가로로 넘침");
+  if (process.env.SHOTS) await page.locator("#benchHist").screenshot({ path: `${process.env.SHOTS}/benchhist.png` });
+  await page.setViewportSize(vp1);
+  console.log("✓ 기기 성능 시험(결과표·시험 기록 목록)·화면 켜 둠 해제");
 
   // ---- 백업 → 모두 지우기 → 복원
   await page.click(".tabs button[data-tab='settings']");

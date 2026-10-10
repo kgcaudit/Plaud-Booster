@@ -1195,16 +1195,19 @@ async function gpuInfo() {
 }
 const sec = (ms) => (ms >= 3600000 ? `${Math.floor(ms / 3600000)}시간 ${Math.round((ms % 3600000) / 60000)}분` : ms >= 60000 ? `${Math.floor(ms / 60000)}분 ${Math.round((ms % 60000) / 1000)}초` : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}초`);
 let BENCH_GPU = null;
-function renderBench(r, gpu, past = false) {
+const levelText = (r) => (r.device === "gpu" ? `그래픽 칩 ${r.gpuParts || "?"}/${r.nParts || 4}` : "끄기(CPU)");
+function renderBench(r, gpu) {
   const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
   const enc = r.enc.map(sec).join(" → ");
   const d = r.at ? new Date(r.at) : new Date(), when = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   $("#benchOut").innerHTML = [
-    row("시험 시각", past ? `${when} <span class="badge">지난 결과 — 그때 설정 기준</span>` : `${when} (방금)`),
+    row("시험 시각", `${when}`),
     row("그래픽 칩", gpu ? (gpu.ok ? `WebGPU 사용 가능 · 16비트 연산 ${gpu.f16 ? "지원" : "없음"} · ${esc(gpu.name)}` : esc(gpu.why)) : "-"),
     row("처리 스레드", r.threads || "-"),
     row("기기", esc(r.dev ? devText(r.dev) : "-")),
-    row("가속 단계", (r.device === "gpu" ? `그래픽 칩 ${r.gpuParts || "?"}/${r.nParts || 4} + 나머지 CPU` : "끄기(CPU만)") + " <small>(이 시험에 실제로 쓰인 단계)</small>"),
+    row("가속 단계", levelText(r) + (r.device === "gpu" && r.gpuParts < (r.nParts || 4) ? " + 나머지 CPU" : "")
+      + (r.want != null && r.want !== (r.device === "gpu" ? r.gpuParts : 0)
+        ? `<br><span class="err">설정은 ${esc(levelLabel(r.want))}였지만 적용되지 않음 — ${esc(r.why || "모델을 먼저 다른 단계로 올려 둠(새로 고침 필요)")}</span>` : "")),
     row("모델 올리기", r.load < 100 ? "이미 올라가 있음" : sec(r.load)),
     row("말소리 찾기", r.vadMin != null ? `음성 1분에 ${sec(r.vadMin)}` : "-"),
     row("목소리 특징", `3초 창 하나에 ${sec(r.emb)}`),
@@ -1223,13 +1226,17 @@ function onBench(m) {
   const rec = { at: S.now(), gpu: BENCH_GPU, ...m.result, dev: DEV ? { name: DEV.name, model: DEV.model, soc: DEV.soc, gpu: DEV.gpu } : null };
   m.result.dev = rec.dev;
   renderBench(m.result, BENCH_GPU);
-  S.update("kv", "bench", (h) => [rec, ...((h && Array.isArray(h) ? h : []))].slice(0, 5)).then(showBenchPrev).catch(() => {});
+  S.update("kv", "bench", (h) => [rec, ...((h && Array.isArray(h) ? h : []))].slice(0, 10)).then(showBenchPrev).catch(() => {});
 }
+/** 시험 기록 목록(최근 10번): 시각 · 가속 단계 · 전사 30초 창(첫 번째) · 1시간 회의 전사 어림 · 느려짐 */
 async function showBenchPrev() {
   const h = (await S.get("kv", "bench")) || [];
-  if (!Array.isArray(h) || !h.length) { $("#benchPrev").textContent = ""; return; }
-  if (!$("#benchOut").innerHTML) renderBench(h[0], h[0].gpu, true);
-  $("#benchPrev").textContent = "지난 시험: " + h.map((r) => { const d = new Date(r.at); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} 전사 창 ${sec(r.enc[0])}`; }).join(" · ");
+  const el = $("#benchHist");
+  if (!Array.isArray(h) || !h.length) { el.innerHTML = ""; return; }
+  const when = (at) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  el.innerHTML = `<h4>시험 기록</h4><table class="bh"><thead><tr><th>시각</th><th>가속 단계</th><th title="전사 30초 창 하나(첫 번째)">30초 창</th><th title="1시간 회의 전사 어림">1시간 전사</th><th title="세 번째 ÷ 첫 번째(1.3배 넘으면 발열)">느려짐</th></tr></thead><tbody>`
+    + h.map((r) => `<tr><td>${when(r.at)}</td><td>${esc(levelText(r))}${r.want != null && r.want !== (r.device === "gpu" ? r.gpuParts : 0) ? ' <span class="err" title="설정한 단계가 적용되지 않음">*</span>' : ""}</td><td>${sec(r.enc[0])}</td><td>${sec(r.estTr)}</td><td>${r.slow > 1.3 ? `<span class="err">${r.slow.toFixed(2)}배</span>` : `${r.slow.toFixed(2)}배`}</td></tr>`).join("")
+    + `</tbody></table>`;
 }
 $("#btnBench").addEventListener("click", async () => {
   if (WSTATE.busy) { $("#benchMsg").textContent = "작업을 처리하는 중에는 시험할 수 없습니다."; return; }
