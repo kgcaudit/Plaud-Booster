@@ -410,3 +410,64 @@ export function titleFromFiles(names) {
   if (list.length > 1) title += ` 외 ${list.length - 1}개`;
   return title;
 }
+
+/**
+ * 「이 묶음 둘로 나누기」(이름 대기 중에만): 두 사람이 쉼 없이 주고받아 한 묶음으로 잡힌 경우.
+ * 그 묶음의 차례(창)만 평균 연결로 둘이 될 때까지 묶고 2-평균으로 다듬는다.
+ * 말한 시간이 긴 쪽이 원래 번호(이름)를 이어받고, 짧은 쪽은 새 번호(S마지막+1)를 단다. 발언 단위·대표 구간은 다시 만든다.
+ * known: { 이름: 단위벡터 } — 있으면 두 묶음의 이름 추천을 다시 계산한다.
+ * 반환: 새 diar(입력은 그대로) 또는 null(나눌 수 없음 — 차례가 너무 적거나 한쪽이 비면)
+ */
+export function splitCluster(diar, ci, known = {}, opt = {}) {
+  const o = { ...DEFAULTS, ...opt };
+  const T = diar.turns;
+  const ks = T.map((t, k) => (t.c === ci ? k : -1)).filter((k) => k >= 0);
+  if (ks.length < 4) return null;
+  const V = ks.map((k) => unit(T[k].v)), W = ks.map((k) => T[k].n || 1);
+  let lab = cutTree(ks.length, linkage(V, W), Infinity, 2);
+  for (let it = 0; it < 20; it++) { // 2-평균(코사인)으로 다듬기 — 평균 연결이 튀는 창 하나만 떼어 내는 것을 막는다
+    const cs = [0, 1].map((g) => { const idx = lab.map((l, i) => (l === g ? i : -1)).filter((i) => i >= 0); return idx.length ? meanOf(V, idx, W) : null; });
+    if (!cs[0] || !cs[1]) return null;
+    const nl = V.map((v) => (dot(v, cs[0]) >= dot(v, cs[1]) ? 0 : 1));
+    if (nl.every((l, i) => l === lab[i])) break;
+    lab = nl;
+  }
+  // (혼자 튄 창을 앞뒤에 맞추는 다듬기는 하지 않는다 — 쉼 없이 주고받는 대화에서는 1.5초 창 하나가 실제 한 사람의 말이다)
+  const durOf = (g) => ks.reduce((m, k, i) => m + (lab[i] === g ? T[k].e - T[k].s : 0), 0);
+  if (!durOf(0) || !durOf(1)) return null;
+  const moved = durOf(0) >= durOf(1) ? 1 : 0; // 짧은 쪽이 새 묶음
+  const nc = diar.clusters.length;
+  const turns = T.map((t) => ({ ...t }));
+  ks.forEach((k, i) => { if (lab[i] === moved) turns[k].c = nc; });
+  const maxId = Math.max(0, ...diar.clusters.map((c) => +String(c.id).replace(/\D/g, "") || 0));
+  const tt = turns.map((t) => ({ f: t.f, s: t.s, e: t.e, w: { length: t.n || 1 }, v: unit(t.v) }));
+  const labels = turns.map((t) => t.c);
+  const tv = tt.map((t) => t.v), tw = tt.map((t) => t.w.length);
+  const cl = [...diar.clusters.map((c) => ({ ...c })), { id: "S" + (maxId + 1), label: "Speaker " + (maxId + 1), suggest: null, alt: null }];
+  const q = (v) => Array.from(v, (x) => Math.round(x * 1e4) / 1e4);
+  const vecs = cl.map((c, i) => {
+    const idx = labels.map((l, k) => (l === i ? k : -1)).filter((k) => k >= 0);
+    return idx.length ? meanOf(tv, idx, tw) : unit(c.vec);
+  });
+  const units = unitsOf(tt, labels, vecs.map((vec) => ({ vec })), o);
+  const names = Object.keys(known);
+  cl.forEach((c, i) => {
+    c.nunit = units.filter((u) => u.c === i).length;
+    c.samples = samplesOf(units, i);
+    if (i !== ci && i !== nc) return;
+    const idx = labels.map((l, k) => (l === i ? k : -1)).filter((k) => k >= 0);
+    c.vec = q(vecs[i]);
+    c.dur = Math.round(idx.reduce((m, k) => m + tt[k].e - tt[k].s, 0));
+    c.nturn = idx.length;
+    const sims = names.map((n) => [n, Math.round(dot(known[n], vecs[i]) * 100) / 100]).sort((a, b) => b[1] - a[1]);
+    c.suggest = sims[0] && sims[0][1] >= o.weak ? { name: sims[0][0], sim: sims[0][1], strong: sims[0][1] >= o.suggest } : null;
+    c.alt = sims.filter((s) => !c.suggest || s[0] !== c.suggest.name).slice(0, 1).map(([name, sim]) => ({ name, sim }))[0] || null;
+  });
+  return {
+    ...diar,
+    turns,
+    clusters: cl,
+    units: units.map((u) => ({ f: u.f, s: u.s, e: u.e, c: u.c, sim: u.sim, margin: u.margin, n: u.nwin, v: q(u.v) })),
+    splits: [...(diar.splits || []), { from: diar.clusters[ci].id, to: "S" + (maxId + 1) }],
+  };
+}

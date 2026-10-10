@@ -64,3 +64,28 @@ test("작업 이름: 파일 이름을 다듬어 날짜·시각을 우리말로",
   assert.equal(titleFromFiles(["251009_1430.wav", "251009_1520.wav"]), "25년 10월 9일 오후 2시 30분 외 1개");
   assert.equal(titleFromFiles([]), "");
 });
+
+import { splitCluster } from "../../web/src/diar.js";
+test("묶음 둘로 나누기: 한 묶음에 섞인 두 목소리를 가르고, 긴 쪽이 원래 번호를 잇는다", () => {
+  const D = 8, vA = Array.from({ length: D }, (_, j) => (j === 0 ? 1 : 0)), vB = Array.from({ length: D }, (_, j) => (j === 1 ? 1 : 0));
+  const jit = (v, k) => v.map((x, j) => x + (j === 2 + (k % 5) ? 0.05 : 0));
+  // 0~30초: A·B가 1.5초씩 번갈아(A가 더 많이), 묶음 0 하나로 잡힘. 30초 뒤 묶음 1(C)
+  const turns = [];
+  for (let k = 0; k < 20; k++) turns.push({ f: 0, s: k * 1.5, e: k * 1.5 + 1.5, n: 1, c: 0, v: jit(k % 3 === 2 ? vB : vA, k) });
+  const vC = Array.from({ length: D }, (_, j) => (j === 7 ? 1 : 0));
+  for (let k = 0; k < 6; k++) turns.push({ f: 0, s: 31 + k * 1.5, e: 32.5 + k * 1.5, n: 1, c: 1, v: vC });
+  const diar = { kind: "diar", narrow: false, turns, clusters: [{ id: "S1", label: "Speaker 1", vec: vA, dur: 30 }, { id: "S2", label: "Speaker 2", vec: vC, dur: 9 }], units: [] };
+  const nd = splitCluster(diar, 0, { 갑: vB });
+  assert.ok(nd);
+  assert.equal(nd.clusters.length, 3);
+  assert.equal(nd.clusters[2].id, "S3");
+  const bTurns = turns.map((t, k) => k).filter((k) => k < 20 && k % 3 === 2);
+  assert.ok(bTurns.every((k) => nd.turns[k].c === 2), "B 목소리가 새 묶음으로"); // 짧은 쪽(B)이 새 번호
+  assert.ok(nd.turns.slice(0, 20).filter((t, k) => k % 3 !== 2).every((t) => t.c === 0));
+  assert.ok(nd.turns.slice(20).every((t) => t.c === 1)); // 다른 묶음은 그대로
+  assert.equal(nd.clusters[2].suggest.name, "갑"); // 이름 추천도 다시
+  assert.ok(nd.units.some((u) => u.c === 2) && nd.clusters[2].samples.length > 0);
+  assert.equal(diar.clusters.length, 2); // 입력은 그대로
+  assert.equal(splitCluster(diar, 1, {}), null); // 한 목소리뿐이면 나누지 않음
+  assert.equal(splitCluster({ ...diar, turns: turns.slice(0, 3) }, 0), null); // 너무 적으면 못 나눔
+});

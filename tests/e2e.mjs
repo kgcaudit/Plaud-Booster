@@ -107,7 +107,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.fill("#glBody tr:first-child .t", "진짜");
   await page.click("#glSave");
   await goReview();
-  await page.click(".tree button[data-f='all']");
+  await page.click(".scope button[data-f='all']");
   const first = page.locator("#rvBody tr[data-i='1']");
   await first.locator("select.spk").selectOption("배소정");
   await first.locator("textarea").fill("고친 문장");
@@ -177,6 +177,11 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.click(".job:has-text('소니 시험') button[data-a='review']");
   await page.waitForSelector("#spkPanel .cl");
   assert.equal(await page.locator("#spkPanel .cl").count(), 2);
+  // 이름 대기 중 「둘로 나누기」(두 사람이 한 묶음으로 잡혔을 때) → 묶음 3개, 되돌리기로 2개
+  await page.locator("#spkPanel .cl").first().locator("button[data-a='split2']").click();
+  await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 3);
+  await page.click("#spkPanel button[data-a='undo']");
+  await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 2);
   assert.ok(await page.locator("#rvMain").isHidden());
   await page.locator("#spkPanel .cl").first().locator("button.play").first().click();
   await page.waitForFunction(() => document.getElementById("player").currentSrc.startsWith("blob:"));
@@ -191,7 +196,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   console.log("✓ 소니 녹음: 파일 순서·화자 묶음 2개·이름 붙이고 전사");
 
   await page.click(".job:has-text('소니 시험') button[data-a='review']");
-  await page.click(".tree button[data-f='all']");
+  await page.click(".scope button[data-f='all']");
   await page.waitForSelector("#rvBody button.spkbtn");
   const names0 = await page.locator("#rvBody button.spkbtn").allTextContents();
   assert.ok(names0.includes("갑") && names0.includes("을"), names0.join(","));
@@ -218,7 +223,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   console.log("✓ 발언별 화자 창(이 발언만·묶음 전체)·되돌리기");
 
   // 검수 단계: 범위(전체 ⊃ 확인함·미검수 ⊃ 확인 필요·판정 확실) · 확인 단추 · 한꺼번에 확인 · 발언 나누기
-  const cnt = async (f) => +(await page.locator(`.tree b[data-n='${f}']`).textContent());
+  const cnt = async (f) => +(await page.locator(`.scope b[data-n='${f}']`).textContent());
   const all0 = await cnt("all");
   assert.equal((await cnt("ok")) + (await cnt("todo")), all0);
   assert.equal((await cnt("need")) + (await cnt("sure")), await cnt("todo"));
@@ -227,14 +232,14 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   const ok0 = await cnt("ok");
   const r2 = page.locator("#rvBody tr[data-i]").nth(1);
   if (!(await r2.locator("button.okbtn.done").count())) { await r2.locator("button.okbtn").click(); assert.equal(await cnt("ok"), ok0 + 1); }
-  await page.click(".tree button[data-f='todo']");
+  await page.click(".scope button[data-f='todo']");
   await page.click("#rvAllOk");
   assert.equal(await cnt("todo"), 0);
   assert.ok(await page.locator("#exWarn").isHidden());
   await page.click("#rvUndo");
   assert.ok((await cnt("todo")) > 0);
   // 한 발언에 두 사람: 커서 위치에서 나누고 뒤 조각 화자를 바꿈 → 통합본에 두 줄
-  await page.click(".tree button[data-f='all']");
+  await page.click(".scope button[data-f='all']");
   const r0 = page.locator("#rvBody tr[data-i]").first();
   await r0.locator("button[data-a='split']").click();
   const ta = page.locator("#rvBody textarea.splitta");
@@ -303,6 +308,10 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
       }
       for (const b of document.querySelectorAll("button")) {
         if (!b.getClientRects().length || b.closest(".sug, .merged") || b.matches(".sug, .merged")) continue;
+        if (b.closest(".scope")) { // 보기 범위 단추는 일부러 숫자·이름 두 줄 — 각 줄이 다시 꺾이지만 않으면 됨
+          for (const c of b.children) { rng.selectNodeContents(c); if (lines(rng) > 1) bad.push(`버튼 줄 꺾임: 「${c.textContent.trim()}」`); }
+          continue;
+        }
         rng.selectNodeContents(b);
         if (lines(rng) > 1) bad.push(`버튼 두 줄: 「${b.textContent.trim()}」`);
       }
