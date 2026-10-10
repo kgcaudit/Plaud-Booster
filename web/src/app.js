@@ -530,8 +530,20 @@ async function loadReviewJobs() {
   sel.innerHTML = done.length ? done.map((j) => `<option value="${esc(j.id)}">${esc(j.title)} (${esc(jobKind(j))}${j.status === "이름 대기" ? " · 이름 대기" : ""})</option>`).join("") : '<option value="">검수할 결과가 없습니다</option>';
   const id = REVIEW.want && done.some((j) => j.id === REVIEW.want) ? REVIEW.want : REVIEW.id && done.some((j) => j.id === REVIEW.id) ? REVIEW.id : done[0]?.id;
   REVIEW.want = null;
-  if (id) { sel.value = id; await openReview(id); } else { $("#rvBody").innerHTML = ""; $("#rvStats").innerHTML = ""; $("#spkPanel").classList.add("hidden"); }
+  // 결과가 하나도 없으면 빈 선택 칸·보기 단추·내보내기 대신 안내와 「작업 목록으로」만 보인다
+  const none = !done.length;
+  $("#rvNone").classList.toggle("hidden", !none);
+  $("#rvBar").classList.toggle("hidden", none);
+  $("#rvMain").classList.toggle("hidden", none);
+  if (id) { sel.value = id; await openReview(id); }
+  else {
+    REVIEW.id = null; REVIEW.data = null;
+    if (!player.paused) player.pause();
+    $("#rvBody").innerHTML = ""; $("#rvStats").innerHTML = ""; $("#spkPanel").classList.add("hidden"); $("#tl").classList.add("hidden");
+  }
+  syncSticky();
 }
+$("#rvGoJobs").addEventListener("click", () => showTab("jobs"));
 $("#rvJob").addEventListener("change", (e) => openReview(e.target.value));
 $$(".seg button").forEach((b) => b.addEventListener("click", () => { $$(".seg button").forEach((x) => x.classList.toggle("on", x === b)); REVIEW.filter = b.dataset.f; renderReview(); }));
 $("#rvPlaud").addEventListener("change", renderReview);

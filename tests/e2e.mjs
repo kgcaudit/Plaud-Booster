@@ -70,6 +70,15 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.waitForSelector("#sysline:has-text('가짜 엔진')");
   console.log("✓ 서비스 워커로 교차 출처 격리(스레드 사용 가능)");
 
+  // 결과가 없을 때 검수: 빈 선택 칸·보기 단추·내보내기 대신 안내와 「작업 목록으로」
+  await goReview();
+  await page.waitForSelector("#rvNone:not(.hidden)");
+  assert.ok(await page.locator("#rvBar").isHidden());
+  assert.ok(await page.locator("#rvMain").isHidden());
+  await page.click("#rvGoJobs");
+  await page.waitForSelector("#btnNew", { state: "visible" });
+  console.log("✓ 검수할 결과가 없으면 안내와 작업 목록 단추만");
+
   // ---- 누락 구간 보충(출처 Plaud → 할 일 기본값 「빠진 구간 채우기」)
   await page.click("#btnNew");
   assert.ok(await page.locator("#fsTask").isHidden()); // 출처를 고르기 전에는 할 일이 안 보임

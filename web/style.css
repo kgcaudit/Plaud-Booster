@@ -344,3 +344,4 @@ table.bh th, table.bh td { padding: 6px 4px; border-bottom: 1px solid var(--line
 table.bh th:first-child, table.bh td:first-child, table.bh th:nth-child(2), table.bh td:nth-child(2) { text-align: left; }
 table.bh th { color: var(--mute); font-weight: 500; }
 .benchhist { overflow-x: auto; max-width: 100%; }
+#rvNone p { margin: 0 0 16px; line-height: 1.6; }
