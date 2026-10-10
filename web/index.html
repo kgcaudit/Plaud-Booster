@@ -197,12 +197,9 @@
       <p class="note">처음 한 번 Whisper turbo·CAM++·Silero 모델(약 0.9GB)을 이 사이트에서 받아 브라우저에 보관합니다. 회사망에서 받는 데 몇 분 걸릴 수 있습니다.</p>
       <div class="gpulv">
         <label for="gpuLevel"><b>그래픽 칩 가속 단계</b></label>
-        <select id="gpuLevel"></select>
+        <select id="gpuLevel" title="전사 인코더 4조각 중 그래픽 칩에서 돌릴 조각 수. 많을수록 빠르지만 부담이 큼. 자동은 이 기기의 그래픽 칩 성능 자료로 정함"></select>
         <p id="devInfo" class="note">기기 확인 중…</p>
         <p id="levelNow" class="levelnow"></p>
-        <p class="note"><b>전사 단계의 인코더</b>(Whisper가 소리를 읽어 내는 부분, 전사 시간의 대부분) 4조각 중 앞에서부터 몇 조각을 그래픽 칩에서 돌릴지 정합니다.
-          화자 나누기와 글자를 만드는 디코더는 늘 CPU입니다. 많을수록 빠르지만 그래픽 칩·메모리 부담이 큽니다.
-          「자동」은 이 기기의 그래픽 칩 성능 자료로 정한 단계입니다. 느리거나 브라우저가 꺼지면 단계를 바꿔 성능 시험으로 비교하세요. 모델을 이미 올린 뒤 바꾸면 새로 고쳐야 적용됩니다.</p>
       </div>
       <label>처리 스레드 <input type="number" id="threads" min="0" max="32" class="num"> <small>0 = 자동(CPU 수 − 1)</small></label>
       <button type="button" id="btnThreads">적용</button>

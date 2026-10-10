@@ -21,5 +21,6 @@ test("기본 단계: 폴드8(840) 전부 · S23(740) 절반 · 플립3(660) 끄�
   assert.equal(levelForScore(4190), 4); assert.equal(levelForScore(2550), 2); assert.equal(levelForScore(1870), 0);
   assert.equal(levelForArch("adreno-6xx"), 0);
   assert.equal(modelName("sm-s928n"), "갤럭시 S24 Ultra");
+  assert.equal(modelName("SM-F971N"), "갤럭시 Z 폴드8");
   assert.deepEqual([4, 2, 1, 0].map(lowerLevel), [2, 1, 0, 0]);
 });

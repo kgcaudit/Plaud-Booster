@@ -118,11 +118,10 @@ async function renderLevelNow() {
   const el = $("#levelNow");
   if (!el) return;
   const want = effectiveLevel((await S.get("kv", "settings")) || {}, await detectDevice());
-  let html;
-  if (!WSTATE.engineLoaded) html = `지금: 모델을 아직 올리지 않음 — 다음 전사·성능 시험부터 <b>${esc(levelLabel(want))}</b>로 돌립니다.`;
-  else if (WSTATE.loadedLevel !== want) html = `<span class="err">설정은 <b>${esc(levelLabel(want))}</b>인데 지금은 <b>${esc(levelLabel(WSTATE.loadedLevel ?? 0))}</b>로 올라가 있습니다.</span> <button type="button" id="btnReload">지금 새로 고쳐 적용</button>`;
-  else if (WSTATE.whisperLoaded) html = `지금 적용 중: <b>${WSTATE.device === "gpu" ? `그래픽 칩 ${WSTATE.gpuParts}/${WSTATE.nParts || 4} + 나머지 CPU` : "끄기(CPU만)"}</b>` + (WSTATE.device !== "gpu" && want > 0 ? " — 그래픽 칩을 켜지 못해 CPU로 돌고 있습니다" : "");
-  else html = `지금: 화자 나누기 모델만 올라가 있음 — 전사를 시작하면 <b>${esc(levelLabel(want))}</b>로 돌립니다.`;
+  // 평소에는 비워 두고, 설정과 지금 올라간 단계가 달라 새로 고쳐야 할 때·그래픽 칩을 못 켰을 때만 한 줄로 알린다
+  let html = "";
+  if (WSTATE.engineLoaded && WSTATE.loadedLevel !== want) html = `새로 고쳐야 <b>${esc(levelLabel(want))}</b>로 바뀝니다(지금은 ${esc(levelLabel(WSTATE.loadedLevel ?? 0))}). <button type="button" id="btnReload">새로 고침</button>`;
+  else if (WSTATE.whisperLoaded && WSTATE.device !== "gpu" && want > 0) html = '<span class="err">그래픽 칩을 켜지 못해 CPU로 돌고 있습니다.</span>';
   el.innerHTML = html;
   const b = $("#btnReload"); if (b) b.addEventListener("click", () => location.reload());
 }
@@ -1167,7 +1166,9 @@ async function loadSettings() {
   const auto = dev.level;
   $("#gpuLevel").innerHTML = `<option value="auto">자동 — ${esc(levelLabel(auto))}(권장)</option>` + LEVELS.map((l) => `<option value="${l.v}">${esc(l.label)}</option>`).join("");
   $("#gpuLevel").value = typeof set.gpuLevel === "number" ? String(set.gpuLevel) : set.gpu === false ? "0" : "auto";
-  $("#devInfo").textContent = `이 기기: ${devText(dev)} — 근거: ${dev.basis} → 자동 단계 ${levelLabel(auto)}`;
+  // 한 줄로: 기기 · 그래픽 칩 → 자동 단계(근거는 말풍선으로)
+  $("#devInfo").textContent = `이 기기: ${[dev.name || dev.model, dev.gpu].filter(Boolean).join(" · ") || "알 수 없음"} → 자동: ${levelLabel(auto)}`;
+  $("#devInfo").title = `근거: ${dev.basis}`;
   renderLevelNow();
   showBenchPrev().catch(() => {});
   worker.postMessage({ type: "status" });
