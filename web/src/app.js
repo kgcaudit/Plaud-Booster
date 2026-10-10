@@ -1325,7 +1325,7 @@ function renderPanel() {
     return `<div class="cl${skip.has(c.id) ? " skipped" : ""}${REVIEW.only === c.id ? " focus" : ""}" data-c="${esc(c.id)}">
       <div class="hd"><span class="chip cc${ci % 8}">${esc(c.label)}</span>
         <span class="msg">${pending ? `발언 ${c.nunit}` : `발언 ${nseg}`} · ${hms(c.dur)}</span><span class="spacer"></span>
-        <label class="chk" title="빼면 이 묶음의 발언은 전사하지 않습니다(잡음·음악 묶음 등)"><input type="checkbox" data-a="inc" ${skip.has(c.id) ? "" : "checked"}> 전사</label>
+        <label class="chk" title="체크를 끄면 이 묶음은 전사하지 않습니다(차 소리·바람·음악 같은 잡음 묶음 등)"><input type="checkbox" data-a="inc" ${skip.has(c.id) ? "" : "checked"}> 전사 대상</label>
         ${pending ? (nFree(ci) >= 4 ? '<button type="button" class="link" data-a="split2" title="두 사람이 쉼 없이 주고받아 한 사람으로 묶였을 때 — 목소리로 다시 둘로 나눕니다">둘로 나누기</button>' : "")
           : `<button type="button" class="link" data-a="only">${REVIEW.only === c.id ? "모두 보기" : "이 묶음만 보기"}</button>`}</div>
       <div class="nm"><input data-a="name" list="dlNames" value="${esc(nm)}" placeholder="이름(예: 김○○ 팀장)" aria-label="${esc(c.label)} 이름"> ${sug}
