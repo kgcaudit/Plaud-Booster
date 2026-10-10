@@ -2,7 +2,7 @@
 import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
 import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
-import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, sourceOf, isDiar } from "./export.js";
+import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, LANG_LABEL, sourceOf, isDiar } from "./export.js";
 import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster, relabelRange, similarRegions, mixSuspects } from "./diar.js";
 import { isGeneric, knownPrints } from "./engine.js";
 import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd } from "./review.js";
@@ -12,7 +12,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const MULTI = (m) => m === "fragment" || isDiar(m);
-const jobKind = (j) => `${SOURCE_LABEL[sourceOf(j)]} · ${MODE_LABEL[j.mode] || j.mode}`;
+const jobKind = (j) => `${SOURCE_LABEL[sourceOf(j)]} · ${MODE_LABEL[j.mode] || j.mode}${LANG_LABEL[j.lang] ? " · " + LANG_LABEL[j.lang] : ""}`;
 const FAKE = new URLSearchParams(location.search).get("fake") === "1";
 const hms = (t) => hmsLong(t, false);
 const parseHms = (s) => { s = String(s || "").trim(); return s ? s.split(":").reduce((a, p) => a * 60 + Number(p), 0) : NaN; };
@@ -412,6 +412,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
   const job = {
     title: $("#jobTitle").value.trim() || F.audio[0].file.name.replace(/\.[^.]+$/, ""),
     source: src, mode: m, status: "준비", notice: $("#notice").checked, createdAt: S.now(), audioFiles: [],
+    ...($("#jobLang").value !== "ko" ? { lang: $("#jobLang").value } : {}), // 말하는 언어(없으면 한국어)
     transcript: tr ? { name: tr.name, count: tr.segs.length, endSec: tr.endSec } : null,
     transcriptEndSec: tr ? tr.endSec : 0, range, speakerMap: speakerMap(), speakers: [...F.picked],
     useVoiceprints: $("#useVp").checked, note: $("#jobNote").value.trim(), progress: { pct: 0, msg: "음원 준비 중" },

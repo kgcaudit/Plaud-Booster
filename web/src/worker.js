@@ -129,7 +129,7 @@ async function ensureModels(need = "all") {
   if (FAKE) {
     if (need === "all" && !whisper) await gpuGuard(await levelNow()); // 시험에서도 같은 묻기 절차를 거치게
     whisper = whisper || {
-      transcribe: async (a) => `가짜 전사 ${(a.length / 16000).toFixed(1)}초`,
+      transcribe: async (a) => (whisper.lang === "en" ? `fake transcript ${(a.length / 16000).toFixed(1)}s` : `가짜 전사 ${(a.length / 16000).toFixed(1)}초`),
       // 묶은 창: 0.3초 넘게 조용한 곳으로 나눠 구간마다 글 하나
       transcribeTs: async (a) => {
         const segs = [], F = 160; let s0 = -1, quiet = 0;
@@ -139,7 +139,7 @@ async function ensureModels(need = "all") {
           if (loud) { if (s0 < 0) s0 = i; quiet = 0; } else if (s0 >= 0 && ++quiet > 30) { segs.push([s0, i]); s0 = -1; }
         }
         if (s0 >= 0) segs.push([s0, a.length]);
-        return segs.map(([x, y]) => ({ s: x / 16000, e: y / 16000, text: `가짜 전사 ${((y - x) / 16000).toFixed(1)}초` }));
+        return segs.map(([x, y]) => ({ s: x / 16000, e: y / 16000, text: whisper.lang === "en" ? `fake transcript ${((y - x) / 16000).toFixed(1)}s` : `가짜 전사 ${((y - x) / 16000).toFixed(1)}초` }));
       },
     };
     camp = camp || { embed: async (a) => fakeEmbed(a) };
@@ -237,6 +237,7 @@ async function processJob(job) {
   await S.saveJob(id, { status: "처리중", error: null, startedAt: S.now(), progress: { pct: 1, msg: "모델 준비" } });
   post({ type: "job", id });
   await ensureModels(isDiar(job.mode) && job.stage !== "transcribe" ? "diar" : "all");
+  if (whisper) whisper.lang = job.lang || "ko"; // 말하는 언어(한국어·영어·자동) — 예전 작업은 한국어
   let last = 0;
   const progress = async (pct, msg) => {
     if (Date.now() - last < 1500 && pct < 99) return;

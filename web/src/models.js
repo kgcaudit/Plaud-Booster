@@ -69,7 +69,10 @@ export class Whisper {
       this.bytes.set(+line.slice(sp + 1), Uint8Array.from(bin, (c) => c.charCodeAt(0)));
     }
     // sherpa-onnx turbo 메타데이터 값
-    this.SOT = 50258n; this.KO = 50264n; this.TRANSCRIBE = 50360n; this.NOTS = 50364n; this.EOT = 50257;
+    this.SOT = 50258n; this.KO = 50264n; this.EN = 50259n; this.TRANSCRIBE = 50360n; this.NOTS = 50364n; this.EOT = 50257;
+    // 말하는 언어: "ko"(기본 — 한국어 속 영어 낱말·문장도 받아 적음) · "en"(영어 회의). 작업마다 일꾼이 정해 준다(job.lang)
+    this.lang = "ko";
+    this.lastLang = "ko";
     this.maxTokens = 220;
   }
 
@@ -93,13 +96,22 @@ export class Whisper {
     return false;
   }
 
+  /**
+   * 언어 토큰: 영어 회의면 en, 그 밖에는 ko. 한국어(ko)로 두어도 말 중간의 영어는 영어로 받아 적는다(합성 시험: 한·영이 섞인 발언 그대로).
+   * 「발언마다 언어 알아내기」는 넣지 않았다 — 한 발언 안에 두 언어가 섞이면 한쪽(시험에서는 한국어 전부)이 빠졌다.
+   */
+  async langToken() {
+    this.lastLang = this.lang === "en" ? "en" : "ko";
+    return this.lang === "en" ? this.EN : this.KO;
+  }
+
   async transcribe(audio) {
     const { ort } = this;
     const mel = new ort.Tensor("float32", whisperLogMel(audio), [1, 128, 3000]);
     const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
     const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
     const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
-    const prompt = [this.SOT, this.KO, this.TRANSCRIBE, this.NOTS];
+    const prompt = [this.SOT, await this.langToken(), this.TRANSCRIBE, this.NOTS];
     let out = await this.dec.run({
       tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
       n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]),
@@ -141,7 +153,7 @@ Whisper.prototype.transcribeTs = async function (audio) {
   const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
   const cache = () => new ort.Tensor("float32", new Float32Array(4 * 448 * 1280), [4, 1, 448, 1280]);
   const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
-  const prompt = [this.SOT, this.KO, this.TRANSCRIBE];
+  const prompt = [this.SOT, await this.langToken(), this.TRANSCRIBE];
   let out = await this.dec.run({ tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
     n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]) });
   const res = [];

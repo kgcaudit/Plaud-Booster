@@ -137,3 +137,13 @@ test("그래픽 칩 시험 구간 중 꺼짐 판정: 정상 종료 뒤면 꺼진
   assert.equal(gpuCrashed({ at }, t - 5000), true);   // 정상 종료가 시험 시작보다 앞 → 그 뒤에 꺼짐
   assert.equal(gpuCrashed({ at }, t + 3000), false);  // 시험 중 새로 고침·탭 닫기
 });
+
+import { isHallu as _isHallu } from "../../web/src/engine.js";
+test("영어 녹음의 영상 자막 말투는 환각으로 거르고, 「Thank you.」 한마디는 둔다", () => {
+  assert.ok(_isHallu("Thank you for watching!"));
+  assert.ok(_isHallu("Thanks for watching."));
+  assert.ok(_isHallu("Please subscribe to my channel"));
+  assert.ok(_isHallu("Subtitles by the Amara.org community"));
+  assert.ok(!_isHallu("Thank you."));
+  assert.ok(!_isHallu("We reviewed the progress billing for March."));
+});

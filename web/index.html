@@ -110,8 +110,10 @@
     </fieldset>
 
     <fieldset class="after-src hidden">
-      <legend><span class="num">6.</span> 작업 이름 · 녹음 고지</legend>
+      <legend><span class="num">6.</span> 작업 이름 · 언어 · 녹음 고지</legend>
       <input id="jobTitle" placeholder="예: 10-09 ○○현장 면담" class="wide">
+      <label class="chk" title="한국어로 두어도 말 중간의 영어 낱말·문장은 영어로 받아 적습니다. 회의 전체가 영어일 때만 영어를 고르세요">말하는 언어
+        <select id="jobLang"><option value="ko">한국어(영어 섞여도 됨)</option><option value="en">영어</option></select></label>
       <input id="jobNote" placeholder="메모(선택)" class="wide">
       <label class="chk notice"><input type="checkbox" id="notice"> 참석자에게 녹음 사실을 알렸음 <small class="msg">(통합본 머리에 적힘 · 동의 없는 녹음·배포는 음성권 침해가 될 수 있어 감사 면담은 고지를 권장)</small></label>
     </fieldset>

@@ -6,7 +6,8 @@
 import { vadChunks, activeEnd, bandRatioDb } from "./dsp.js";
 import { speechRegions, packRegions, windowsOf, diarize, DEFAULTS } from "./diar.js";
 
-const HALLU = /다음 영상에서|시청해 주셔서|구독(과|,)? ?좋아요|^감사합니다\.?$|^MBC 뉴스|자막 제공|^\(?음악\)?$/;
+const HALLU = /다음 영상에서|시청해 주셔서|구독(과|,)? ?좋아요|^감사합니다\.?$|^MBC 뉴스|자막 제공|^\(?음악\)?$|thanks? (you )?for watching|please subscribe|subtitles? by|amara\.org|^\(?(music|applause)\)?$|^\[(music|blank_audio)\]$/i;
+// (영어 녹음: Whisper가 조용한 곳에 붙이는 「Thank you for watching」「Subtitles by」 같은 영상 자막 말투. 「Thank you.」 한마디는 실제 말일 수 있어 두다)
 const GENERIC = /^(speaker|spk|화자|발언자|참석자)\s*[_-]?\s*\d+$/i;
 
 export const isGeneric = (name) => GENERIC.test(String(name).trim());

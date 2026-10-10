@@ -18,6 +18,9 @@ export function hms(t, long = true) {
   return long ? `${p(h)}:${p(m)}:${p(s)}` : (h ? h + ":" + p(m) : String(m)) + ":" + p(s);
 }
 
+/** 말하는 언어(한국어는 따로 적지 않음) */
+export const LANG_LABEL = { en: "영어" };
+
 export function applyGlossary(text, pairs) {
   for (const p of pairs || []) if (p.from) text = text.split(p.from).join(p.to || "");
   return text;
@@ -61,7 +64,7 @@ export function exportTxt(data, opts) {
   const files = (job.audioFiles || []).map((f) => f.name + (f.recordedAt ? ` (${f.recordedAt.replace("T", " ").slice(0, 16)} 녹음${f.timeSrc === "saved" ? ", 저장 시각으로 추정" : ""})` : ""));
   const multi = files.length > 1;
   const d = new Date();
-  const out = [job.title, `녹음 출처: ${SOURCE_LABEL[sourceOf(job)]} · 할 일: ${MODE_LABEL[job.mode] || job.mode}${job.call ? " · 통화 녹음" : ""}`];
+  const out = [job.title, `녹음 출처: ${SOURCE_LABEL[sourceOf(job)]} · 할 일: ${MODE_LABEL[job.mode] || job.mode}${job.call ? " · 통화 녹음" : ""}${LANG_LABEL[job.lang] ? " · 언어: " + LANG_LABEL[job.lang] : ""}`];
   if (job.notice) out.push("녹음 고지: 참석자에게 녹음 사실을 알림");
   out.push(`내보낸 시각: ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`, "");
   let cur = null;

@@ -353,6 +353,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
     assert.ok(await page.locator("#callWrap").isHidden());
     await page.setInputFiles("#audioFiles", [asFile(mp3Path, "audio/mpeg"), asFile(audioPath, "audio/wav")]);
     await page.fill("#jobTitle", "조각 시험");
+    await page.selectOption("#jobLang", "en"); // 영어 회의
     await page.click("#btnSubmit");
     await page.waitForSelector(".job:has-text('조각 시험') .badge.st-완료", { timeout: 90000 });
     const meta = await page.locator(".job:has-text('조각 시험') .info").first().textContent();
@@ -364,6 +365,8 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
     const t2 = fs.readFileSync(await (await d2).path(), "utf8");
     assert.match(t2, /■ 조각\.mp3/);
     assert.match(t2, /■ 회의\.wav/);
+    assert.match(t2, /언어: 영어/); // 통합본 머리에 언어
+    assert.match(t2, /fake transcript/); // 일꾼이 작업의 언어로 받아 적음
     console.log("✓ 조각 음원 2개(MP3 2:30 + WAV) 처리·파일별 내보내기");
   }
 
