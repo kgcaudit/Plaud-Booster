@@ -37,13 +37,12 @@
 <main>
 <div id="banner" class="banner hidden"></div>
 <div id="gpuAsk" class="ask hidden" role="alertdialog" aria-labelledby="gpuAskT">
-  <b id="gpuAskT">그래픽 칩 가속을 계속 쓸까요?</b>
-  <p>지난번 그래픽 칩으로 모델을 올리거나 계산하던 중에 이 페이지가 끝까지 마치지 못하고 닫혔습니다.
-    <b>브라우저가 스스로 꺼진 것</b>이라면 이 기기에서는 그래픽 칩 가속이 버거운 것이니 CPU로 바꾸는 편이 안전합니다(느리지만 꺼지지 않음).
+  <b id="gpuAskT">그래픽 칩 가속 단계를 어떻게 할까요?</b>
+  <p>지난번 그래픽 칩 가속(<span id="gpuAskNow">-</span>)으로 모델을 올리거나 계산하던 중에 이 페이지가 끝까지 마치지 못하고 닫혔습니다.
+    <b>브라우저가 스스로 꺼진 것</b>이라면 이 기기에는 그 단계가 버거운 것이니 단계를 낮추는 편이 안전합니다.
     <b>직접 닫거나 새로 고친 것</b>이라면 그대로 쓰셔도 됩니다. 고르시면 처리를 이어 갑니다.</p>
-  <p class="row"><button type="button" class="primary" data-gpu="0">CPU로 바꾸기(가속 끄기)</button>
-    <button type="button" data-gpu="1">그래픽 칩 계속 쓰기</button></p>
-  <p class="note">나중에 설정 탭 「그래픽 칩 가속」에서 언제든 바꿀 수 있습니다.</p>
+  <p class="row" id="gpuAskBtns"></p>
+  <p class="note">나중에 설정 탭 「가속 단계」에서 언제든 바꿀 수 있습니다.</p>
 </div>
 
 <!-- ======================= 작업 ======================= -->
@@ -196,7 +195,13 @@
       <div class="pbar big"><i id="dlBar"></i></div>
       <p class="row"><button type="button" id="btnModels" class="primary">모델 받기</button> <button type="button" id="btnClearModels">받은 모델 지우기</button></p>
       <p class="note">처음 한 번 Whisper turbo·CAM++·Silero 모델(약 0.9GB)을 이 사이트에서 받아 브라우저에 보관합니다. 회사망에서 받는 데 몇 분 걸릴 수 있습니다.</p>
-      <label class="chk"><input type="checkbox" id="useGpu" checked> 그래픽 칩 가속(WebGPU) — 되는 기기에서 전사 인코더를 그래픽 칩으로 돌립니다. 느리거나 결과가 이상하면 끄고 성능 시험으로 비교하세요(새로 고친 뒤 적용).</label>
+      <div class="gpulv">
+        <label for="gpuLevel"><b>그래픽 칩 가속 단계</b></label>
+        <select id="gpuLevel"></select>
+        <p id="devInfo" class="note">기기 확인 중…</p>
+        <p class="note">전사의 핵심 계산(인코더 4조각) 중 몇 조각을 그래픽 칩에서 돌릴지 정합니다. 많을수록 빠르지만 그래픽 칩·메모리 부담이 큽니다.
+          「자동」은 이 기기의 그래픽 칩 성능 자료로 정한 단계입니다. 느리거나 브라우저가 꺼지면 단계를 바꿔 성능 시험으로 비교하세요(새로 고친 뒤 적용).</p>
+      </div>
       <label>처리 스레드 <input type="number" id="threads" min="0" max="32" class="num"> <small>0 = 자동(CPU 수 − 1)</small></label>
       <button type="button" id="btnThreads">적용</button>
     </div>

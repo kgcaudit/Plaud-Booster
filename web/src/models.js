@@ -10,35 +10,38 @@ export class Whisper {
    * encBytes: 바이트, 바이트를 돌려주는 함수, 또는 그 함수들의 배열(인코더를 블록 경계에서 나눈 조각 — 차례로 이어 돌림).
    * 조각마다 읽어 세션을 만든 뒤 바로 놓아, 한 번에 메모리에 드는 양을 조각 크기(약 170MB)로 줄인다(휴대폰 탭 꺼짐 방지).
    */
-  static async create(ort, encBytes, decBytes, tokensText, opts = {}, { gpu = false, onLoad = () => {} } = {}) {
+  /** gpu: 그래픽 칩에 올릴 인코더 조각 수(가속 단계 0~4, true면 전부). 앞쪽 조각부터 그래픽 칩, 나머지는 CPU */
+  static async create(ort, encBytes, decBytes, tokensText, opts = {}, { gpu = 0, onLoad = () => {} } = {}) {
     const so = { executionProviders: ["wasm"], graphOptimizationLevel: "all", ...opts };
     const get = async (b) => (typeof b === "function" ? b() : b);
     const loaders = Array.isArray(encBytes) ? encBytes : [encBytes];
-    // 인코더(시간 대부분)는 그래픽 칩이 되면 WebGPU로, 안 되면 CPU(wasm)로. 디코더는 한 걸음이 짧아 CPU가 낫다
-    const build = async (ep) => {
+    const nGpu = gpu === true ? loaders.length : Math.max(0, Math.min(loaders.length, +gpu || 0));
+    // 인코더(시간 대부분)는 단계만큼 그래픽 칩(WebGPU)에, 나머지는 CPU(wasm)에. 디코더는 한 걸음이 짧아 CPU가 낫다.
+    // 조각 사이 텐서(1500×1280)는 장치를 오가도 크지 않다(약 7.7MB).
+    const build = async (eps) => {
       const ss = [];
       try {
-        for (const ld of loaders) {
-          let bytes = await get(ld);
+        for (let k = 0; k < loaders.length; k++) {
+          let bytes = await get(loaders[k]);
           onLoad();
-          ss.push(await ort.InferenceSession.create(bytes, { ...so, executionProviders: [ep] }));
+          ss.push(await ort.InferenceSession.create(bytes, { ...so, executionProviders: [eps[k]] }));
           bytes = null;
         }
         return ss;
       } catch (e) { for (const x of ss) await x.release?.(); throw e; }
     };
-    let enc = null, device = "cpu", gpuError = null;
-    if (gpu) {
-      try { enc = await build("webgpu"); device = "gpu"; }
+    let enc = null, device = "cpu", gpuError = null, gpuParts = 0;
+    if (nGpu > 0) {
+      try { enc = await build(loaders.map((_, k) => (k < nGpu ? "webgpu" : "wasm"))); device = "gpu"; gpuParts = nGpu; }
       catch (e) { gpuError = String((e && e.message) || e).slice(0, 200); }
     }
-    if (!enc) enc = await build("wasm");
+    if (!enc) enc = await build(loaders.map(() => "wasm"));
     let bytes = await get(decBytes);
     onLoad();
     const dec = await ort.InferenceSession.create(bytes, so);
     bytes = null;
     const w = new Whisper(ort, enc, dec, tokensText);
-    w.device = device; w.gpuError = gpuError;
+    w.device = device; w.gpuError = gpuError; w.gpuParts = gpuParts; w.nParts = loaders.length;
     return w;
   }
 

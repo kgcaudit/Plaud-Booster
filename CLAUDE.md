@@ -8,6 +8,7 @@ web/index.html, style.css     화면
 web/sw.js                     COOP/COEP 머리를 붙이는 서비스 워커(Pages에서 여러 스레드 쓰기용)
 web/src/app.js                화면 동작 — 작업 등록·목록·검수·목소리 기준·사전·백업
 web/src/worker.js             처리 일꾼(Web Worker) — 모델 받기(Cache Storage)·작업 대기열(한 번에 하나, Web Locks)
+web/src/devices.js            기기·그래픽 칩 알아보기, 성능 점수 표 → 가속 단계 — 순수 함수
 web/src/engine.js             작업 실행 논리(대상 구간·기준 만들기·구간별 전사·화자 판정·이어하기, 소니 runSony) — 순수 함수
 web/src/diar.js               화자 먼저 나누기(Silero 구간·음량 맞춤·창 묶기·발언 단위·이름 추천·목소리 기준 계산) — 순수 함수
 web/src/models.js             Whisper(인코더·디코더 탐욕 디코딩)·CAM++·Silero VAD 실행
@@ -86,6 +87,12 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
   (그 뒤 정상 종료 기록 localStorage pb-clean-exit가 없으면 — gpuCrashed) **자동으로 끄지 않고 사용자에게 묻습니다**(#gpuAsk, 답할 때까지 처리 대기).
   브라우저가 꺼진 것과 사람이 닫은 것을 확실히 가를 수 없기 때문입니다(갤럭시 Z 플립3·Adreno 660은 첫 계산에서 크롬이 꺼짐).
   「모델 받기」는 캐시에만 받고(downloadAll) 메모리에 올리지 않습니다. 화면은 인터넷에서 받는 중과 저장된 모델을 불러오는 중을 나눠 보입니다.
+- **그래픽 칩 가속 단계**(settings.gpuLevel: 없음=자동 / 4·2·1·0 = 그래픽 칩에 올릴 인코더 조각 수, 앞 조각부터): 자동은 web/src/devices.js가
+  WebGL 그래픽 칩 이름(UNMASKED_RENDERER)으로 표의 성능 점수(3DMark Wild Life Extreme Unlimited)를 찾아 정합니다 —
+  4,000 이상 전부 · 2,500 이상 절반 · 그 밑 끄기, 이름을 모르면 WebGPU 세대(adreno-8xx 전부·7xx 절반). 모델 번호(클라이언트 힌트)는 기기 이름 표시용.
+  기준점: Adreno 840(폴드8) 전부 4/4 30초 창 4.7초 · Adreno 660(플립3) 전부에서 크롬 꺼짐. 화면이 기기를 알아본 뒤 단계를 일꾼에 알리고(env level),
+  일꾼은 받을 때까지(최대 4초) 기다립니다. 꺼짐 흔적이 있으면 그때 단계를 알리고 「한 단계 낮추기·CPU로·그대로」를 묻습니다.
+  기기 정보는 브라우저 안에서만 씁니다(바깥으로 보내지 않음).
 - 인코더는 **8비트 블록 양자화(MatMulNBits, 블록 128, 약 700MB)** 입니다(tools/to_nbits.py, 배포 때 int8에서 변환). 그래픽 칩(WebGPU)이 있으면
   인코더만 WebGPU로, 디코더·CAM++·Silero는 wasm으로 돕니다(설정 「그래픽 칩 가속」, settings.gpu). 10-08 두 구간 글자 오류율(묶어 전사):
   int8 30.8%·35.5% → 8비트 28.9%·32.7%. 4비트(444MB)는 반복 헛말이 늘어 40~45분 구간 44.0%로 나빠 쓰지 않았습니다.

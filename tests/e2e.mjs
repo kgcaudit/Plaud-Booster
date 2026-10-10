@@ -285,7 +285,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   // 시험 표시 시각을 미래로 두어, 새로 고침이 남기는 정상 종료 기록보다 뒤 → 「꺼진 흔적」으로 보이게 한다
   await page.evaluate(async () => {
     const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); });
-    await new Promise((r) => { const tx = db.transaction("kv", "readwrite"); tx.objectStore("kv").put({ v: 2, at: new Date(Date.now() + 3600e3).toISOString() }, "gpuLoading"); tx.oncomplete = r; });
+    await new Promise((r) => { const tx = db.transaction("kv", "readwrite"); tx.objectStore("kv").put({ v: 2, level: 4, at: new Date(Date.now() + 3600e3).toISOString() }, "gpuLoading"); tx.oncomplete = r; });
   });
   await page.reload();
   await page.waitForSelector("#sysline:has-text('가짜 엔진')");
@@ -293,18 +293,28 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.click("#btnBench");
   await page.waitForSelector("#gpuAsk:not(.hidden)", { timeout: 15000 });
   assert.ok(await page.locator("#benchMsg:has-text('끝났습니다')").count() === 0); // 답하기 전에는 진행하지 않음
-  await page.click("#gpuAsk button[data-gpu='0']");
+  // 그때 쓰던 단계(전부 4/4)를 알리고 「한 단계 낮추기(절반) · CPU로 · 그대로」를 고르게 한다
+  assert.deepEqual(await page.locator("#gpuAsk button").evaluateAll((bs) => bs.map((b) => b.dataset.level)), ["2", "0", "4"]);
+  assert.match(await page.locator("#gpuAskNow").textContent(), /전부/);
+  await page.click("#gpuAsk button[data-level='0']");
   await page.waitForSelector("#benchMsg:has-text('끝났습니다')", { timeout: 60000 });
-  const setGpu = await page.evaluate(async () => { const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); }); return new Promise((r) => { const q = db.transaction("kv").objectStore("kv").get("settings"); q.onsuccess = () => r(q.result && q.result.gpu); }); });
-  assert.equal(setGpu, false);
+  const setGpu = await page.evaluate(async () => { const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); }); return new Promise((r) => { const q = db.transaction("kv").objectStore("kv").get("settings"); q.onsuccess = () => r(q.result && q.result.gpuLevel); }); });
+  assert.equal(setGpu, 0);
+  // 설정의 가속 단계: 자동(기기 성능 자료) + 전부·절반·1/4·끄기, 고른 값이 반영됨
+  assert.equal(await page.locator("#gpuLevel").inputValue(), "0");
+  assert.equal(await page.locator("#gpuLevel option").count(), 5);
+  assert.match(await page.locator("#devInfo").textContent(), /이 기기:.*근거:.*자동 단계/);
+  await page.selectOption("#gpuLevel", "auto");
+  const lv = await page.evaluate(async () => { const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); }); return new Promise((r) => { const q = db.transaction("kv").objectStore("kv").get("settings"); q.onsuccess = () => r(q.result && ("gpuLevel" in q.result)); }); });
+  assert.equal(lv, false);
   assert.ok(await page.locator("#gpuAsk").isHidden());
-  console.log("✓ 그래픽 칩 꺼짐 흔적 → 묻고 고른 대로(CPU로 바꾸기)");
+  console.log("✓ 그래픽 칩 꺼짐 흔적 → 묻고 고른 대로(CPU로)·가속 단계 설정(자동·전부·절반·1/4·끄기)");
 
   // ---- 기기 성능 시험(가짜 엔진) — 결과표가 나오고 휴대폰 폭에서도 넘치지 않는다
   await page.click("#btnBench");
   await page.waitForSelector("#benchMsg:has-text('끝났습니다')", { timeout: 60000 });
   const bt = await page.locator("#benchOut").textContent();
-  assert.match(bt, /그래픽 칩/); assert.match(bt, /1시간 회의 어림/);
+  assert.match(bt, /그래픽 칩/); assert.match(bt, /1시간 회의 어림/); assert.match(bt, /가속 단계/); assert.match(bt, /기기/);
   await page.waitForSelector("#benchPrev:has-text('지난 시험')");
   const vp0 = page.viewportSize();
   await page.setViewportSize({ width: 412, height: 900 });

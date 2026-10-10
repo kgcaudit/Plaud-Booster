@@ -5,6 +5,7 @@ import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
 import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, sourceOf, isDiar } from "./export.js";
 import { orderFiles, printsFromReview, recordedAt } from "./diar.js";
 import { isGeneric } from "./engine.js";
+import { describeDevice, LEVELS, levelLabel, lowerLevel } from "./devices.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -44,6 +45,7 @@ function startWorker() {
   // 지난번에 정상적으로 닫았는지(새로 고침·탭 닫기) 알려 준다 — 그래픽 칩 계산 중 브라우저가 꺼진 것과 구분하려고
   let clean = 0; try { clean = +localStorage.getItem("pb-clean-exit") || 0; } catch { /* 저장 안 됨 */ }
   worker.postMessage({ type: "env", cleanExitAt: clean });
+  sendLevel(); // 기기를 알아본 뒤 가속 단계를 알려 준다(일꾼은 받을 때까지 모델을 올리지 않고 기다림)
   worker.onmessage = (ev) => {
     const m = ev.data;
     if (m.type === "hello") { WSTATE.owner = m.owner; worker.postMessage({ type: "status" }); kick(); }
@@ -53,7 +55,7 @@ function startWorker() {
       if (m.phase === "download") WSTATE.dl = m;
       if (m.phase === "load") WSTATE.dl = { ...(WSTATE.dl || {}), loading: true };
       if (m.phase === "stored") { WSTATE.dl = null; toast("모델을 이 기기에 저장했습니다 — 다음부터는 받지 않습니다"); worker.postMessage({ type: "status" }); }
-      if (m.phase === "ready") { WSTATE.dl = null; WSTATE.threads = m.threads; if (m.device) WSTATE.device = m.device; if (m.gpuError) toast("그래픽 칩 가속을 켜지 못해 CPU로 전사합니다"); worker.postMessage({ type: "status" }); }
+      if (m.phase === "ready") { WSTATE.dl = null; WSTATE.threads = m.threads; if (m.device) { WSTATE.device = m.device; WSTATE.gpuParts = m.gpuParts; WSTATE.nParts = m.nParts; } if (m.gpuError) toast("그래픽 칩 가속을 켜지 못해 CPU로 전사합니다"); worker.postMessage({ type: "status" }); }
       renderSys();
     }
     if (m.type === "job") {
@@ -68,10 +70,48 @@ function startWorker() {
     if (m.type === "bench") onBench(m);
     if (m.type === "error") { keepAwake("model", false); toast(m.message); }
     if (m.type === "notice") toast(m.message);
-    if (m.type === "gpuAsk") { $("#gpuAsk").classList.remove("hidden"); $("#gpuAsk").scrollIntoView({ block: "start" }); }
+    if (m.type === "gpuAsk") showGpuAsk(m.level);
   };
 }
 const kick = () => worker && worker.postMessage({ type: "kick" });
+
+/* ================================================================== 기기·가속 단계 */
+// 브라우저가 알려 주는 그래픽 칩 이름(WebGL)·세대(WebGPU)·모델 번호(클라이언트 힌트)로 기기를 알아보고, 성능 자료로 기본 단계를 정한다.
+// 이 값들은 이 브라우저 안에서만 쓰고 바깥으로 보내지 않는다.
+let DEV = null;
+async function detectDevice() {
+  if (DEV) return DEV;
+  const raw = { webgpu: false };
+  try {
+    const ad = navigator.gpu && (await navigator.gpu.requestAdapter());
+    if (ad) { raw.webgpu = true; const i = ad.info || {}; raw.arch = i.architecture || ""; raw.vendor = i.vendor || ""; }
+  } catch { /* 없음 */ }
+  try {
+    const gl = document.createElement("canvas").getContext("webgl");
+    if (gl) {
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      raw.renderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || "");
+      const lose = gl.getExtension("WEBGL_lose_context"); if (lose) lose.loseContext();
+    }
+  } catch { /* 없음 */ }
+  try {
+    if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) raw.model = (await navigator.userAgentData.getHighEntropyValues(["model"])).model || "";
+  } catch { /* 없음 */ }
+  DEV = { ...describeDevice(raw), raw };
+  return DEV;
+}
+/** 설정값 → 실제 단계. 「자동」(기본)은 기기 성능 자료로 정한 단계, 예전 설정(가속 끔)은 0 */
+function effectiveLevel(set, dev) {
+  if (typeof set.gpuLevel === "number") return set.gpuLevel;
+  if (set.gpu === false) return 0;
+  return dev ? dev.level : 0;
+}
+async function sendLevel() {
+  const dev = await detectDevice();
+  const set = (await S.get("kv", "settings")) || {};
+  if (worker) worker.postMessage({ type: "env", level: effectiveLevel(set, dev) });
+}
+const devText = (d) => [d.name ? `${d.name}${d.model ? `(${d.model})` : ""}` : d.model, d.soc, d.gpu].filter(Boolean).join(" · ") || "알 수 없는 기기";
 /* 화면 꺼짐 방지: 이 페이지가 무언가 처리하는 동안(전사·화자 나누기·모델 받기/열기·음원 준비·성능 시험) 화면을 켜 둔다.
    브라우저는 탭이 가려지면 이 잠금을 풀기 때문에, 다시 보이면 곧바로 다시 건다. 처리할 것이 없으면 놓는다. */
 const AWAKE = new Set();
@@ -109,7 +149,7 @@ function renderSys() {
   else if (WSTATE.dl && WSTATE.dl.loading) eng = "모델 여는 중";
   else if (m.ready) eng = '<span class="ok">엔진 준비됨</span>';
   else eng = `<span class="bad">모델 없음</span> (받은 양 ${Math.round((m.cachedBytes / Math.max(1, m.totalBytes)) * 100)}%)`;
-  const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? " · 그래픽 칩 가속" : "") + (lock ? ' · <span class="ok">화면 켜 둠</span>' : "");
+  const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? ` · 그래픽 칩 가속 ${WSTATE.gpuParts || "?"}/${WSTATE.nParts || 4}` : "") + (lock ? ' · <span class="ok">화면 켜 둠</span>' : "");
   $("#sysline").innerHTML = `${eng}${th}` + (WSTATE.coi ? "" : ' · <span class="bad">스레드 꺼짐(느림)</span>') + (WSTATE.owner ? "" : ' · <span class="bad">다른 탭에서 처리 중</span>');
   $("#engState").innerHTML = eng + (m && !m.ready && !WSTATE.fake ? "<br><small>모델을 받아 두면 대기 중인 작업이 바로 시작됩니다. 작업을 등록하면 자동으로 받습니다.</small>" : "");
   const pct = WSTATE.dl && WSTATE.dl.total ? (WSTATE.dl.got / WSTATE.dl.total) * 100 : m ? (m.cachedBytes / Math.max(1, m.totalBytes)) * 100 : 0;
@@ -137,14 +177,26 @@ function showTab(name) {
   if (name === "settings") loadSettings();
 }
 
+function showGpuAsk(level) {
+  const lv = typeof level === "number" ? level : 4, low = lowerLevel(lv);
+  $("#gpuAskNow").textContent = levelLabel(lv);
+  const btn = (v, text, primary) => `<button type="button" data-level="${v}"${primary ? ' class="primary"' : ""}>${text}</button>`;
+  $("#gpuAskBtns").innerHTML = [
+    low > 0 ? btn(low, `한 단계 낮추기 → ${levelLabel(low)}`, true) : "",
+    btn(0, "CPU로 바꾸기(가속 끄기)", low === 0),
+    lv > 0 ? btn(lv, `그대로 쓰기(${levelLabel(lv)})`, false) : "",
+  ].join(" ");
+  $("#gpuAsk").classList.remove("hidden");
+  $("#gpuAsk").scrollIntoView({ block: "start" });
+}
 $("#gpuAsk").addEventListener("click", async (ev) => {
-  const b = ev.target.closest("button[data-gpu]");
+  const b = ev.target.closest("button[data-level]");
   if (!b) return;
-  const keep = b.dataset.gpu === "1";
+  const v = +b.dataset.level;
   $("#gpuAsk").classList.add("hidden");
-  worker.postMessage({ type: "gpuAnswer", gpu: keep });
-  if (!keep) $("#useGpu").checked = false;
-  toast(keep ? "그래픽 칩 가속을 계속 씁니다" : "이 기기는 CPU로 전사합니다(설정에서 다시 켤 수 있음)");
+  worker.postMessage({ type: "gpuAnswer", level: v });
+  if ($("#gpuLevel").options.length) $("#gpuLevel").value = String(v);
+  toast(v ? `그래픽 칩 가속 ${levelLabel(v)}로 이어 갑니다` : "이 기기는 CPU로 전사합니다(설정에서 다시 바꿀 수 있음)");
 });
 
 /* ================================================================== 새 작업 */
@@ -1096,7 +1148,11 @@ $("#glSave").addEventListener("click", async () => {
 async function loadSettings() {
   const set = (await S.get("kv", "settings")) || {};
   $("#threads").value = set.threads || 0;
-  $("#useGpu").checked = set.gpu !== false;
+  const dev = await detectDevice();
+  const auto = dev.level;
+  $("#gpuLevel").innerHTML = `<option value="auto">자동 — ${esc(levelLabel(auto))}(권장)</option>` + LEVELS.map((l) => `<option value="${l.v}">${esc(l.label)}</option>`).join("");
+  $("#gpuLevel").value = typeof set.gpuLevel === "number" ? String(set.gpuLevel) : set.gpu === false ? "0" : "auto";
+  $("#devInfo").textContent = `이 기기: ${devText(dev)} — 근거: ${dev.basis} → 자동 단계 ${levelLabel(auto)}`;
   showBenchPrev().catch(() => {});
   worker.postMessage({ type: "status" });
   try {
@@ -1129,7 +1185,8 @@ function renderBench(r, gpu) {
   $("#benchOut").innerHTML = [
     row("그래픽 칩", gpu ? (gpu.ok ? `WebGPU 사용 가능 · 16비트 연산 ${gpu.f16 ? "지원" : "없음"} · ${esc(gpu.name)}` : esc(gpu.why)) : "-"),
     row("처리 스레드", r.threads || "-"),
-    row("전사 계산", r.device === "gpu" ? "그래픽 칩(WebGPU)" : "CPU"),
+    row("기기", esc(r.dev ? devText(r.dev) : "-")),
+    row("가속 단계", r.device === "gpu" ? `그래픽 칩 ${r.gpuParts || "?"}/${r.nParts || 4} + 나머지 CPU` : "끄기(CPU만)"),
     row("모델 올리기", r.load < 100 ? "이미 올라가 있음" : sec(r.load)),
     row("말소리 찾기", r.vadMin != null ? `음성 1분에 ${sec(r.vadMin)}` : "-"),
     row("목소리 특징", `3초 창 하나에 ${sec(r.emb)}`),
@@ -1144,7 +1201,8 @@ function onBench(m) {
   $("#btnBench").disabled = false;
   if (m.error) { $("#benchMsg").textContent = m.error; $("#benchMsg").classList.add("err"); return; }
   $("#benchMsg").textContent = "끝났습니다"; $("#benchMsg").classList.remove("err");
-  const rec = { at: S.now(), gpu: BENCH_GPU, ...m.result };
+  const rec = { at: S.now(), gpu: BENCH_GPU, ...m.result, dev: DEV ? { name: DEV.name, model: DEV.model, soc: DEV.soc, gpu: DEV.gpu } : null };
+  m.result.dev = rec.dev;
   renderBench(m.result, BENCH_GPU);
   S.update("kv", "bench", (h) => [rec, ...((h && Array.isArray(h) ? h : []))].slice(0, 5)).then(showBenchPrev).catch(() => {});
 }
@@ -1162,8 +1220,11 @@ $("#btnBench").addEventListener("click", async () => {
   BENCH_GPU = await gpuInfo();
   worker.postMessage({ type: "bench" });
 });
-$("#useGpu").addEventListener("change", async () => {
-  await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpu: $("#useGpu").checked });
+$("#gpuLevel").addEventListener("change", async () => {
+  const v = $("#gpuLevel").value, set = (await S.get("kv", "settings")) || {};
+  delete set.gpu; // 예전 켜고 끄기 설정은 단계로 바뀜
+  if (v === "auto") delete set.gpuLevel; else set.gpuLevel = +v;
+  await S.put("kv", "settings", set);
   toast("페이지를 새로 고친 뒤부터 적용됩니다");
 });
 $("#btnThreads").addEventListener("click", async () => {

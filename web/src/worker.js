@@ -7,6 +7,15 @@ import { isDiar } from "./export.js";
 const FAKE = new URL(self.location.href).searchParams.get("fake") === "1";
 const post = (m) => self.postMessage(m);
 let useGpu = false, cleanExitAt = 0; // cleanExitAt: 화면이 알려 준 마지막 정상 종료 시각(ms)
+// 가속 단계(그래픽 칩에 올릴 인코더 조각 수 0~4): 화면이 기기를 알아본 뒤 정해 알려 준다(env). 받을 때까지 잠시 기다린다.
+let gpuLevel = null, envReady;
+const envWait = new Promise((res) => { envReady = res; });
+const levelNow = async () => {
+  await Promise.race([envWait, new Promise((r) => setTimeout(r, 4000))]);
+  if (gpuLevel != null) return gpuLevel;
+  const set = (await S.get("kv", "settings")) || {};
+  return typeof set.gpuLevel === "number" ? set.gpuLevel : set.gpu === false ? 0 : 4;
+};
 let ort = null, whisper = null, camp = null, vad = null, busy = false, stopId = null, manifest = null;
 
 /* ------------------------------------------------------------------ 모델 */
@@ -117,7 +126,7 @@ async function cleanupOldCaches() {
  */
 async function ensureModels(need = "all") {
   if (FAKE) {
-    if (need === "all" && !whisper) await gpuGuard(); // 시험에서도 같은 묻기 절차를 거치게
+    if (need === "all" && !whisper) await gpuGuard(await levelNow()); // 시험에서도 같은 묻기 절차를 거치게
     whisper = whisper || {
       transcribe: async (a) => `가짜 전사 ${(a.length / 16000).toFixed(1)}초`,
       // 묶은 창: 0.3초 넘게 조용한 곳으로 나눠 구간마다 글 하나
@@ -141,9 +150,9 @@ async function ensureModels(need = "all") {
   if (haveDiar && (need === "diar" || whisper)) return;
   if (!ort) {
     const set = (await S.get("kv", "settings")) || {};
-    // 그래픽 칩 가속: 설정에서 끄지 않았고, 인코더가 그래픽 칩용 형식(MatMulNBits)이고, 이 기기에 WebGPU가 있을 때만
+    // 그래픽 칩 가속: 단계가 0보다 크고, 인코더가 그래픽 칩용 형식(MatMulNBits)이고, 이 기기에 WebGPU가 있을 때만
     let adapter = null;
-    if (set.gpu !== false && /^nbits/.test(encFiles(m)[0].format || "") && self.navigator.gpu) {
+    if ((await levelNow()) > 0 && /^nbits/.test(encFiles(m)[0].format || "") && self.navigator.gpu) {
       try { adapter = await self.navigator.gpu.requestAdapter(); } catch { adapter = null; }
     }
     useGpu = !!adapter;
@@ -173,35 +182,38 @@ async function ensureModels(need = "all") {
     // 그래픽 칩 「시험 구간」(올리기 ~ 첫 계산이 끝날 때까지)에 탭이 꺼지면 다음부터 CPU로 연다(kv gpuLoading).
     // 일부러 새로 고치거나 닫은 경우(화면이 알려 준 정상 종료 시각이 더 뒤)는 꺼진 것으로 치지 않는다.
     // (갤럭시 Z 플립3·Adreno 660: 올리기는 되고 첫 계산에서 크롬이 꺼짐 — 2026-10-10)
-    const gpu = useGpu && (await gpuGuard());
-    if (gpu) await S.put("kv", "gpuLoading", { v: 2, at: S.now() });
+    const gpu = useGpu ? await gpuGuard(await levelNow()) : 0; // 올릴 조각 수
+    if (gpu) await S.put("kv", "gpuLoading", { v: 2, at: S.now(), level: gpu });
     whisper = await Whisper.create(ort, encFiles(m).map((f) => () => loadFile(f, tick)), () => loadFile(m.files.decoder, tick), tokens, {},
       { gpu, onLoad: () => post({ type: "models", phase: "load" }) });
     if (whisper.device === "gpu") whisper.onFirstRun = () => S.del("kv", "gpuLoading").catch(() => {}); // 첫 계산이 끝나야 시험 통과
     else await S.del("kv", "gpuLoading");
     await cleanupOldCaches();
   }
-  post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads, partial: !whisper, device: whisper ? whisper.device : null, gpuError: whisper ? whisper.gpuError : null });
+  post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads, partial: !whisper, device: whisper ? whisper.device : null, gpuParts: whisper ? whisper.gpuParts || 0 : 0, nParts: whisper ? whisper.nParts || 0 : 0, gpuError: whisper ? whisper.gpuError : null });
 }
 
 /**
  * 그래픽 칩 시험 구간에 꺼진 흔적이 있으면 사람에게 묻는다. 돌려주는 값: 그래픽 칩을 계속 쓸지.
  * 브라우저가 꺼진 것인지 사람이 닫은 것인지 확실히 가를 수 없으므로 알리고 고르게 한다(답할 때까지 기다림).
  */
-async function gpuGuard() {
+async function gpuGuard(level) {
   const pend = await S.get("kv", "gpuLoading");
-  if (pend && pend.v !== 2) { await S.del("kv", "gpuLoading"); return true; } // 예전 형식 표시는 버린다(판정 기준이 달랐음)
-  if (!pend || !gpuCrashed(pend, cleanExitAt)) return true;
-  const keep = await askGpu();
+  if (pend && pend.v !== 2) { await S.del("kv", "gpuLoading"); return level; } // 예전 형식 표시는 버린다(판정 기준이 달랐음)
+  if (!pend || !gpuCrashed(pend, cleanExitAt)) return level;
+  const chosen = await askGpu(pend.level ?? level); // 그때 쓰던 단계를 알려 주고 고르게 한다
   await S.del("kv", "gpuLoading");
-  if (!keep) await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpu: false });
-  return keep;
+  await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpuLevel: chosen });
+  gpuLevel = chosen;
+  return chosen;
 }
 
 /** 그래픽 칩 가속을 계속 쓸지 화면에 묻고 답을 기다린다(true = 계속 사용) */
 let gpuReply = null;
-function askGpu() {
-  return new Promise((res) => { gpuReply = res; post({ type: "gpuAsk" }); });
+let gpuAskLevel = 0;
+function askGpu(level) {
+  gpuAskLevel = level;
+  return new Promise((res) => { gpuReply = res; post({ type: "gpuAsk", level }); });
 }
 
 /* ------------------------------------------------------------------ 작업 */
@@ -333,6 +345,7 @@ async function bench() {
   await ensureModels("all");
   r.threads = FAKE ? 0 : ort.env.wasm.numThreads;
   r.device = whisper.device || "cpu";
+  r.gpuParts = whisper.gpuParts || 0; r.nParts = whisper.nParts || 4;
   r.load = now() - t;
   const a60 = synth(60);
   if (vad) { say("말소리 찾기(Silero) 1분"); t = now(); await vad.probs(a60); r.vadMin = now() - t; }
@@ -359,9 +372,12 @@ async function bench() {
 self.onmessage = async (ev) => {
   const m = ev.data;
   try {
-    if (m.type === "env") cleanExitAt = +m.cleanExitAt || 0;
-    if (m.type === "gpuAnswer" && gpuReply) { const r = gpuReply; gpuReply = null; r(!!m.gpu); }
-    if (m.type === "status" && gpuReply) post({ type: "gpuAsk" }); // 새로 연 화면에도 질문을 다시 보인다
+    if (m.type === "env") {
+      if ("cleanExitAt" in m) cleanExitAt = +m.cleanExitAt || 0;
+      if (typeof m.level === "number") { gpuLevel = m.level; envReady(); }
+    }
+    if (m.type === "gpuAnswer" && gpuReply) { const r = gpuReply; gpuReply = null; r(Math.max(0, Math.min(4, +m.level || 0))); }
+    if (m.type === "status" && gpuReply) post({ type: "gpuAsk", level: gpuAskLevel }); // 새로 연 화면에도 질문을 다시 보인다
     if (m.type === "kick" && owner) loop();
     if (m.type === "stop") stopId = m.id;
     if (m.type === "status") post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE });

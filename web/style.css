@@ -329,3 +329,7 @@ dl.bench dd { margin: 0; min-width: 0; overflow-wrap: break-word; }
 .ask > b { display: block; color: var(--warn); margin-bottom: 6px; }
 .ask p { margin: 0 0 8px; overflow-wrap: break-word; }
 .ask .row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 가속 단계 */
+.gpulv { margin: 10px 0; }
+.gpulv select { display: block; width: 100%; max-width: 420px; margin: 6px 0; }
