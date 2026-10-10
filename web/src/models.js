@@ -51,6 +51,7 @@ export class Whisper {
       if (k > 0) feed.dispose?.();
       if (k < this.enc.length - 1) feed = out[s.outputNames[0]];
     }
+    if (this.onFirstRun) { const f = this.onFirstRun; this.onFirstRun = null; f(); } // 그래픽 칩 첫 계산 통과 알림
     return out;
   }
 

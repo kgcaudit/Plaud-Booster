@@ -41,6 +41,9 @@ async function ensureIsolation() {
 let worker = null, WSTATE = { models: null, busy: false, owner: true, coi: false };
 function startWorker() {
   worker = new Worker(new URL("./worker.js" + (FAKE ? "?fake=1" : ""), import.meta.url), { type: "module" });
+  // 지난번에 정상적으로 닫았는지(새로 고침·탭 닫기) 알려 준다 — 그래픽 칩 계산 중 브라우저가 꺼진 것과 구분하려고
+  let clean = 0; try { clean = +localStorage.getItem("pb-clean-exit") || 0; } catch { /* 저장 안 됨 */ }
+  worker.postMessage({ type: "env", cleanExitAt: clean });
   worker.onmessage = (ev) => {
     const m = ev.data;
     if (m.type === "hello") { WSTATE.owner = m.owner; worker.postMessage({ type: "status" }); kick(); }
@@ -65,6 +68,7 @@ function startWorker() {
     if (m.type === "bench") onBench(m);
     if (m.type === "error") { keepAwake("model", false); toast(m.message); }
     if (m.type === "notice") toast(m.message);
+    if (m.type === "gpuAsk") { $("#gpuAsk").classList.remove("hidden"); $("#gpuAsk").scrollIntoView({ block: "start" }); }
   };
 }
 const kick = () => worker && worker.postMessage({ type: "kick" });
@@ -92,6 +96,8 @@ function keepAwake(reason, on) {
 }
 const wakeLock = (on) => keepAwake("job", on);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncAwake(); });
+// 정상 종료 표시(새로 고침·탭 닫기·다른 주소로 이동 때 불림 — 브라우저가 꺼질 때는 불리지 않음)
+window.addEventListener("pagehide", () => { try { localStorage.setItem("pb-clean-exit", String(Date.now())); } catch { /* 저장 안 됨 */ } });
 
 function renderSys() {
   const m = WSTATE.models;
@@ -130,6 +136,16 @@ function showTab(name) {
   if (name === "glossary") loadGlossary();
   if (name === "settings") loadSettings();
 }
+
+$("#gpuAsk").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button[data-gpu]");
+  if (!b) return;
+  const keep = b.dataset.gpu === "1";
+  $("#gpuAsk").classList.add("hidden");
+  worker.postMessage({ type: "gpuAnswer", gpu: keep });
+  if (!keep) $("#useGpu").checked = false;
+  toast(keep ? "그래픽 칩 가속을 계속 씁니다" : "이 기기는 CPU로 전사합니다(설정에서 다시 켤 수 있음)");
+});
 
 /* ================================================================== 새 작업 */
 // 1. 녹음 출처(Plaud · 소니 녹음기 · 휴대폰·기타) → 2. 출처에 맞는 할 일 → 3. 파일 → 4. Plaud 전사(Plaud만) → 5. 참석자 → 6. 이름·고지

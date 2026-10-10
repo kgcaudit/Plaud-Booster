@@ -158,6 +158,16 @@ export function assignPack(spans, segs) {
   return texts.map((t) => t.join(" ").trim());
 }
 
+/**
+ * 그래픽 칩 시험 구간(모델 올리기 ~ 첫 계산)에서 탭이 꺼졌는지. pend: kv gpuLoading {at}, cleanExitAt: 마지막으로 정상 종료한 시각(ms).
+ * 시험 표시가 남아 있는데 그 뒤로 정상 종료(새로 고침·탭 닫기)가 없었다면 꺼진(충돌) 것으로 본다.
+ */
+export function gpuCrashed(pend, cleanExitAt = 0) {
+  if (!pend || !pend.at) return false;
+  const at = Date.parse(pend.at);
+  return !(cleanExitAt && cleanExitAt >= at);
+}
+
 export function pacer(now = () => Date.now()) {
   const d = [];
   let t = now();

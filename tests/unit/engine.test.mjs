@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { runJob, label, isHallu, isGeneric, centroid, pacer, cleanText } from "../../web/src/engine.js";
+import { runJob, label, isHallu, isGeneric, centroid, pacer, cleanText, gpuCrashed } from "../../web/src/engine.js";
 import { exportTxt, exportCsv, mergeBackup, mergedLines } from "../../web/src/export.js";
 
 // 합성 음원: 6초 주기(4초 말 + 2초 쉼). 화자는 시간대로 정해지는 가짜 특징(앞 30초 A, 뒤 B)
@@ -128,4 +128,12 @@ test("대화체 줄표 걷어 내기", () => {
   assert.equal(cleanText("-사무소 전화번호 잡고 있었어. - -"), "사무소 전화번호 잡고 있었어.");
   assert.equal(cleanText("- -"), "");
   assert.equal(cleanText("A-15 번하고 3-4번"), "A-15 번하고 3-4번");
+});
+
+test("그래픽 칩 시험 구간 중 꺼짐 판정: 정상 종료 뒤면 꺼진 것이 아님", () => {
+  const at = "2026-10-10T00:00:10Z", t = Date.parse(at);
+  assert.equal(gpuCrashed(null, 0), false);           // 시험 표시 없음
+  assert.equal(gpuCrashed({ at }, 0), true);          // 표시가 남았고 정상 종료 기록 없음 → 꺼짐
+  assert.equal(gpuCrashed({ at }, t - 5000), true);   // 정상 종료가 시험 시작보다 앞 → 그 뒤에 꺼짐
+  assert.equal(gpuCrashed({ at }, t + 3000), false);  // 시험 중 새로 고침·탭 닫기
 });

@@ -323,3 +323,9 @@ dl.bench dt { color: var(--mute); }
 dl.bench dd { margin: 0; min-width: 0; overflow-wrap: break-word; }
 
 @media (pointer: coarse) { .tabs .trow.sub button { min-height: 44px; } }
+
+/* 그래픽 칩 가속 계속 여부 묻기 */
+.ask { background: var(--warn-bg); border: 1px solid var(--warn); border-radius: 10px; padding: 12px 16px; margin-bottom: 14px; }
+.ask > b { display: block; color: var(--warn); margin-bottom: 6px; }
+.ask p { margin: 0 0 8px; overflow-wrap: break-word; }
+.ask .row { display: flex; flex-wrap: wrap; gap: 8px; }

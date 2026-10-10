@@ -82,7 +82,9 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
 - 메모리: 휴대폰 탭은 메모리가 넘치면 「앗, 이런!」으로 꺼집니다. 모델은 **하나씩 읽어 세션을 만든 뒤 바로 놓습니다**(Whisper.create에 읽기 함수를 넘김) —
   한꺼번에 읽으면 렌더러 최대 3.1GB, 하나씩이면 2.5GB(CPU 경로 실측). 인코더는 **블록 경계에서 4조각**(tools/split_encoder.py, manifest
   encoderParts)으로 나눠 조각마다 세션을 만들고 차례로 잇습니다(Whisper.encode, 결과는 나누기 전과 똑같음 — 차이 0.0).
-  그래픽 칩 경로 렌더러 최대 2.48GB → 1.86GB. 그래픽 칩에 올리다 두 번 연달아 꺼지면(kv gpuLoading) CPU로 엽니다.
+  그래픽 칩 경로 렌더러 최대 2.48GB → 1.86GB. 그래픽 칩 「시험 구간」(올리기 ~ 첫 계산 끝, kv gpuLoading {v:2, at})에 탭이 꺼진 흔적이 있으면
+  (그 뒤 정상 종료 기록 localStorage pb-clean-exit가 없으면 — gpuCrashed) **자동으로 끄지 않고 사용자에게 묻습니다**(#gpuAsk, 답할 때까지 처리 대기).
+  브라우저가 꺼진 것과 사람이 닫은 것을 확실히 가를 수 없기 때문입니다(갤럭시 Z 플립3·Adreno 660은 첫 계산에서 크롬이 꺼짐).
   「모델 받기」는 캐시에만 받고(downloadAll) 메모리에 올리지 않습니다. 화면은 인터넷에서 받는 중과 저장된 모델을 불러오는 중을 나눠 보입니다.
 - 인코더는 **8비트 블록 양자화(MatMulNBits, 블록 128, 약 700MB)** 입니다(tools/to_nbits.py, 배포 때 int8에서 변환). 그래픽 칩(WebGPU)이 있으면
   인코더만 WebGPU로, 디코더·CAM++·Silero는 wasm으로 돕니다(설정 「그래픽 칩 가속」, settings.gpu). 10-08 두 구간 글자 오류율(묶어 전사):

@@ -36,6 +36,15 @@
 
 <main>
 <div id="banner" class="banner hidden"></div>
+<div id="gpuAsk" class="ask hidden" role="alertdialog" aria-labelledby="gpuAskT">
+  <b id="gpuAskT">그래픽 칩 가속을 계속 쓸까요?</b>
+  <p>지난번 그래픽 칩으로 모델을 올리거나 계산하던 중에 이 페이지가 끝까지 마치지 못하고 닫혔습니다.
+    <b>브라우저가 스스로 꺼진 것</b>이라면 이 기기에서는 그래픽 칩 가속이 버거운 것이니 CPU로 바꾸는 편이 안전합니다(느리지만 꺼지지 않음).
+    <b>직접 닫거나 새로 고친 것</b>이라면 그대로 쓰셔도 됩니다. 고르시면 처리를 이어 갑니다.</p>
+  <p class="row"><button type="button" class="primary" data-gpu="0">CPU로 바꾸기(가속 끄기)</button>
+    <button type="button" data-gpu="1">그래픽 칩 계속 쓰기</button></p>
+  <p class="note">나중에 설정 탭 「그래픽 칩 가속」에서 언제든 바꿀 수 있습니다.</p>
+</div>
 
 <!-- ======================= 작업 ======================= -->
 <section id="tab-jobs" class="tab on">

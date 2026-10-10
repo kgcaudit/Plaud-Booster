@@ -1,12 +1,12 @@
 // 처리 일꾼(Web Worker): 모델을 받아 두고, 대기 중인 작업을 하나씩 처리한다.
 // 화면과는 postMessage로만 이야기하고, 결과는 IndexedDB에 바로 쓴다.
 import * as S from "./store.js";
-import { runJob, isGeneric } from "./engine.js";
+import { runJob, isGeneric, gpuCrashed } from "./engine.js";
 import { isDiar } from "./export.js";
 
 const FAKE = new URL(self.location.href).searchParams.get("fake") === "1";
 const post = (m) => self.postMessage(m);
-let useGpu = false;
+let useGpu = false, cleanExitAt = 0; // cleanExitAt: 화면이 알려 준 마지막 정상 종료 시각(ms)
 let ort = null, whisper = null, camp = null, vad = null, busy = false, stopId = null, manifest = null;
 
 /* ------------------------------------------------------------------ 모델 */
@@ -117,6 +117,7 @@ async function cleanupOldCaches() {
  */
 async function ensureModels(need = "all") {
   if (FAKE) {
+    if (need === "all" && !whisper) await gpuGuard(); // 시험에서도 같은 묻기 절차를 거치게
     whisper = whisper || {
       transcribe: async (a) => `가짜 전사 ${(a.length / 16000).toFixed(1)}초`,
       // 묶은 창: 0.3초 넘게 조용한 곳으로 나눠 구간마다 글 하나
@@ -169,21 +170,38 @@ async function ensureModels(need = "all") {
     const tokens = new TextDecoder().decode(await loadFile(m.files.tokens, tick));
     // 메모리: 인코더(700MB)·디코더를 한꺼번에 읽어 두지 않고 하나씩 읽어 세션을 만든 뒤 바로 놓는다.
     // (한꺼번에 들면 JS 사본 + wasm 사본 + 그래픽 칩 사본이 겹쳐 휴대폰 브라우저 탭이 메모리 부족으로 꺼진다)
-    // 그래픽 칩에 올리다 탭이 두 번 연달아 꺼지면 CPU로 연다(kv gpuLoading: 끝나지 못한 횟수 — 한 번은 새로 고침일 수 있음).
-    let gpu = useGpu;
-    const pend = (await S.get("kv", "gpuLoading")) || { n: 0 };
-    if (gpu && pend.n >= 2) {
-      gpu = false;
-      await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpu: false });
-      post({ type: "notice", message: "지난번 그래픽 칩에 모델을 올리다 멈춰, 그래픽 칩 가속을 껐습니다(설정에서 다시 켤 수 있음)" });
-    }
-    if (gpu) await S.put("kv", "gpuLoading", { n: pend.n + 1, at: S.now() });
+    // 그래픽 칩 「시험 구간」(올리기 ~ 첫 계산이 끝날 때까지)에 탭이 꺼지면 다음부터 CPU로 연다(kv gpuLoading).
+    // 일부러 새로 고치거나 닫은 경우(화면이 알려 준 정상 종료 시각이 더 뒤)는 꺼진 것으로 치지 않는다.
+    // (갤럭시 Z 플립3·Adreno 660: 올리기는 되고 첫 계산에서 크롬이 꺼짐 — 2026-10-10)
+    const gpu = useGpu && (await gpuGuard());
+    if (gpu) await S.put("kv", "gpuLoading", { v: 2, at: S.now() });
     whisper = await Whisper.create(ort, encFiles(m).map((f) => () => loadFile(f, tick)), () => loadFile(m.files.decoder, tick), tokens, {},
       { gpu, onLoad: () => post({ type: "models", phase: "load" }) });
-    await S.del("kv", "gpuLoading");
+    if (whisper.device === "gpu") whisper.onFirstRun = () => S.del("kv", "gpuLoading").catch(() => {}); // 첫 계산이 끝나야 시험 통과
+    else await S.del("kv", "gpuLoading");
     await cleanupOldCaches();
   }
   post({ type: "models", phase: "ready", threads: ort.env.wasm.numThreads, partial: !whisper, device: whisper ? whisper.device : null, gpuError: whisper ? whisper.gpuError : null });
+}
+
+/**
+ * 그래픽 칩 시험 구간에 꺼진 흔적이 있으면 사람에게 묻는다. 돌려주는 값: 그래픽 칩을 계속 쓸지.
+ * 브라우저가 꺼진 것인지 사람이 닫은 것인지 확실히 가를 수 없으므로 알리고 고르게 한다(답할 때까지 기다림).
+ */
+async function gpuGuard() {
+  const pend = await S.get("kv", "gpuLoading");
+  if (pend && pend.v !== 2) { await S.del("kv", "gpuLoading"); return true; } // 예전 형식 표시는 버린다(판정 기준이 달랐음)
+  if (!pend || !gpuCrashed(pend, cleanExitAt)) return true;
+  const keep = await askGpu();
+  await S.del("kv", "gpuLoading");
+  if (!keep) await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpu: false });
+  return keep;
+}
+
+/** 그래픽 칩 가속을 계속 쓸지 화면에 묻고 답을 기다린다(true = 계속 사용) */
+let gpuReply = null;
+function askGpu() {
+  return new Promise((res) => { gpuReply = res; post({ type: "gpuAsk" }); });
 }
 
 /* ------------------------------------------------------------------ 작업 */
@@ -341,6 +359,9 @@ async function bench() {
 self.onmessage = async (ev) => {
   const m = ev.data;
   try {
+    if (m.type === "env") cleanExitAt = +m.cleanExitAt || 0;
+    if (m.type === "gpuAnswer" && gpuReply) { const r = gpuReply; gpuReply = null; r(!!m.gpu); }
+    if (m.type === "status" && gpuReply) post({ type: "gpuAsk" }); // 새로 연 화면에도 질문을 다시 보인다
     if (m.type === "kick" && owner) loop();
     if (m.type === "stop") stopId = m.id;
     if (m.type === "status") post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE });

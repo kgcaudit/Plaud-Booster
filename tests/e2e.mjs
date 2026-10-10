@@ -281,8 +281,26 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
     console.log("✓ 조각 음원 2개(MP3 2:30 + WAV) 처리·파일별 내보내기");
   }
 
-  // ---- 기기 성능 시험(가짜 엔진) — 결과표가 나오고 휴대폰 폭에서도 넘치지 않는다
+  // ---- 그래픽 칩 시험 구간 중 꺼진 흔적이 있으면 묻고, 고른 대로 한다(자동으로 끄지 않음)
+  // 시험 표시 시각을 미래로 두어, 새로 고침이 남기는 정상 종료 기록보다 뒤 → 「꺼진 흔적」으로 보이게 한다
+  await page.evaluate(async () => {
+    const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); });
+    await new Promise((r) => { const tx = db.transaction("kv", "readwrite"); tx.objectStore("kv").put({ v: 2, at: new Date(Date.now() + 3600e3).toISOString() }, "gpuLoading"); tx.oncomplete = r; });
+  });
+  await page.reload();
+  await page.waitForSelector("#sysline:has-text('가짜 엔진')");
   await page.click(".tabs button[data-tab='settings']");
+  await page.click("#btnBench");
+  await page.waitForSelector("#gpuAsk:not(.hidden)", { timeout: 15000 });
+  assert.ok(await page.locator("#benchMsg:has-text('끝났습니다')").count() === 0); // 답하기 전에는 진행하지 않음
+  await page.click("#gpuAsk button[data-gpu='0']");
+  await page.waitForSelector("#benchMsg:has-text('끝났습니다')", { timeout: 60000 });
+  const setGpu = await page.evaluate(async () => { const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); }); return new Promise((r) => { const q = db.transaction("kv").objectStore("kv").get("settings"); q.onsuccess = () => r(q.result && q.result.gpu); }); });
+  assert.equal(setGpu, false);
+  assert.ok(await page.locator("#gpuAsk").isHidden());
+  console.log("✓ 그래픽 칩 꺼짐 흔적 → 묻고 고른 대로(CPU로 바꾸기)");
+
+  // ---- 기기 성능 시험(가짜 엔진) — 결과표가 나오고 휴대폰 폭에서도 넘치지 않는다
   await page.click("#btnBench");
   await page.waitForSelector("#benchMsg:has-text('끝났습니다')", { timeout: 60000 });
   const bt = await page.locator("#benchOut").textContent();
