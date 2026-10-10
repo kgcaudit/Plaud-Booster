@@ -66,3 +66,17 @@ test("날 AAC(.aac ADTS) 프레임 목록", { skip: !HAS }, () => {
 test("m4a가 아닌 파일은 null", () => {
   assert.equal(mp4Audio(new Uint8Array(100)), null);
 });
+
+import { wavLayout } from "../../web/src/audio.js";
+test("WAV: 소리 앞에 큰 정보 덩어리(bext·JUNK)가 있어도 소리 덩어리를 찾는다", async () => {
+  const junk = 200000, n = 1600;
+  const b = Buffer.alloc(12 + 8 + 16 + 8 + junk + 8 + n * 2);
+  b.write("RIFF", 0); b.writeUInt32LE(b.length - 8, 4); b.write("WAVE", 8);
+  b.write("fmt ", 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34);
+  b.write("JUNK", 36); b.writeUInt32LE(junk, 40);
+  b.write("data", 44 + junk); b.writeUInt32LE(n * 2, 48 + junk);
+  const L = await wavLayout(new Blob([b]));
+  assert.ok(L, "찾지 못함");
+  assert.equal(L.dataOff, 52 + junk); assert.equal(L.dataLen, n * 2); assert.equal(L.fmt.sr, 16000);
+  assert.equal(await wavLayout(new Blob([Buffer.from("not a wav file")])), null);
+});

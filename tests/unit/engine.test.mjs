@@ -165,3 +165,25 @@ test("묶은 창은 실제로 읽는 길이(앞뒤 여유 포함)로 24초를 �
     assert.ok(real <= 24.0001, `창 ${real}초`);
   }
 });
+
+import { winSig, planTargets, regionsOf } from "../../web/src/engine.js";
+import { activeEnd } from "../../web/src/dsp.js";
+test("안정화: 특징 묶음 서명·누락 구간 끝 찾기는 10분씩 읽어도 같음·중지 확인", async () => {
+  const w = [{ f: 0, s: 1, e: 4 }, { f: 0, s: 2.5, e: 5.5 }];
+  assert.equal(winSig(w, 0, 2), winSig(w.map((x) => ({ ...x })), 0, 2));
+  assert.notEqual(winSig(w, 0, 2), winSig([w[0], { f: 0, s: 2.6, e: 5.5 }], 0, 2)); // 창이 달라지면 서명도 다름
+  // 누락 구간 끝: 통째로 읽은 것과 10분씩 읽은 것이 같다
+  const x = audio(1500); x.fill(0, 900 * SR);
+  const reads = [];
+  const ra = async (fi, s, e) => { reads.push(e - s); return x.subarray(Math.floor(s * SR), Math.floor(e * SR)); };
+  const [[, t0, end]] = await planTargets({ mode: "gap", transcriptEndSec: 115 }, [{ dur: 1500 }], 0, ra);
+  assert.equal(end, activeEnd(x.subarray(100 * SR), 100, 1500));
+  assert.ok(t0 === 100 && Math.max(...reads) <= 600);
+  // 중지하면 말소리 찾기를 멈춘다
+  const r = await regionsOf({ readAudio: ra, shouldStop: () => true }, 0, 0, 1500);
+  assert.ok(r.stopped && r.length === 0);
+  // 목소리 기준 만들기 중지 → 결과 없음(저장 안 함)
+  const ctx = makeCtx(audio(90), { shouldStop: () => true });
+  const res = await runJob({ mode: "range", range: { from: 24, to: 60 } }, [{ name: "a.wav", dur: 90 }], ctx);
+  assert.equal(res.result, null); assert.equal(ctx.store.enroll, null);
+});

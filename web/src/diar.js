@@ -449,8 +449,11 @@ export function splitCluster(diar, ci, known = {}, opt = {}) {
   const nd = relabelDiar(diar, turns, [{ id, label: "Speaker " + id.slice(1), suggest: null, alt: null, vec: diar.clusters[ci].vec }], new Set([ci, nc]), known, o);
   return { ...nd, splits: [...(diar.splits || []), { from: diar.clusters[ci].id, to: id }] };
 }
-/** 새 묶음 번호(S 다음 숫자) */
-const nextId = (diar) => "S" + (Math.max(0, ...diar.clusters.map((c) => +String(c.id).replace(/\D/g, "") || 0)) + 1);
+/** 새 묶음 번호(S 다음 숫자). 지워진 묶음 번호는 다시 쓰지 않는다 — 이름(edits.names)·빼기(job.skip)가 번호에 붙어 있어,
+ *  지운 S3 자리에 새 사람이 S3로 오면 옛 이름·빼기가 그대로 붙었다. lastId = 지금까지 쓴 가장 큰 번호 */
+const idNum = (id) => +String(id).replace(/\D/g, "") || 0;
+const maxId = (diar) => Math.max(diar.lastId || 0, ...diar.clusters.map((c) => idNum(c.id)), ...(diar.splits || []).map((x) => idNum(x.to)), ...(diar.manual || []).map((x) => idNum(x.to)));
+const nextId = (diar) => "S" + (maxId(diar) + 1);
 
 /* ------------------------------------------------------------------ 구간 손보기(이름 대기 중)
  * 사람이 시작·끝을 정한 구간을 한 사람(기존 묶음 · 새 사람 · 빼기)으로 못 박는다.
@@ -487,6 +490,7 @@ const relabelDiar = (diar, turns, extraCl, touched, known, o) => {
 };
 /** 차례가 하나도 남지 않은 묶음은 지우고 번호를 당긴다(이름 정하기 「n묶음 중 k개」가 빈 묶음 때문에 끝나지 않던 문제). id는 그대로라 붙인 이름은 유지 */
 function pruneEmpty(d) {
+  d = { ...d, lastId: maxId(d) }; // 지우기 전 번호까지 기억
   const used = new Set(d.turns.map((t) => t.c).filter((c) => c >= 0));
   if (used.size === d.clusters.length) return d;
   const remap = []; let n = 0;
@@ -497,7 +501,7 @@ function pruneEmpty(d) {
 
 /**
  * 구간 [s, e](파일 f)를 target으로: 묶음 번호 · "new"(새 사람) · "drop"(빼기).
- * opt.ref: 이 구간을 그 사람 목소리 기준으로 표시(기본 true). 반환: { diar, to(묶음 번호 또는 -1), from(구간을 가장 많이 갖고 있던 묶음) } 또는 null
+ * opt.ref: 이 구간을 그 사람 목소리 기준으로 표시(기본 true). opt.only: 이 묶음 번호의 차례만 옮김(비슷한 곳 옮기기 — 사이에 낀 다른 사람 「네」는 그대로). 반환: { diar, to(묶음 번호 또는 -1), from(구간을 가장 많이 갖고 있던 묶음) } 또는 null
  */
 export function relabelRange(diar, f, s, e, target, known = {}, opt = {}) {
   const o = { ...DEFAULTS, ...opt };
@@ -513,7 +517,7 @@ export function relabelRange(diar, f, s, e, target, known = {}, opt = {}) {
   const had = {};
   let hit = 0;
   for (const t of diar.turns) {
-    if ((t.f || 0) !== f || t.e <= s || t.s >= e) { turns.push({ ...t }); continue; }
+    if ((t.f || 0) !== f || t.e <= s || t.s >= e || (opt.only != null && t.c !== opt.only)) { turns.push({ ...t }); continue; }
     const a = Math.max(s, t.s), b = Math.min(e, t.e);
     if (b - a < 0.1) { turns.push({ ...t }); continue; } // 0.1초도 안 걸친 이웃 차례는 그대로(남의 목소리 특징이 기준으로 섞이지 않게)
     had[t.c] = (had[t.c] || 0) + (b - a);

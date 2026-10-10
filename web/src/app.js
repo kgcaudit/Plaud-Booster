@@ -433,7 +433,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
         job.audioFiles.push({ name: a.file.name, dur, ...(a.recordedAt ? { recordedAt: a.recordedAt, timeSrc: a.timeSrc } : {}) });
       } catch (e) { await w.abort(); throw new Error(`${a.file.name}: 음원을 열지 못했습니다 (${e.message})`); }
     }
-    await S.saveJob(id, { audioFiles: job.audioFiles, status: "대기", progress: { pct: 0, msg: "대기" } });
+    if (!(await S.saveJob(id, { audioFiles: job.audioFiles, status: "대기", progress: { pct: 0, msg: "대기" } }))) throw new Error("음원을 준비하는 동안 작업이 지워졌습니다");
     toast("작업을 등록했습니다");
     $("#newJob").classList.add("hidden"); $("#btnNew").classList.remove("hidden");
     kick(); loadJobs();
@@ -514,10 +514,15 @@ $("#jobList").addEventListener("click", async (ev) => {
     if (a === "review") { REVIEW.want = id; showTab("review"); return; }
     if (a === "stop") {
       const j = await S.get("jobs", id);
-      if (j.status === "대기") await S.saveJob(id, { status: "중지" });
-      worker.postMessage({ type: "stop", id });
+      if (j && j.status === "대기") await S.saveJob(id, { status: "중지" });
+      worker && worker.postMessage({ type: "stop", id });
     }
     if (a === "resume") { await S.saveJob(id, { status: "대기", error: null }); kick(); }
+    if (a === "fresh" || a === "del") { // 카드가 오래돼 지금 상태와 다를 수 있으니 다시 읽는다
+      const j = await S.get("jobs", id);
+      if (!j) { loadJobs(); return; }
+      if (a === "fresh" && j.status === "처리중") { toast("처리 중입니다 — 먼저 「중지」한 뒤 다시 누르세요"); loadJobs(); return; }
+    }
     if (a === "fresh") {
       const j = await S.get("jobs", id);
       if (isDiar(j.mode)) {
@@ -528,7 +533,7 @@ $("#jobList").addEventListener("click", async (ev) => {
       await S.saveJob(id, { status: "대기", error: null, stats: null, progress: { pct: 0, msg: "대기" }, ...(isDiar(j.mode) ? { stage: "diar", skip: [] } : {}) }); kick();
     }
     if (a === "delaudio") { if (!confirm("이 작업의 음원을 지울까요? 결과는 남고, 검수 화면의 재생은 안 됩니다.")) return; await S.deleteAudio(id); await S.saveJob(id, { audioDeleted: true }); }
-    if (a === "del") { if (!confirm("작업과 결과를 모두 지울까요? (목소리 기준은 남습니다)")) return; await S.deleteJob(id); }
+    if (a === "del") { if (!confirm("작업과 결과를 모두 지울까요? (목소리 기준은 남습니다)")) return; worker && worker.postMessage({ type: "stop", id }); await S.deleteJob(id); }
     loadJobs();
   } catch (e) { toast(e.message); }
 });
@@ -816,7 +821,18 @@ $("#rvBody").addEventListener("click", (ev) => {
     saveEdits(); renderScope(); return;
   }
   if (a === "split") { REVIEW.split = { i: g.i, k: +b.dataset.k }; renderReview(); return; }
-  if (a === "splitCancel") { REVIEW.split = null; renderReview(); return; }
+  if (a === "splitCancel") { // 나누려다 그만둬도 글 칸에서 고친 것은 남긴다
+    const ta = $("textarea.splitta", tr), e = editOf(i), k = REVIEW.split.k, v = ta ? ta.value.trim() : null;
+    if (v != null) {
+      const cur = e.parts && e.parts.length ? e.parts[k].text : e.text ?? gloss(g.text).trim();
+      if (v !== (cur || "").trim()) {
+        pushUndo();
+        if (e.parts && e.parts.length) e.parts[k].text = v; else if (v === gloss(g.text).trim()) delete e.text; else e.text = v;
+        saveEdits();
+      }
+    }
+    REVIEW.split = null; renderReview(); return;
+  }
   if (a === "doSplit" || a === "doSplitPlay") {
     const ta = $("textarea.splitta", tr), e = editOf(i), k = REVIEW.split.k;
     const at = a === "doSplitPlay" ? playPosIn(g.file || 0, +b.dataset.s, +b.dataset.e) : undefined;
@@ -1121,6 +1137,8 @@ function stopWatch() {
   };
   STOP.raf = requestAnimationFrame(tick);
 }
+// 화면이 꺼지거나 다른 앱으로 가면 화면 갱신(requestAnimationFrame)이 멈추므로 끝을 넘겨 계속 재생되던 것 — timeupdate로도 확인
+queueMicrotask(() => player.addEventListener("timeupdate", () => { if (STOP.at != null && player.currentTime >= STOP.at) { player.pause(); STOP.at = null; } }));
 async function playRange(f, s, e) {
   stopClear(); // 앞 구간의 멈춤 감시가 새 재생을 잘못 멈추지 않게(다른 파일로 옮길 때 특히)
   await seekPlay(f, s);
@@ -1227,6 +1245,7 @@ $("#rvBody").addEventListener("pointerdown", (ev) => {
 // 자판(폴드 펼침·PC): Ctrl+Space 재생/멈춤, Ctrl+←/→ 5초
 document.addEventListener("keydown", (ev) => {
   if (!$("#tab-review").classList.contains("on") || !(ev.ctrlKey || ev.metaKey)) return;
+  if (!REVIEW.data) return;
   if (ev.code === "Space") { ev.preventDefault(); const b = SEG.key && $$("#rvBody button.play").find((y) => segKey(y) === SEG.key); if (b) segToggle(b); else $("#tlPlay").click(); }
   else if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && !ev.target.closest("input, textarea")) { ev.preventDefault(); const d = ev.key === "ArrowLeft" ? -5 : 5; if (SEG.key) segSeek(d); else $(`#tl button[data-j='${d}']`).click(); }
 });
@@ -1348,7 +1367,16 @@ $("#spkPanel").addEventListener("change", async (ev) => {
     pushUndo();
     const v = t.value.trim();
     if (v) REVIEW.names[id] = v; else delete REVIEW.names[id];
-    saveEdits(); renderReview();
+    saveEdits();
+    // 다음 이름 칸을 누르는 사이에 이 change가 와서 화면을 다시 그리면 새로 누른 칸이 사라져 키보드가 닫혔다 —
+    // 포커스가 옮겨 간 뒤 다시 그리고, 같은 칸에 포커스를 돌려준다
+    setTimeout(() => {
+      const f = document.activeElement, fc = f && f.closest && f.closest("#spkPanel .cl");
+      const sel = fc && f.dataset.a ? `#spkPanel .cl[data-c="${CSS.escape(fc.dataset.c)}"] [data-a="${f.dataset.a}"]` : null;
+      renderReview();
+      const g = sel && $(sel);
+      if (g) g.focus({ preventScroll: true });
+    }, 0);
   }
   if (t.dataset.a === "inc") {
     const job = await S.get("jobs", REVIEW.id);
@@ -1802,7 +1830,7 @@ function rgDraw() {
   c.addEventListener("pointerup", (ev) => {
     const d = RG.drag; RG.drag = null;
     if (!d) return;
-    if (!d.moved) seekPlay(RG.f, tOf(ev), !player.paused);
+    if (!d.moved) { const go = !player.paused; tlTake(); seekPlay(RG.f, tOf(ev), go); } // 앞 구간 끝 멈춤을 지우고 옮김
     else if (RG.e - RG.s < 0.2) { RG.e = RG.s + 0.2; rgRender(); }
   });
 })();
@@ -1827,7 +1855,19 @@ $("#rgSheet").addEventListener("click", async (ev) => {
   if (a === "snow" || a === "enow") { if (now == null) { toast("먼저 재생하다가 누르세요"); return; } set(a[0], now); }
   if (a === "play") playRange(RG.f, RG.s, RG.e);
   if (a === "playctx") playRange(RG.f, Math.max(0, RG.s - 2), RG.e + 2);
+  if (RG.busy) return; // 두 번 눌러 두 번 옮기지 않게
   if (a === "apply") {
+    RG.busy = true;
+    try { await rgApply(); } finally { RG.busy = false; }
+    return;
+  }
+  if (a === "moveSim") {
+    RG.busy = true;
+    try { await rgMoveSim(); } finally { RG.busy = false; }
+  }
+});
+async function rgApply() {
+  {
     const known = await rgKnown();
     const res = relabelRange(REVIEW.diar, RG.f, RG.s, RG.e, RG.target, known);
     if (!res) { toast("이 구간에는 말소리 구간이 없습니다"); return; }
@@ -1838,7 +1878,7 @@ $("#rgSheet").addEventListener("click", async (ev) => {
     const toName = res.to >= 0 ? rgNameOf(res.to) : "빼기";
     const sim = $("#rgFind").checked && res.to >= 0 && res.from >= 0 && res.from !== res.to ? similarRegions(res.diar, res.from, res.to) : [];
     if (!sim.length) { closeRange(); toast(`${fmt1(RG.s)}~${fmt1(RG.e)} → ${toName} (되돌리기 가능)${$("#rgFind").checked && res.to >= 0 ? " · 비슷한 곳은 없었습니다" : ""}`); return; }
-    Object.assign(RG, { simTo: res.to, sim });
+    Object.assign(RG, { simToId: res.diar.clusters[res.to].id, simFromId: res.diar.clusters[res.from].id, sim });
     $("#rgDone").textContent = `✓ ${fmt1(RG.s)}~${fmt1(RG.e)} → ${toName} (되돌리기 가능)`;
     $("#rgSimT").textContent = `${toName}와 닮은 곳 ${sim.length}곳 (${Math.round(sim.reduce((m, r) => m + r.e - r.s, 0))}초)`;
     $("#rgSimH").textContent = `${rgNameOf(res.from)}으로 묶였지만 방금 고른 목소리에 더 가까운 곳입니다. 들어 보고 맞는 것만 고르세요.`;
@@ -1848,20 +1888,29 @@ $("#rgSheet").addEventListener("click", async (ev) => {
     $("#rgEdit").classList.add("hidden"); $("#rgSim").classList.remove("hidden");
     $$("#rgSheet .flow span").forEach((x) => x.classList.toggle("on", x.dataset.st === "3"));
     rgSimCount();
-    return;
   }
-  if (a === "moveSim") {
-    const pick = $$("#rgSimList input:checked").map((x) => RG.sim[+x.dataset.k]);
-    if (!pick.length) { closeRange(); return; }
-    const known = await rgKnown();
-    pushUndo(REVIEW.diar);
-    let d = REVIEW.diar;
-    for (const r of pick) { const res = relabelRange(d, r.f, r.s, r.e, RG.simTo, known, { ref: false }); if (res) d = res.diar; }
-    REVIEW.diar = d;
-    await S.put("chunks", REVIEW.id, d);
-    renderReview(); closeRange();
-    toast(`${pick.length}곳을 ${rgNameOf(RG.simTo)}(으)로 옮겼습니다 (되돌리기 가능)`);
+}
+// 비슷한 곳 옮기기: 옮길 때마다 빈 묶음이 지워져 번호가 당겨질 수 있으므로 묶음은 id로 찾는다.
+// 원래 묶음(from)의 차례만 옮긴다 — 곳 사이에 낀 다른 사람의 짧은 말은 건드리지 않음
+async function rgMoveSim() {
+  const pick = $$("#rgSimList input:checked").map((x) => RG.sim[+x.dataset.k]);
+  if (!pick.length) { closeRange(); return; }
+  const known = await rgKnown();
+  const ix = (d, id) => d.clusters.findIndex((c) => c.id === id);
+  let d = REVIEW.diar, n = 0;
+  for (const r of pick) {
+    const to = ix(d, RG.simToId), from = ix(d, RG.simFromId);
+    if (to < 0 || from < 0) break;
+    const res = relabelRange(d, r.f, r.s, r.e, to, known, { ref: false, only: from });
+    if (res) { d = res.diar; n++; }
   }
-});
+  if (!n) { closeRange(); return; }
+  pushUndo(REVIEW.diar); // 다 끝낸 뒤에 되돌리기 자리를 만든다(중간에 실패해도 반쯤 바뀐 상태가 남지 않게)
+  REVIEW.diar = d;
+  await S.put("chunks", REVIEW.id, d);
+  renderReview(); closeRange();
+  const to = ix(d, RG.simToId);
+  toast(`${n}곳을 ${to >= 0 ? rgNameOf(to) : "고른 사람"}(으)로 옮겼습니다 (되돌리기 가능)`);
+}
 function rgSimCount() { const n = $$("#rgSimList input:checked").length; const b = $("#rgSheet [data-rg='moveSim']"); b.textContent = n ? `고른 ${n}곳 옮기기` : "닫기"; }
 $("#rgSimList").addEventListener("change", rgSimCount);

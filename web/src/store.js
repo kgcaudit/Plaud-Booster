@@ -56,7 +56,7 @@ export async function update(store, key, fn) {
   let out;
   const cur = await req(s.get(key));
   out = fn(cur);
-  s.put(out, key);
+  if (out !== undefined) s.put(out, key); // undefined면 쓰지 않음(지워진 작업을 빈 기록으로 되살리지 않게)
   await done(tx);
   return out;
 }
@@ -64,7 +64,8 @@ export async function update(store, key, fn) {
 export const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 
 export async function saveJob(id, patch) {
-  return update("jobs", id, (j) => ({ ...(j || {}), ...patch, updatedAt: now() }));
+  // 없는(지워진) 작업은 되살리지 않는다 — 지운 뒤 늦게 온 진행률·상태 저장이 이름 없는 유령 작업을 만들어 처리까지 하던 문제
+  return update("jobs", id, (j) => (j ? { ...j, ...patch, updatedAt: now() } : undefined));
 }
 
 /* ------------------------------------------------------------------ 음원(OPFS) */
@@ -150,9 +151,11 @@ export async function clearPartials(id) {
 }
 
 export async function deleteJob(id) {
-  for (const s of ["jobs", "plaud", "results", "edits", "enroll", "chunks"]) await del(s, id);
+  // 작업 기록은 맨 나중에 지운다 — 중간에 탭이 닫혀도 「작업 없는 결과·음원」이 보이지 않게 남지 않도록(작업이 남아 다시 지울 수 있음)
+  for (const s of ["plaud", "results", "edits", "enroll", "chunks"]) await del(s, id);
   await clearPartials(id);
   await deleteAudio(id);
+  await del("jobs", id);
 }
 
 /** 처음부터 다시: 중간 결과를 지운다(음원·전사·검수는 남김) */

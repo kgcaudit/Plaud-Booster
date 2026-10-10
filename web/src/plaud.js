@@ -24,9 +24,11 @@ export function ts(s) {
   return s.replace(",", ".").split(":").reduce((v, p) => v * 60 + parseFloat(p), 0);
 }
 
+// 「회의는 10:30에 시작」의 「회의는 10」 + 「30에…」처럼 콜론이 시각 안에 있으면 화자 구분이 아니다
+const clockSplit = (spk, body) => /\d$/.test(spk.trim()) && /^\d/.test(body.trim());
 function looksLikeSpeaker(s) {
   s = s.trim();
-  return s.length > 0 && s.length <= 30 && !/[.?!。]$/.test(s) && s.split(/\s+/).length <= 4;
+  return s.length > 0 && s.length <= 30 && !/[.?!。]$/.test(s) && !/\d[:：]\d/.test(s) && s.split(/\s+/).length <= 4; // 시각이 든 글은 이름이 아님
 }
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -60,7 +62,7 @@ export function parseSrt(text) {
     let body = lines.slice(1).join(" ").trim();
     let spk = "";
     const mm = body.match(/^\[([^\]]{1,30})\]\s*[:：]?\s*(.+)$/) || body.match(/^([^:：]{1,30}?)\s*[:：]\s*(.+)$/);
-    if (mm) { spk = mm[1]; body = mm[2]; }
+    if (mm && !clockSplit(mm[1], mm[2])) { spk = mm[1]; body = mm[2]; }
     segs.push({ start: ts(m[1]), end: ts(m[2]), speaker: spk, text: body });
   }
   return finish(segs);
@@ -83,7 +85,7 @@ export function parseTxt(text) {
     if (m) {
       const rest = m[3].trim();
       const mm = rest.match(RE_SPK_TEXT);
-      if (mm) start(ts(m[1]), mm[1], mm[2], ts(m[2]));
+      if (mm && !clockSplit(mm[1], mm[2])) start(ts(m[1]), mm[1], mm[2], ts(m[2]));
       else if (looksLikeSpeaker(rest)) start(ts(m[1]), rest, "", ts(m[2]));
       else start(ts(m[1]), "", rest, ts(m[2]));
       continue;
@@ -95,7 +97,7 @@ export function parseTxt(text) {
     if (m) {
       const rest = m[2].trim();
       const mm = rest.match(RE_SPK_TEXT);
-      if (mm && looksLikeSpeaker(mm[1])) start(ts(m[1]), mm[1], mm[2]);
+      if (mm && looksLikeSpeaker(mm[1]) && !clockSplit(mm[1], mm[2])) start(ts(m[1]), mm[1], mm[2]);
       else if (!rest || looksLikeSpeaker(rest)) start(ts(m[1]), rest);
       else start(ts(m[1]), "", rest);
       continue;
@@ -107,11 +109,12 @@ export function parseTxt(text) {
   return finish(segs);
 }
 
+const sec = (v) => (typeof v === "string" && v.includes(":") ? ts(v) : +v); // 「00:00:05」 같은 글자 시각도 받음
 export function parseJson(data) {
   if (!Array.isArray(data)) data = data.segments || data.segs || data.data || [];
   const segs = data.map((g) => ("start_time" in g
     ? { start: g.start_time / 1000, end: (g.end_time || 0) / 1000, speaker: g.speaker || "", text: g.content || g.text || "" }
-    : { start: +g.start, end: +(g.end || 0), speaker: g.speaker || "", text: g.text || "" }));
+    : { start: sec(g.start), end: sec(g.end || 0), speaker: g.speaker || "", text: g.text || "" })).filter((g) => Number.isFinite(g.start));
   // 커넥터 응답은 같은 구간이 겹쳐 나올 때가 있다
   const uniq = new Map();
   for (const g of segs) uniq.set(round2(g.start) + "|" + g.speaker, g);

@@ -148,3 +148,18 @@ test("점검 보완: 짧은 조각 나누기·지운 글 빼기·CSV 수식 막�
   const r = mergeBackup({ voiceprints: {}, glossary: [], jobIds: new Set() }, { jobs: { x: { job: { status: "이름 대기" } } } });
   assert.equal(r.jobs.x.job.status, "중지");
 });
+
+test("묶음 번호는 다시 쓰지 않음·비슷한 곳 옮기기는 원래 묶음 차례만", () => {
+  const e0 = (j) => Array.from({ length: 8 }, (_, i) => (i === j ? 1 : 0));
+  const T = [];
+  for (let k = 0; k < 6; k++) T.push({ f: 0, s: k * 3, e: k * 3 + 3, n: 1, c: 0, v: e0(0) });
+  T.push({ f: 0, s: 9.2, e: 9.6, n: 1, c: 2, v: e0(2) }); // S3의 짧은 「네」가 S1 사이에
+  T.push({ f: 0, s: 30, e: 33, n: 1, c: 1, v: e0(1) });
+  const diar = { kind: "diar", turns: T, clusters: ["S1", "S2", "S3"].map((id, i) => ({ id, label: "Speaker " + (i + 1), vec: e0(i) })), units: [] };
+  const a = relabelRange(diar, 0, 9.1, 9.7, 0, {}); // S3 전부 → S1, S3 지워짐
+  assert.deepEqual(a.diar.clusters.map((c) => c.id), ["S1", "S2"]);
+  const b = relabelRange(a.diar, 0, 0, 3, "new", {});
+  assert.equal(b.diar.clusters[b.to].id, "S4"); // 지워진 S3를 다시 쓰지 않음(옛 이름·빼기가 붙지 않게)
+  const c = relabelRange(diar, 0, 6, 12, 1, {}, { only: 0 });
+  assert.ok(c.diar.turns.some((t) => t.s === 9.2 && c.diar.clusters[t.c].id === "S3")); // 사이에 낀 S3 차례는 그대로
+});

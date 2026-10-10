@@ -246,7 +246,7 @@ async function processJob(job) {
   const progress = async (pct, msg) => {
     if (Date.now() - last < 1500 && pct < 99) return;
     last = Date.now();
-    await S.saveJob(id, { progress: { pct, msg } });
+    if (!(await S.saveJob(id, { progress: { pct, msg } }))) stops.add(id); // 처리 중에 지워진 작업 — 멈춘다
     post({ type: "job", id, pct, msg });
   };
   const vpStore = Object.fromEntries(await S.all("voiceprints"));
@@ -269,6 +269,7 @@ async function processJob(job) {
     shouldStop: () => stops.has(id),
   };
   const { result, fresh, awaiting, diar } = await runJob(job, job.audioFiles, ctx);
+  if (!(await S.get("jobs", id))) { await S.resetJob(id); return; } // 처리 중에 지워졌으면 남은 중간 결과도 치운다
   if (awaiting) {
     await S.saveJob(id, { status: "이름 대기", stats: { clusters: diar.clusters.length, units: diar.units.length }, progress: { pct: 100, msg: "화자 이름을 붙인 뒤 전사를 시작하세요" } });
     post({ type: "job", id, naming: true });
@@ -395,11 +396,8 @@ self.onmessage = async (ev) => {
     }
     if (m.type === "gpuAnswer" && gpuReply) { const r = gpuReply; gpuReply = null; r(Math.max(0, Math.min(4, +m.level || 0))); }
     if (m.type === "status" && gpuReply) post({ type: "gpuAsk", level: gpuAskLevel }); // 새로 연 화면에도 질문을 다시 보인다
-    if (m.type === "kick" && owner) loop();
-    if (m.type === "stop") {
-      stops.add(m.id);
-      if (gpuReply && busy) { const r = gpuReply; gpuReply = null; r(gpuAskLevel); } // 그래픽 칩 질문을 기다리던 중이면 풀어서 멈춤이 먹히게
-    }
+    if (m.type === "kick") { if (owner) loop(); else if (bc) bc.postMessage({ type: "kick" }); } // 처리 맡은 탭이 따로 있으면 그쪽에 알림
+    if (m.type === "stop") { onStop(m.id); if (bc) bc.postMessage({ type: "stop", id: m.id }); }
     if (m.type === "status") post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE });
     if (m.type === "bench") {
       if (!owner) { post({ type: "bench", error: "다른 탭에서 처리를 맡고 있어 여기서는 시험할 수 없습니다(메모리가 모자라 둘 다 꺼질 수 있음). 그 탭을 닫고 다시 누르세요." }); return; }
@@ -415,6 +413,17 @@ self.onmessage = async (ev) => {
     post({ type: "error", message: String(e && e.message || e) });
   }
 };
+
+function onStop(id) {
+  stops.add(id);
+  if (gpuReply && busy) { const r = gpuReply; gpuReply = null; r(gpuAskLevel); } // 그래픽 칩 질문을 기다리던 중이면 풀어서 멈춤이 먹히게
+}
+// 탭을 여러 개 열면 처리는 한 탭(owner)에서만 한다. 다른 탭에서 넣은 「시작」·「중지」는 이 통로로 처리 탭 일꾼에 전한다
+// (예전에는 그 탭 일꾼만 받아 아무 일도 없었음 — 작업이 계속 「대기」, 중지가 안 먹힘)
+const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("pb-worker") : null;
+if (bc) bc.onmessage = (ev) => { const m = ev.data || {}; if (m.type === "kick" && owner) loop(); if (m.type === "stop") onStop(m.id); };
+// 쉬는 동안에도 가끔 대기 작업을 확인한다(알림을 놓쳐도 결국 처리되게)
+setInterval(() => { if (owner && !busy) nextJob().then((j) => { if (j) loop(); }).catch(() => {}); }, 15000);
 
 // 탭을 여러 개 열어도 처리는 한 곳에서만 한다(Web Locks).
 let owner = false;
@@ -436,7 +445,11 @@ let owner = false;
 })();
 async function becomeOwner() {
   // 처리 중에 페이지를 닫았다가 다시 열면 「처리중」으로 남은 작업을 대기로 돌려 이어서 한다
-  for (const [id, j] of await S.all("jobs")) if (j.status === "처리중") await S.saveJob(id, { status: "대기" });
+  for (const [id, j] of await S.all("jobs")) {
+    if (j.status === "처리중") await S.saveJob(id, { status: "대기" });
+    // 음원 준비(변환) 중에 탭이 닫혀 1시간 넘게 「준비」로 남은 작업 — 이어서 할 수 없으니 알려 준다(진행 막대만 끝없이 보이던 것)
+    else if (j.status === "준비" && Date.now() - Date.parse(j.updatedAt || j.createdAt || 0) > 3600e3) await S.saveJob(id, { status: "오류", error: "음원 준비가 끊겼습니다 — 이 작업을 지우고 다시 등록하세요" });
+  }
   // 그래픽 칩 시험 중 꺼진 흔적은 지금 판정해 표시해 둔다 — 다음 정상 종료 기록에 묻혀 다음번엔 못 알아보는 일을 막음
   Promise.race([envWait, new Promise((r) => setTimeout(r, 10000))]).then(async () => {
     const pend = await S.get("kv", "gpuLoading");

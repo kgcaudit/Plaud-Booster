@@ -457,6 +457,28 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   assert.deepEqual(pr, { keys: ["0", "1", "e0"], t0: "예전", t1: "새로", typed: true, left: 0, other: 1 });
   console.log("✓ 중간 결과 기록 하나씩 저장·예전 기록 읽기·지우기");
 
+  // ---- 지운 작업에 늦게 온 상태 저장이 유령 작업을 만들지 않음
+  const ghost = await page.evaluate(async () => {
+    const S = await import("/src/store.js");
+    const r = await S.saveJob("없는작업", { status: "대기", progress: { pct: 5 } });
+    return { r: r === undefined, left: (await S.get("jobs", "없는작업")) === undefined };
+  });
+  assert.deepEqual(ghost, { r: true, left: true });
+  console.log("✓ 지운 작업은 상태 저장으로 되살아나지 않음");
+
+  // ---- 두 번째 탭에서 「처음부터 다시」 → 처리는 첫 탭(처리 맡은 탭)이 한다
+  const page2 = await ctx.newPage();
+  page2.on("dialog", (d) => d.accept());
+  page2.on("pageerror", (e) => errors.push(String(e)));
+  await page2.goto(`${BASE}/?fake=1`);
+  await page2.waitForSelector("#sysline:has-text('다른 탭')", { timeout: 20000 });
+  await page2.click(".tabs button[data-tab='jobs']");
+  await page2.click(".job:has-text('시험 회의') button[data-a='fresh']");
+  await page.click(".tabs button[data-tab='jobs']");
+  await page2.waitForSelector(".job:has-text('시험 회의') .badge.st-완료", { timeout: 60000 });
+  await page2.close();
+  console.log("✓ 다른 탭에서 넣은 작업도 처리 탭이 받아 처리");
+
   // ---- 백업 → 모두 지우기 → 복원
   await page.click(".tabs button[data-tab='settings']");
   const d3 = page.waitForEvent("download");

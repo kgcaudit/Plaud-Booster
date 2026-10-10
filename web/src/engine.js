@@ -3,7 +3,7 @@
 // - 화자: Plaud가 이름 붙인 구간으로 사람별 기준(6초 창 평균)을 만들고, 3초 창(1.5초 간격) 투표로 판정
 //   70% 이상이면 「단일」, 아니면 「혼재」. 1·2위 유사도 차이가 작으면 신뢰도를 낮춘다.
 // - 처음부터 N명으로 묶는 방식은 소수 화자가 사라져 쓰지 않는다.
-import { vadChunks, activeEnd, bandRatioDb } from "./dsp.js";
+import { vadChunks, blockDb, activeEndDb, bandRatioDb } from "./dsp.js";
 import { speechRegions, packRegions, windowsOf, diarize, DEFAULTS } from "./diar.js";
 
 const HALLU = /다음 영상에서|시청해 주셔서|구독(과|,)? ?좋아요|^감사합니다\.?$|^MBC 뉴스|자막 제공|^\(?음악\)?$|thanks? (you )?for watching|please subscribe|subtitles? by|amara\.org|^\(?(music|applause)\)?$|^\[(music|blank_audio)\]$/i;
@@ -66,7 +66,7 @@ export function label(votes, whole) {
 }
 
 /** 이름 붙은 2.5초 이상 발언을 6초 창으로 잘라 사람별 평균 특징을 만든다 */
-export async function enroll(embedAt, segs, keep, onStep = () => {}, maxPerSpeaker = 80) {
+export async function enroll(embedAt, segs, keep, onStep = () => {}, maxPerSpeaker = 80, shouldStop = () => false) {
   const V = new Map();
   const seen = new Set();
   const todo = [];
@@ -86,6 +86,7 @@ export async function enroll(embedAt, segs, keep, onStep = () => {}, maxPerSpeak
     else for (let i = 0; i < maxPerSpeaker; i++) todo.push(ws[Math.floor((i * ws.length) / maxPerSpeaker)]);
   }
   for (let i = 0; i < todo.length; i++) {
+    if (shouldStop()) return null; // 중지(저장하지 않아 다음에 처음부터 다시 만든다)
     const [who, a, b] = todo[i];
     if (!V.has(who)) V.set(who, []);
     V.get(who).push(await embedAt(a, b));
@@ -188,6 +189,12 @@ export function pacer(now = () => Date.now()) {
 }
 
 const sumSec = (rs) => rs.reduce((m, [s, e]) => m + e - s, 0);
+/** 창 묶음 [a, b)의 서명(파일·시작·끝) — 이어하기에서 저장된 특징이 같은 창들의 것인지 확인 */
+export function winSig(wins, a, b) {
+  let h = 2166136261;
+  for (let i = a; i < b; i++) { const w = wins[i]; for (const ch of `${w.f}:${w.s}:${w.e}:${w.es ?? ""};`) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); }
+  return (b - a) + "-" + (h >>> 0).toString(36);
+}
 
 /**
  * 말소리 구간: Silero(음량 맞춤)가 있으면 그것으로, 없으면 에너지 기준. 긴 녹음은 10분씩 읽는다.
@@ -199,6 +206,7 @@ export async function regionsOf(ctx, fi, a, b, onStep = () => {}) {
   const out = [];
   out.fallback = 0;
   for (let t = a; t < b; t += 600) {
+    if (ctx.shouldStop && ctx.shouldStop()) { out.stopped = true; break; } // 긴 녹음에서 중지가 몇 분씩 늦던 것
     const e = Math.min(b, t + 600);
     const x = await ctx.readAudio(fi, t, e);
     let rs = vadChunks(x, t);
@@ -248,6 +256,7 @@ export async function runSony(job, files, ctx) {
     let r0 = 0, fallback = 0, band = 0, bandSec = 0;
     for (let fi = 0; fi < files.length; fi++) {
       const regs = await regionsOf(ctx, fi, 0, files[fi].dur, (p) => ctx.progress(1 + Math.floor(((fi + p) / files.length) * 14), `말소리 찾는 중 ${fi + 1}/${files.length}번 파일`));
+      if (regs.stopped) return { result: null, fresh: {} };
       fallback += regs.fallback || 0;
       band += (await bandOf(ctx, fi, files[fi].dur)) * files[fi].dur; bandSec += files[fi].dur;
       for (const w of windowsOf(regs)) wins.push({ ...w, f: fi, r: w.r + r0 });
@@ -262,8 +271,9 @@ export async function runSony(job, files, ctx) {
     const tic = Date.now();
     let fresh = 0;
     for (let b = 0; b * B < wins.length; b++) {
-      const key = "e" + b;
-      if (done[key] && done[key].v.length === Math.min(B, wins.length - b * B)) { done[key].v.forEach((v, i) => { vecs[b * B + i] = Float32Array.from(v); }); continue; }
+      const key = "e" + b, sig = winSig(wins, b * B, Math.min(wins.length, (b + 1) * B));
+      // 저장된 특징은 같은 창들의 것일 때만 쓴다(앱이 바뀌어 창 나누기가 달라졌으면 개수가 같아도 엉뚱한 창에 붙음 → 다시 계산)
+      if (done[key] && done[key].sig === sig && done[key].v.length === Math.min(B, wins.length - b * B)) { done[key].v.forEach((v, i) => { vecs[b * B + i] = Float32Array.from(v); }); continue; }
       if (ctx.shouldStop()) return { result: null, fresh: {} };
       const v = [];
       for (let i = b * B; i < Math.min(wins.length, (b + 1) * B); i++) {
@@ -271,7 +281,7 @@ export async function runSony(job, files, ctx) {
         vecs[i] = await ctx.embed(await ctx.readAudio(w.f, w.es ?? w.s, w.ee ?? w.e)); // 짧은 말은 가운데 1.5초로 특징
         v.push(Float32Array.from(vecs[i])); // 숫자 배열보다 저장·복사가 훨씬 가벼움(예전 기록의 숫자 배열도 그대로 읽힘)
       }
-      await ctx.savePartial({ k: key, v });
+      await ctx.savePartial({ k: key, v, sig });
       fresh++;
       const n = Math.min(wins.length, (b + 1) * B);
       const left = ((wins.length - n) / B) * ((Date.now() - tic) / fresh) / 60000;
@@ -365,7 +375,10 @@ export async function planTargets(job, files, plaudEnd, readAudio) {
   const f0 = files[0];
   if (job.mode === "gap") {
     const t0 = Math.max(0, (job.transcriptEndSec || plaudEnd || 0) - 15);
-    return [[0, t0, activeEnd(await readAudio(0, t0, f0.dur), t0, f0.dur)]];
+    // 뒤 구간이 몇 시간일 수 있어 10분씩 읽어 5초 칸 음량만 모은다(통째로 읽으면 3시간 녹음에서 약 700MB → 탭 꺼짐, 이어하기도 매번 꺼짐)
+    const db = [];
+    for (let t = t0; t < f0.dur; t += 600) db.push(...blockDb(await readAudio(0, t, Math.min(f0.dur, t + 600))));
+    return [[0, t0, activeEndDb(Float64Array.from(db), t0, f0.dur)]];
   }
   const r = job.range || {};
   return [[0, +(r.from || 0), Math.min(f0.dur, +(r.to ?? f0.dur))]];
@@ -393,7 +406,8 @@ export async function runJob(job, files, ctx) {
       let keep = () => true;
       if (job.mode === "gap") { const t0 = targets[0][1]; keep = (g) => g.start < t0 + 1; }
       if (job.mode === "range") { const [, a, b] = targets[0]; keep = (g) => g.end <= a || g.start >= b; }
-      fresh = await enroll(embedAt0, plaud, keep, (i, n) => ctx.progress(1 + Math.floor((i / n) * 9), `목소리 기준 만드는 중 ${i}/${n}`));
+      fresh = await enroll(embedAt0, plaud, keep, (i, n) => ctx.progress(1 + Math.floor((i / n) * 9), `목소리 기준 만드는 중 ${i}/${n}`), 80, ctx.shouldStop || (() => false));
+      if (!fresh) return { result: null, fresh: {} };
     }
     await ctx.saveEnroll(fresh);
   }
@@ -414,7 +428,9 @@ export async function runJob(job, files, ctx) {
     ctx.progress(10, "말소리 구간 나누는 중");
     chunks = [];
     for (const [fi, a, b] of targets) {
-      const regs = ctx.vadProbs ? packRegions(await regionsOf(ctx, fi, a, b)) : vadChunks(await ctx.readAudio(fi, a, b), a);
+      const rr = ctx.vadProbs ? await regionsOf(ctx, fi, a, b) : null;
+      if (rr && rr.stopped) return { result: null, fresh };
+      const regs = rr ? packRegions(rr) : vadChunks(await ctx.readAudio(fi, a, b), a);
       for (const [s, e] of regs) chunks.push([fi, s, e]);
     }
     await ctx.saveChunks(chunks);

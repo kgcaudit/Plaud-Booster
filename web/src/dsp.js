@@ -230,15 +230,22 @@ export function vadChunks(a, t0, maxlen = 25) {
 
 /** t1 이전 마지막 발화 시각(말소리 없는 꼬리 제외). a는 t0~t1 소리 */
 export function activeEnd(a, t0, t1) {
-  const w = SR * 5;
-  if (a.length < w) return t1;
-  const n = Math.floor(a.length / w);
+  return activeEndDb(blockDb(a), t0, t1);
+}
+/** 5초 칸마다 음량(dB) — 긴 녹음은 10분씩 읽어 이것만 모은 뒤 activeEndDb로(통째로 읽으면 휴대폰 메모리가 넘침) */
+export function blockDb(a) {
+  const w = SR * 5, n = Math.floor(a.length / w);
   const db = new Float64Array(n);
   for (let i = 0; i < n; i++) {
     let s = 0;
     for (let k = i * w; k < (i + 1) * w; k++) s += a[k] * a[k];
     db[i] = 20 * Math.log10(Math.sqrt(s / w) + 1e-9);
   }
+  return db;
+}
+export function activeEndDb(db, t0, t1) {
+  const n = db.length;
+  if (!n) return t1;
   const thr = percentile(db, 30) + 8;
   let last = -1;
   for (let i = 0; i < n; i++) if (db[i] > thr) last = i;

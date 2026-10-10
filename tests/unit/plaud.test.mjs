@@ -55,3 +55,14 @@ test("TXT: 본문 안의 시각(「2:30에」「…3:00」)을 새 발언 머리
   assert.deepEqual(r.segs.map((g) => [g.start, g.speaker, g.text]), [
     [5, "김응옥", "그럼 2:30에 다시 모이시죠"], [20, "배소정", "네 알겠습니다"], [60, "김응옥", "다음 회의는 3:00"], [90, "배소정", "좋습니다"]]);
 });
+
+test("본문의 시각(10:30) 콜론을 화자 구분으로 읽지 않음·JSON 글자 시각", async () => {
+  const { parseTxt, parseSrt, parseJson } = await import("../../web/src/plaud.js");
+  const a = parseTxt("[00:01:05] 회의는 3:00에 다시 합니다\n[00:01:10] 김응옥: 네");
+  assert.equal(a[0].speaker, ""); assert.equal(a[0].text, "회의는 3:00에 다시 합니다");
+  assert.equal(a[1].speaker, "김응옥");
+  const b = parseSrt("1\n00:00:01,000 --> 00:00:03,000\n회의는 10:30에 시작합니다\n");
+  assert.equal(b[0].speaker, ""); assert.equal(b[0].text, "회의는 10:30에 시작합니다");
+  const c = parseJson([{ start: "00:00:05", end: "00:00:07", speaker: "갑", text: "가" }]);
+  assert.equal(c[0].start, 5); assert.equal(c[0].end, 7);
+});

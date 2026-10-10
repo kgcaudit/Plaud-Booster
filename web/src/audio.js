@@ -250,17 +250,9 @@ export async function decodeFile(file, onChunk, onProgress = () => {}) {
 
 /** PCM WAV를 60초씩 잘라(머리 붙여) 푼다. 읽을 수 없는 WAV면 null */
 async function decodeWavStreaming(file, onChunk, onProgress) {
-  const head = new DataView(await file.slice(0, 4096).arrayBuffer());
-  if (head.getUint32(0, false) !== 0x52494646 || head.getUint32(8, false) !== 0x57415645) return null;
-  let p = 12, fmt = null, dataOff = -1, dataLen = 0;
-  while (p + 8 <= head.byteLength) {
-    const id = head.getUint32(p, false), size = head.getUint32(p + 4, true);
-    if (id === 0x666d7420) fmt = { ch: head.getUint16(p + 10, true), sr: head.getUint32(p + 12, true), align: head.getUint16(p + 20, true), fmtBytes: new Uint8Array(head.buffer.slice(p, p + 8 + size)) };
-    // 녹음이 덜 끝난 파일은 크기 칸이 0이나 0xFFFFFFFF — 파일 끝까지를 소리로 본다
-    if (id === 0x64617461) { dataOff = p + 8; dataLen = size === 0 || size === 0xffffffff ? file.size - dataOff : Math.min(size, file.size - dataOff); break; }
-    p += 8 + size + (size & 1);
-  }
-  if (!fmt || dataOff < 0 || !fmt.align || !fmt.sr) return null; // 머리가 이상하면(0으로 나누면 끝없이 돎) 일반 풀기로
+  const L = await wavLayout(file);
+  if (!L) return null;
+  const { fmt, dataOff, dataLen } = L;
   const per = fmt.sr * 60 * fmt.align;
   let total = 0;
   for (let o = 0; o < dataLen; o += per) {
@@ -278,6 +270,30 @@ async function decodeWavStreaming(file, onChunk, onProgress) {
     onProgress(Math.min(1, (o + per) / dataLen));
   }
   return total / SR;
+}
+
+/** WAV 덩어리 배치 {fmt, dataOff, dataLen} — 읽을 수 없으면 null(Blob·File 모두) */
+export async function wavLayout(file) {
+  if (file.size < 12) return null;
+  const head = new DataView(await file.slice(0, 12).arrayBuffer());
+  if (head.getUint32(0, false) !== 0x52494646 || head.getUint32(8, false) !== 0x57415645) return null;
+  // 덩어리 머리를 파일 끝까지 하나씩 읽는다 — 녹음기 WAV는 소리 앞에 수 KB~수 MB의 정보 덩어리(bext·iXML·JUNK)를 두기도 해
+  // 앞 4KB만 보면 소리 덩어리를 못 찾아 「300MB 넘는 파일」 오류가 났다
+  let p = 12, fmt = null, dataOff = -1, dataLen = 0;
+  for (let guard = 0; p + 8 <= file.size && guard < 1000; guard++) {
+    const h = new DataView(await file.slice(p, p + 8).arrayBuffer());
+    const id = h.getUint32(0, false), size = h.getUint32(4, true);
+    if (id === 0x666d7420) {
+      if (size < 16 || size > 4096) return null;
+      const fb = new Uint8Array(await file.slice(p, p + 8 + size).arrayBuffer()), fv = new DataView(fb.buffer);
+      fmt = { ch: fv.getUint16(10, true), sr: fv.getUint32(12, true), align: fv.getUint16(20, true), fmtBytes: fb };
+    }
+    // 녹음이 덜 끝난 파일은 크기 칸이 0이나 0xFFFFFFFF — 파일 끝까지를 소리로 본다
+    if (id === 0x64617461) { dataOff = p + 8; dataLen = size === 0 || size === 0xffffffff ? file.size - dataOff : Math.min(size, file.size - dataOff); break; }
+    p += 8 + size + (size & 1);
+  }
+  if (!fmt || dataOff < 0 || !fmt.align || !fmt.sr) return null; // 머리가 이상하면(0으로 나누면 끝없이 돎) 일반 풀기로
+  return { fmt, dataOff, dataLen };
 }
 
 /** 16kHz 모노 16비트 WAV 머리(44바이트) — 표본 n개 */
