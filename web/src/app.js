@@ -61,13 +61,14 @@ function startWorker() {
     }
     if (m.type === "job") {
       wakeLock(true);
+      WSTATE.job = m.done || m.naming ? null : { pct: m.pct ?? (WSTATE.job ? WSTATE.job.pct : 0) }; renderSys();
       // 진행률만 바뀐 알림은 그 작업 카드의 진행 막대만 고친다(목록 전체를 다시 그리지 않음)
       const card = m.pct != null && !m.done && !m.naming ? document.querySelector(`.job[data-id="${CSS.escape(m.id)}"] .prog`) : null;
       if (card) { const i = card.querySelector(".pbar i"); if (i) { i.dataset.w = m.pct; applyGeom(card); } const t = card.querySelector("span:last-child"); if (t) t.textContent = `${m.pct}% · ${m.msg || ""}`; }
       else if ($("#tab-jobs").classList.contains("on")) loadJobs();
       if (m.done) toast("작업이 끝났습니다");
     }
-    if (m.type === "idle") { WSTATE.busy = false; keepAwake("model", false); wakeLock(false); loadJobs(); } // 「처리 중」 상태는 일꾼이 쉬면 풀린다
+    if (m.type === "idle") { WSTATE.busy = false; WSTATE.job = null; renderSys(); keepAwake("model", false); wakeLock(false); loadJobs(); } // 「처리 중」 상태는 일꾼이 쉬면 풀린다
     if (m.type === "bench") onBench(m);
     if (m.type === "error") { keepAwake("model", false); toast(m.message); }
     if (m.type === "notice") toast(m.message);
@@ -166,6 +167,18 @@ function renderSys() {
   else eng = `<span class="bad">모델 없음</span> (받은 양 ${Math.round((m.cachedBytes / Math.max(1, m.totalBytes)) * 100)}%)`;
   const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? ` · 그래픽 칩 ${LEVELS.some((l) => l.v === WSTATE.gpuParts) ? levelLabel(WSTATE.gpuParts) : "사용"}` : "") + (lock ? ' · <span class="ok">화면 켜 둠</span>' : "");
   $("#sysline").innerHTML = `${eng}${th}` + (WSTATE.coi ? "" : ' · <span class="bad">스레드 꺼짐(느림)</span>') + (WSTATE.owner ? "" : ' · <span class="bad">다른 탭에서 처리 중</span>');
+  // 위 바의 상태 칸: 평소엔 초록 점만(넓은 화면은 짧은 글도), 처리 중·모델 받기·경고는 글로 바로 보인다. 누르면 메뉴에서 전체 상태
+  let st = "ok", txt = "엔진 준비됨" + (WSTATE.device === "gpu" ? " · 그래픽 칩 " + (LEVELS.some((l) => l.v === WSTATE.gpuParts) ? levelLabel(WSTATE.gpuParts).replace("사용 - ", "") : "사용") : "");
+  if (!WSTATE.owner) { st = "bad"; txt = "다른 탭 처리"; }
+  else if (WSTATE.fake) { st = "bad"; txt = "가짜 엔진"; }
+  else if (WSTATE.dl && !WSTATE.dl.loading) { st = "busy"; txt = `${WSTATE.dl.net ? "⬇ 모델" : "모델 불러오기"} ${Math.round((WSTATE.dl.got / Math.max(1, WSTATE.dl.total)) * 100)}%`; }
+  else if (WSTATE.dl) { st = "busy"; txt = "모델 여는 중"; }
+  else if (WSTATE.job) { st = "busy"; txt = `⏳ ${WSTATE.job.pct}%`; }
+  else if (!m) { st = "busy"; txt = "확인 중"; }
+  else if (!m.ready) { st = "warn"; txt = "모델 없음"; }
+  else if (!WSTATE.coi) { st = "warn"; txt = "느림"; }
+  const sb = $("#statBtn");
+  sb.dataset.st = st; $("#statTxt").textContent = txt; sb.title = $("#sysline").textContent;
   $("#engState").innerHTML = eng + (m && !m.ready && !WSTATE.fake ? "<br><small>모델을 받아 두면 대기 중인 작업이 바로 시작됩니다. 작업을 등록하면 자동으로 받습니다.</small>" : "");
   const pct = WSTATE.dl && WSTATE.dl.total ? (WSTATE.dl.got / WSTATE.dl.total) * 100 : m ? (m.cachedBytes / Math.max(1, m.totalBytes)) * 100 : 0;
   $("#dlBar").style.width = (WSTATE.fake ? 100 : pct) + "%";
@@ -173,13 +186,17 @@ function renderSys() {
 }
 
 /* ================================================================== 탭 */
-$$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab || b.dataset.sub)));
+$$(".tabs button[data-tab], .tabs button[data-sub]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab || b.dataset.sub)));
+const SECONDARY = { voices: "목소리 기준", glossary: "인명·용어 사전", settings: "설정·백업" };
 function showTab(name) {
-  // 위 줄: 작업(작업 목록·검수 모두 여기 속함)·목소리·사전·설정 / 아래 줄: 작업 단계(작업 목록 › 검수)
+  // 위 한 줄: 작업 단계(1 작업 목록 › 2 검수·내보내기). 메뉴 화면(목소리·사전·설정)에서는 그 자리에 「‹ 작업 │ 화면 이름」
+  closeMenu();
   const work = name === "jobs" || name === "review";
-  $$(".tabs .trow:not(.sub) button").forEach((x) => x.classList.toggle("on", x.dataset.tab === name || (work && x.dataset.tab === "jobs")));
-  $$("#subTabs button").forEach((x) => x.classList.toggle("on", (x.dataset.sub || x.dataset.tab) === name));
+  $$("#subTabs button").forEach((x) => { x.classList.toggle("on", x.dataset.tab === name); x.setAttribute("aria-selected", String(x.dataset.tab === name)); });
   $("#subTabs").classList.toggle("hidden", !work);
+  $("#crumb").classList.toggle("hidden", work);
+  $("#crumbName").textContent = SECONDARY[name] || "";
+  $$("#menuPanel button[data-tab]").forEach((x) => x.classList.toggle("on", x.dataset.tab === name));
   // 검수를 떠나면 재생을 멈춘다(재생 막대는 검수 화면에만 있어 다른 화면에서는 멈출 방법이 없음)
   if (name !== "review" && !player.paused) player.pause();
   $$(".tab").forEach((x) => x.classList.toggle("on", x.id === "tab-" + name));
@@ -191,6 +208,28 @@ function showTab(name) {
   if (name === "glossary") loadGlossary();
   if (name === "settings") loadSettings();
 }
+
+/* ☰ 메뉴: 목소리 기준 · 인명·용어 사전 · 설정·백업 + 엔진 상태 전체 */
+const menuBtn = $("#menuBtn"), menuPanel = $("#menuPanel");
+function openMenu() {
+  menuPanel.classList.remove("hidden"); menuBtn.setAttribute("aria-expanded", "true"); menuBtn.textContent = "✕";
+  menuCounts();
+}
+function closeMenu() {
+  if (menuPanel.classList.contains("hidden")) return;
+  menuPanel.classList.add("hidden"); menuBtn.setAttribute("aria-expanded", "false"); menuBtn.textContent = "☰";
+}
+async function menuCounts() {
+  try {
+    const vp = (await S.keys("voiceprints")).length, g = (await S.get("kv", "glossary")) || {};
+    const ng = (g.pairs || []).filter((x) => x.from).length;
+    $("#mnVp").textContent = vp ? `저장 ${vp}명` : ""; $("#mnGl").textContent = ng ? `${ng}쌍` : "";
+  } catch { /* 표시만 */ }
+}
+menuBtn.addEventListener("click", () => (menuPanel.classList.contains("hidden") ? openMenu() : closeMenu()));
+$("#statBtn").addEventListener("click", openMenu);
+document.addEventListener("click", (ev) => { if (!ev.target.closest(".bar")) closeMenu(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !menuPanel.classList.contains("hidden")) { closeMenu(); menuBtn.focus(); } });
 
 function showGpuAsk(level) {
   const lv = typeof level === "number" ? level : 4, low = lowerLevel(lv);

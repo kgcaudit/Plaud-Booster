@@ -27,16 +27,12 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
 input.wide { width: 100%; margin-bottom: 6px; }
 .hidden { display: none !important; }
 
-.top { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 24px;
-  background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.brand strong { font-size: 17px; }
-.brand .sub { color: var(--mute); margin-left: 10px; font-size: 13px; }
 .sysline { color: var(--mute); font-size: 13px; }
 .sysline .bad { color: var(--bad); } .sysline .ok { color: var(--ok); }
 
 .tabs .trow { display: flex; gap: 2px; overflow-x: auto; }
 /* 작업 단계 줄: 위 탭보다 한 단계 낮게(작게·옅은 바탕) — 작업 목록 › 검수·내보내기 */
-.tabs .trow.sub { gap: 4px; align-items: center; padding: 6px 0 8px; border-top: 1px solid var(--line); }
+.tabs .trow.sub { gap: 4px; align-items: center; flex: 1 1 auto; min-width: 0; overflow: visible; }
 .tabs .trow.sub button { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--mute); background: var(--bg); }
 .tabs .trow.sub button b { display: inline-block; min-width: 1.4em; margin-right: 4px; border-radius: 999px; background: var(--line); color: var(--ink); font-size: 11.5px; text-align: center; }
 .tabs .trow.sub button.on { border-color: var(--accent); color: var(--accent); background: var(--panel); font-weight: 600; }
@@ -44,6 +40,32 @@ input.wide { width: 100%; margin-bottom: 6px; }
 .tabs .trow.sub .arrow { color: var(--mute); }
 .tabs { padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 6px rgba(0, 0, 0, .05); }
+/* 위 한 줄 바: [녹취] (이름) [1 작업 › 2 검수] … [상태] [☰] */
+.bar { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 6px 12px 6px 24px; position: sticky; }
+.bar .logo { flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-weight: 800; font-size: 12.5px; letter-spacing: -.5px; }
+.bar .appname { font-size: 15px; white-space: nowrap; margin-right: 6px; }
+.bar .crumb { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.bar .crumb b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
+.tabs .crumb .bk { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--accent); background: var(--bg); }
+.tabs .stat { flex: none; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 12.5px; color: var(--mute); border-bottom: 0; }
+.stat .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); flex: none; }
+.stat[data-st="busy"] .dot { background: var(--accent); animation: pbpulse 1.2s ease-in-out infinite; }
+.stat[data-st="warn"] .dot { background: var(--warn); } .stat[data-st="warn"] { color: var(--warn); font-weight: 600; }
+.stat[data-st="bad"] .dot { background: var(--bad); } .stat[data-st="bad"] { color: var(--bad); font-weight: 600; }
+@keyframes pbpulse { 50% { opacity: .35; } }
+.tabs .menu { flex: none; width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  font-size: 20px; line-height: 1; display: grid; place-items: center; padding: 0; color: var(--ink); }
+.tabs .menu[aria-expanded="true"] { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+.menupanel { position: absolute; right: 8px; top: calc(100% + 6px); width: min(320px, calc(100vw - 16px)); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 8px; z-index: 30; }
+.tabs .menupanel button { display: flex; width: 100%; align-items: center; gap: 10px; min-height: 48px; padding: 0 12px; border: 0; border-radius: 10px;
+  font-size: 15px; color: var(--ink); text-align: left; }
+.tabs .menupanel button small { margin-left: auto; color: var(--mute); font-size: 12px; font-weight: 400; }
+.tabs .menupanel button.on { background: var(--bg); color: var(--accent); font-weight: 600; border: 0; }
+.menupanel hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+.menupanel .sysline { padding: 6px 12px; line-height: 1.6; white-space: normal; }
+.menupanel .about { padding: 4px 12px 8px; color: var(--mute); font-size: 12px; line-height: 1.5; white-space: normal; }
 .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 14px; background: none; white-space: nowrap; }
 .tabs button.on { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
 main { padding: 18px 24px 60px; max-width: 1280px; margin: 0 auto; }
@@ -148,7 +170,7 @@ th { font-size: 12.5px; color: var(--mute); font-weight: 600; background: color-
 .toast.on { opacity: .95; }
 .tablewrap { overflow: visible; } /* 표 머리 고정이 화면 기준으로 걸리게(좁은 화면은 카드로 바뀌어 가로 스크롤이 필요 없음) */
 @media (max-width: 720px) {
-  main { padding: 12px; } .top, .tabs { padding-left: 12px; padding-right: 12px; }
+  main { padding: 12px; }
 }
 .tape .gap { right: 0; }
 .tape .lbl { left: 0; }
@@ -203,8 +225,6 @@ input, select, textarea, button { max-width: 100%; }
 .uplist li { flex-wrap: wrap; }
 .uplist li > span:not(.pbar), .trinfo, .spkmap > span, .note, .msg, .banner, .mode span, legend small { overflow-wrap: break-word; }
 #rvJob { flex: 1 1 260px; min-width: 0; text-overflow: ellipsis; }
-.brand { min-width: 0; }
-.brand .sub { overflow-wrap: break-word; }
 
 @media (max-width: 720px) {
   /* 목소리 기준 표 → 사람 카드: [이름 · 기준 n] / 출처 목록 / [이름 바꾸기·합치기][지우기] */
@@ -219,7 +239,6 @@ input, select, textarea, button { max-width: 100%; }
   .vp td.empty { grid-column: 1 / -1; }
   .vp .src > div { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
   .vp .src > div > span { flex: 1; min-width: 0; }
-  .brand .sub { display: block; margin: 2px 0 0; }
   .nowrap { white-space: normal; }
   /* 검수 표 → 발언 카드: [시각 ▶ 화자 … 확인] / 발언 / 판정 */
   .tablewrap { overflow: visible; }
@@ -269,14 +288,12 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 
 @media (max-width: 720px) {
-  .top { padding: 8px 12px; gap: 4px 12px; }
-  .brand strong { font-size: 16px; }
-  .brand .sub { display: none; }
-  .sysline { font-size: 12px; }
-  .tabs { padding: 0 4px; gap: 0; }
+  .bar { padding: 4px 6px 4px 10px; gap: 6px; min-height: 52px; }
+  .bar .appname { display: none; }
   .tabs .lg { display: none; } .tabs .sm { display: inline; }
-  .tabs .trow:not(.sub) button { flex: 1 1 0; padding: 12px 4px; text-align: center; }
-  .tabs .trow.sub button { flex: 1 1 0; text-align: center; }
+  .tabs .trow.sub { gap: 3px; }
+  .tabs .trow.sub button { padding: 4px 9px; white-space: nowrap; }
+  .stat[data-st="ok"] .stxt { display: none; } /* 좁은 화면은 평소 초록 점만 */
   #rvBar { gap: 6px; }
   #rvBar #rvJob { flex: 1 1 100%; }
   #rvBar .seg { flex: 1 1 auto; } #rvBar .seg button { flex: 1 1 0; padding-left: 6px; padding-right: 6px; }

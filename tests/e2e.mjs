@@ -59,7 +59,13 @@ try {
   const ctx = await browser.newContext({ acceptDownloads: true });
   const page = await ctx.newPage();
 // 검수는 작업에 딸린 단계: 위 탭 「작업」 → 아래 단계 줄 「검수·내보내기」
-const goReview = async () => { await page.click(".tabs button[data-tab='jobs']"); await page.click("#subTabs button[data-tab='review']"); };
+// 위 바: 작업 단계는 바에, 목소리·사전·설정은 ☰ 메뉴 안
+const nav = async (p, tab) => {
+  if (["voices", "glossary", "settings"].includes(tab)) { await p.click("#menuBtn"); await p.click(`#menuPanel button[data-tab='${tab}']`); }
+  else if (await p.locator("#crumb").isVisible()) { await p.click("#crumb button.bk"); if (tab === "review") await p.click("#subTabs button[data-tab='review']"); }
+  else await p.click(`#subTabs button[data-tab='${tab}']`);
+};
+const goReview = async () => { await nav(page, "jobs"); await nav(page, "review"); };
   errors.length = 0; foreign.length = 0;
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
@@ -67,7 +73,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
 
   await page.goto(`${BASE}/?fake=1`);
   await page.waitForFunction(() => self.crossOriginIsolated === true, null, { timeout: 15000 });
-  await page.waitForSelector("#sysline:has-text('가짜 엔진')");
+  await page.waitForSelector("#sysline:has-text(\'가짜 엔진\')", { state: "attached" });
   console.log("✓ 서비스 워커로 교차 출처 격리(스레드 사용 가능)");
 
   // 결과가 없을 때 검수: 빈 선택 칸·보기 단추·내보내기 대신 안내와 「작업 목록으로」
@@ -96,13 +102,13 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   console.log("✓ 누락 구간 보충 작업 완료");
 
   // 목소리 기준: 이름 붙은 사람만 저장
-  await page.click(".tabs button[data-tab='voices']");
+  await nav(page, "voices");
   await page.waitForSelector("#vpBody tr[data-n='김응옥']");
   assert.equal(await page.locator("#vpBody tr[data-n='배소정']").count(), 1);
   console.log("✓ 목소리 기준 저장(김응옥·배소정)");
 
   // 검수: 화자 바꾸고 문장 고치기 → 자동 저장
-  await page.click(".tabs button[data-tab='glossary']");
+  await nav(page, "glossary");
   await page.fill("#glBody tr:first-child .f", "가짜");
   await page.fill("#glBody tr:first-child .t", "진짜");
   await page.click("#glSave");
@@ -155,7 +161,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   // 검수에서 재생하던 중에 작업 탭으로 가도 재생은 멈추고 새 작업을 만들 수 있다
   await page.click("#tlPlay");
   await page.waitForFunction(() => !document.getElementById("player").paused);
-  await page.click(".tabs button[data-tab='jobs']");
+  await nav(page, "jobs");
   assert.ok(await page.evaluate(() => document.getElementById("player").paused), "작업 탭으로 갔는데 재생이 계속됨");
   await page.click("#btnNew");
   assert.ok(await page.locator("#newJob").isVisible());
@@ -306,17 +312,21 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   assert.match(t4, /\] 정: /);
   assert.match(t4, new RegExp(`: 앞사람 말입니다\\n.*\\] ${other}: 뒷사람 대답입니다`)); // 나눈 발언은 조각마다 한 줄
   await page.click("#spkPanel button[data-a='vp']");
-  await page.click(".tabs button[data-tab='voices']");
+  await nav(page, "voices");
   await page.waitForSelector("#vpBody tr[data-n='정']");
   console.log("✓ 통합본(묶음 이름·녹음 시각)·목소리 기준 저장");
 
   // 휴대폰 폭(접은 폴드 화면 412px)에서 어느 탭도 가로로 넘치지 않는다(긴 발언·긴 이름 포함)
   await page.setViewportSize({ width: 412, height: 900 });
   for (const tab of ["review", "jobs", "voices", "glossary", "settings"]) {
-    if (tab === "review") await goReview(); else await page.click(`.tabs button[data-tab='${tab}']`);
+    if (tab === "review") await goReview(); else await nav(page, tab);
     await page.waitForTimeout(300);
     const [sw, cw] = await page.evaluate(() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]);
     assert.ok(sw <= cw, `${tab} 탭이 ${sw - cw}px 넘침`);
+    // 위 고정 영역은 한 줄(2026-10-11: 탭 줄을 ☰ 메뉴로 — 95px → 52px 안팎)
+    const barH = await page.evaluate(() => document.querySelector("nav.bar").getBoundingClientRect().height);
+    assert.ok(barH <= 60, `${tab}: 위 바 높이 ${barH}px`);
+    if (!["review", "jobs"].includes(tab)) assert.ok(await page.locator("#crumb").isVisible() && (await page.locator("#crumbName").textContent()).length > 1);
     // 낱말이 줄 끝에서 쪼개지지 않는다(「고태\n준」·「합치\n기」 같은 꼴), 버튼 글은 한 줄
     const broken = await page.evaluate(() => {
       const bad = [], rng = document.createRange();
@@ -352,7 +362,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
 
   // ---- 조각 음원(MP3 프레임 단위 풀기)
   if (mp3Path) {
-    await page.click(".tabs button[data-tab='jobs']");
+    await nav(page, "jobs");
     await page.click("#btnNew");
     await page.check("input[name='source'][value='phone']");
     await page.check("input[name='mode'][value='diar']");
@@ -387,8 +397,8 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
     await new Promise((r) => { const tx = db.transaction("kv", "readwrite"); tx.objectStore("kv").put({ v: 2, level: 4, at: new Date(Date.now() + 3600e3).toISOString() }, "gpuLoading"); tx.oncomplete = r; });
   });
   await page.reload();
-  await page.waitForSelector("#sysline:has-text('가짜 엔진')");
-  await page.click(".tabs button[data-tab='settings']");
+  await page.waitForSelector("#sysline:has-text(\'가짜 엔진\')", { state: "attached" });
+  await nav(page, "settings");
   await page.click("#btnBench");
   await page.waitForSelector("#gpuAsk:not(.hidden)", { timeout: 15000 });
   assert.ok(await page.locator("#benchMsg:has-text('끝났습니다')").count() === 0); // 답하기 전에는 진행하지 않음
@@ -431,8 +441,8 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   await page.waitForFunction(() => document.body.dataset.awake === "", null, { timeout: 15000 });
   // 새로 고치면 자세한 결과는 비우고 기록 목록만 보인다(지난 결과를 지금 결과처럼 보이지 않게)
   await page.reload();
-  await page.waitForSelector("#sysline:has-text('가짜 엔진')");
-  await page.click(".tabs button[data-tab='settings']");
+  await page.waitForSelector("#sysline:has-text(\'가짜 엔진\')", { state: "attached" });
+  await nav(page, "settings");
   await page.waitForSelector("#benchHist table.bh tbody tr");
   assert.equal(await page.locator("#benchOut").innerHTML(), "");
   const vp1 = page.viewportSize();
@@ -471,16 +481,16 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   page2.on("dialog", (d) => d.accept());
   page2.on("pageerror", (e) => errors.push(String(e)));
   await page2.goto(`${BASE}/?fake=1`);
-  await page2.waitForSelector("#sysline:has-text('다른 탭')", { timeout: 20000 });
-  await page2.click(".tabs button[data-tab='jobs']");
+  await page2.waitForSelector("#sysline:has-text('다른 탭')", { state: "attached", timeout: 20000 });
+  await nav(page2, "jobs");
   await page2.click(".job:has-text('시험 회의') button[data-a='fresh']");
-  await page.click(".tabs button[data-tab='jobs']");
+  await nav(page, "jobs");
   await page2.waitForSelector(".job:has-text('시험 회의') .badge.st-완료", { timeout: 60000 });
   await page2.close();
   console.log("✓ 다른 탭에서 넣은 작업도 처리 탭이 받아 처리");
 
   // ---- 백업 → 모두 지우기 → 복원
-  await page.click(".tabs button[data-tab='settings']");
+  await nav(page, "settings");
   const d3 = page.waitForEvent("download");
   await page.click("#btnBackup");
   const bkPath = await (await d3).path();
@@ -489,13 +499,13 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   assert.ok(!JSON.stringify(bk).includes("RIFF"));
   await page.evaluate(async () => { indexedDB.deleteDatabase("plaud-booster"); });
   await page.reload();
-  await page.waitForSelector("#sysline:has-text('가짜 엔진')");
-  await page.click(".tabs button[data-tab='settings']");
+  await page.waitForSelector("#sysline:has-text(\'가짜 엔진\')", { state: "attached" });
+  await nav(page, "settings");
   const bkFile = path.join(tmp, "backup.json");
   fs.copyFileSync(bkPath, bkFile);
   await page.setInputFiles("#restoreFile", asFile(bkFile, "application/json"));
   await page.waitForSelector("#restoreMsg:has-text('합쳐 넣음')");
-  await page.click(".tabs button[data-tab='jobs']");
+  await nav(page, "jobs");
   await page.waitForSelector(".job:has-text('시험 회의'):has-text('음원 지움')");
   console.log("✓ 백업·복원(음원 제외)");
 

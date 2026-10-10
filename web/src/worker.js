@@ -324,7 +324,7 @@ async function loop() {
         // 그래픽 칩에서 계산하다 난 오류(장치 잃음 등)면 다음 작업에서 새로 올리게 버린다
         if (whisper && whisper.device === "gpu") { whisper.release().catch(() => {}); whisper = null; }
         const msg = e && e.name === "QuotaExceededError"
-          ? "저장 공간이 부족합니다. 시크릿 창이 아닌 일반 창에서 열고, 설정·백업 탭에서 남은 공간을 확인하세요."
+          ? "저장 공간이 부족합니다. 시크릿 창이 아닌 일반 창에서 열고, ☰ 메뉴 › 설정·백업에서 남은 공간을 확인하세요."
           : String((e && e.message) || e).slice(0, 300);
         // 처리 중에 지워진 작업이면 저장이 실패할 수 있다 — 그래도 다음 작업으로 넘어간다
         try { await S.saveJob(job.id, { status: "오류", error: msg }); } catch { /* 지워진 작업 */ }
