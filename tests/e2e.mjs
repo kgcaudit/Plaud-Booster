@@ -116,7 +116,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   // 재생(구간 음원 만들기)
   await first.locator("button.play").click();
   await page.waitForFunction(() => document.getElementById("player").currentSrc.startsWith("blob:"));
-  // 전체 녹음 재생 막대: 발언 2초 앞부터 이어 재생, 녹음 전체 길이, ±5초 이동
+  // 전체 녹음 재생 막대: 발언 시각부터 이어 재생, 녹음 전체 길이, ±5초 이동
   assert.ok(await page.locator("#tl").isVisible());
   await page.waitForFunction(() => document.getElementById("player").duration > 80); // 90초 음원 전체
   await page.click("#tlPlay"); // 멈춤

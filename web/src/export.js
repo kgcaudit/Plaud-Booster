@@ -12,7 +12,7 @@ export function sourceOf(job) {
 }
 
 export function hms(t, long = true) {
-  t = Math.max(0, Math.round(t || 0));
+  t = Math.max(0, Math.floor((t || 0) + 1e-6)); // 시각은 내림 — 0:40.7은 0:40(반올림하면 0:41이라 실제 소리보다 늦게 적힘)
   const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
   const p = (x) => String(x).padStart(2, "0");
   return long ? `${p(h)}:${p(m)}:${p(s)}` : (h ? h + ":" + p(m) : String(m)) + ":" + p(s);

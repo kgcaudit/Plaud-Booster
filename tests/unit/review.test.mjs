@@ -127,3 +127,10 @@ test("구간 손보기: 경계에서 잘라 옮기고, 비슷한 곳을 찾고, 
   assert.ok(!r3.diar.units.some((u) => u.s < 34 && u.e > 31.1 && u.s >= 31));
   assert.equal(relabelRange(diar, 0, 50, 60, 0), null); // 말소리 없는 곳
 });
+
+import { hms as _hms } from "../../web/src/export.js";
+test("시각 표시는 내림: 0:40.7은 0:40(반올림하면 실제 소리보다 늦게 적힘)", () => {
+  assert.equal(_hms(40.7, false), "0:40");
+  assert.equal(_hms(59.99, false), "0:59");
+  assert.equal(_hms(3600.5), "01:00:00");
+});

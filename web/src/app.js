@@ -869,7 +869,7 @@ $("#tlFold").addEventListener("click", () => { tlFolded = !tlFolded; try { local
 
 /* ================================================================== 전체 음원 재생 막대 */
 // 검수 화면 아래에 녹음 전체를 펼쳐 둔다. 위 띠는 지금 위치 앞뒤 ±45초(화자별 색·발언 경계·소리 크기),
-// 아래 띠는 녹음 전체. 발언의 ▶는 그 발언 2초 앞부터 이어서 재생해 문맥을 듣게 하고, 띠를 끌면 앞뒤로 옮겨진다.
+// 아래 띠는 녹음 전체. 발언의 ▶는 그 발언 시각부터 이어서 재생하고, 띠를 끌면 앞뒤로 옮겨진다.
 // 음원은 메모리에 올리지 않고 저장된 파일(16kHz)에 WAV 머리만 붙여 가리킨다(2시간 녹음도 휴대폰에서 가볍게).
 const player = $("#player");
 /* 휴대폰 알림·잠금 화면의 재생 카드(Media Session): 앱 이름·작업 제목·지금 말하는 사람을 보여 준다.
@@ -904,7 +904,7 @@ if (MS) {
 }
 const PAL = ["#2f6fa8", "#1b7f74", "#a2620a", "#6a43a8", "#b3261e", "#4a7a1e", "#8a5a44", "#3d5a80"];
 const TL = { id: null, file: 0, loaded: -1, t: 0, env: {}, items: [], Z: 45, drag: null, cur: null, raf: 0 };
-const PRE = 2; // ▶를 누르면 발언 2초 앞부터
+const PRE = 0.3; // ▶는 발언 시각 0.3초 앞부터(첫 소리가 잘리지 않을 만큼만 — 2초 앞부터 틀면 적힌 시각과 들리는 소리가 어긋나 보였음)
 const fileDur = (fi) => ((REVIEW.data?.job.audioFiles || [])[fi] || {}).dur || 0;
 const hashColor = (n) => { let h = 0; for (const c of String(n)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PAL[h % PAL.length]; };
 
@@ -1085,7 +1085,24 @@ tlZoom.addEventListener("pointerup", (ev) => {
   seekPlay(TL.file, TL.t - TL.Z + ((ev.clientX - r.left) / r.width) * 2 * TL.Z, !player.paused);
 });
 
-// 발언 ▶ — 2초 앞부터 이어서 재생(같은 발언을 재생 중이면 멈춤)
+// 구간만 정확히 듣기: s에서 시작해 e에서 멈춘다. timeupdate(약 0.25초마다)로는 끝을 넘겨 듣게 되어 화면 갱신마다 확인한다
+const STOP = { at: null, raf: 0 };
+function stopWatch() {
+  cancelAnimationFrame(STOP.raf);
+  const tick = () => {
+    if (STOP.at == null) return;
+    if (player.paused) { STOP.at = null; return; }
+    if (player.currentTime >= STOP.at) { player.pause(); STOP.at = null; return; }
+    STOP.raf = requestAnimationFrame(tick);
+  };
+  STOP.raf = requestAnimationFrame(tick);
+}
+async function playRange(f, s, e) {
+  STOP.at = e;
+  await seekPlay(f, s);
+  stopWatch();
+}
+// 발언 ▶ — 발언 시각부터 이어서 재생(같은 발언을 재생 중이면 멈춤)
 function playFrom(f, s) {
   if (!player.paused && TL.loaded === f && TL.t >= s - PRE - 0.1 && TL.t < s + 0.5) { player.pause(); return; }
   seekPlay(f, Math.max(0, s - PRE));
@@ -1172,7 +1189,7 @@ function renderPanel() {
       <div class="nm"><input data-a="name" list="dlNames" value="${esc(nm)}" placeholder="이름(예: 김○○ 팀장)" aria-label="${esc(c.label)} 이름"> ${sug}
         ${same.length ? `<span class="merged">↳ ${esc(same.join(", "))}와 같은 사람(합쳐짐)</span>` : ""}</div>
       <div class="smp">${smp.map((x) => `<div><button type="button" class="play" data-a="play" data-f="${x.f}" data-s="${x.s}" data-e="${x.e}" title="듣기">▶</button>
-        <span class="msg">${(d.job.audioFiles || []).length > 1 ? x.f + 1 + "번 " : ""}${hms(x.s)}~${hms(x.e)} (${Math.round(x.e - x.s)}초)</span> <span class="tx">${esc(textNear(x.f, x.s).slice(0, 90))}</span>${pending && REVIEW.diar ? `<button type="button" class="act rgbtn" data-a="rg" data-f="${x.f}" data-s="${x.s}" data-e="${x.e}" title="이 구간에서 다른 사람 목소리를 발라내기">✂ 손보기</button>` : ""}</div>`).join("") || '<span class="msg">들어 볼 구간 없음</span>'}
+        <span class="msg">${(d.job.audioFiles || []).length > 1 ? x.f + 1 + "번 " : ""}${fmt1(x.s)}~${fmt1(x.e)} (${(x.e - x.s).toFixed(1)}초)</span> <span class="tx">${esc(textNear(x.f, x.s).slice(0, 90))}</span>${pending && REVIEW.diar ? `<button type="button" class="act rgbtn" data-a="rg" data-f="${x.f}" data-s="${x.s}" data-e="${x.e}" title="이 구간에서 다른 사람 목소리를 발라내기">✂ 손보기</button>` : ""}</div>`).join("") || '<span class="msg">들어 볼 구간 없음</span>'}
         ${(c.samples || []).length > per ? `<button type="button" class="link" data-a="more">다른 구간 ▸ ${page + 1}/${Math.ceil(c.samples.length / per)}</button>` : ""}</div>
     </div>`;
   }).join("");
@@ -1186,7 +1203,7 @@ function renderPanel() {
         return `<div class="mixrow"><span class="chip cc${r.c % 8}">${esc(cl[r.c].label.replace("Speaker ", "S"))}</span>
           <span class="mixbar cc${r.c % 8}"><i data-left="${l.toFixed(1)}" data-w="${w.toFixed(1)}"></i></span>
           <button type="button" class="act" data-a="rg" data-f="${r.f}" data-s="${r.s}" data-e="${r.e}">✂ 손보기</button>
-          <span class="t">${multiF ? r.f + 1 + "번 " : ""}${hms(r.ctxS)}~${hms(r.ctxE)} · ${hms(r.s)} 무렵 ${Math.round(r.e - r.s)}초쯤${r.other >= 0 ? ` · ${esc(cl[r.other].label.replace("Speaker ", "S"))}와 닮음` : " · 다른 목소리"}</span></div>`;
+          <span class="t">${multiF ? r.f + 1 + "번 " : ""}${fmt1(r.s)}~${fmt1(r.e)} (${(r.e - r.s).toFixed(1)}초)${r.other >= 0 ? ` · ${esc(cl[r.other].label.replace("Speaker ", "S"))}와 닮음` : " · 다른 목소리"}</span></div>`;
       }).join("")}</div>` : "";
   el.innerHTML = `<div class="bar"><span class="msg">${pending ? "대표 구간을 들어 보고 이름을 붙이세요. 같은 이름을 붙이면 한 사람으로 합쳐집니다. 이름은 전사 뒤에도 바꿀 수 있습니다." : "이름을 바꾸면 그 묶음 발언 전체에 적용됩니다(발언별로 따로 지정한 것은 그대로)."}</span>
       <span class="spacer"></span>
@@ -1228,7 +1245,7 @@ $("#spkPanel").addEventListener("click", async (ev) => {
   if (!b) return;
   const a = b.dataset.a, card = b.closest(".cl"), id = card && card.dataset.c;
   const c = id && clustersOf().find((x) => x.id === id);
-  if (a === "play") return playFrom(+b.dataset.f, +b.dataset.s);
+  if (a === "play") return playRange(+b.dataset.f, +b.dataset.s, +b.dataset.e); // 대표 구간은 적힌 시각 그대로(앞 2초 없이)
   if (a === "rg") return openRange(+b.dataset.f, +b.dataset.s, +b.dataset.e);
   if (a === "more") { REVIEW.page[id] = ((REVIEW.page[id] || 0) + 1) % Math.ceil(c.samples.length / 2); renderPanel(); return; }
   if (a === "only") { REVIEW.only = REVIEW.only === id ? null : id; REVIEW.split = null; renderReview(); if (REVIEW.only) $("#rvMain").scrollIntoView({ block: "start" }); return; }
@@ -1560,7 +1577,7 @@ async function openRange(f, s, e) {
   const pad = Math.max(4, Math.min(8, (e - s) * 0.4));
   let vs = Math.max(0, s - pad), ve = Math.min(dur, e + pad);
   if (ve - vs > 45) { const mid = (s + e) / 2; vs = Math.max(0, mid - 22.5); ve = Math.min(dur, vs + 45); }
-  Object.assign(RG, { open: true, f, vs, ve, s, e, target: null, drag: null, peaks: null, stopAt: null, from: rgMajority(f, s, e) });
+  Object.assign(RG, { open: true, f, vs, ve, s, e, target: null, drag: null, peaks: null, from: rgMajority(f, s, e) });
   $("#rgEdit").classList.remove("hidden"); $("#rgSim").classList.add("hidden");
   $("#rgSheet").classList.remove("hidden");
   document.body.classList.add("rg-open");
@@ -1574,7 +1591,7 @@ async function openRange(f, s, e) {
   } catch (err) { toast("파형을 읽지 못했습니다: " + err.message); }
 }
 function closeRange() {
-  RG.open = false; RG.stopAt = null;
+  RG.open = false; STOP.at = null;
   $("#rgSheet").classList.add("hidden");
   document.body.classList.remove("rg-open");
 }
@@ -1654,7 +1671,6 @@ function rgDraw() {
 })();
 queueMicrotask(() => player.addEventListener("timeupdate", () => {
   if (!RG.open) return;
-  if (RG.stopAt != null && player.currentTime >= RG.stopAt) { player.pause(); RG.stopAt = null; }
   rgDraw();
 }));
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && RG.open) closeRange(); });
@@ -1663,7 +1679,7 @@ $("#rgSheet").addEventListener("click", async (ev) => {
   const who = ev.target.closest("button[data-to]");
   if (who) { RG.target = who.dataset.to; rgRender(); return; }
   const pl = ev.target.closest("button[data-ps]");
-  if (pl) { RG.stopAt = +pl.dataset.pe; seekPlay(RG.f, +pl.dataset.ps); return; }
+  if (pl) { playRange(RG.f, +pl.dataset.ps, +pl.dataset.pe); return; }
   const b = ev.target.closest("button[data-rg]");
   if (!b) return;
   const a = b.dataset.rg, now = TL.loaded === RG.f ? player.currentTime : null, dur = fileDur(RG.f) || RG.ve;
@@ -1672,8 +1688,8 @@ $("#rgSheet").addEventListener("click", async (ev) => {
   if (a === "s-") set("s", RG.s - 0.2); if (a === "s+") set("s", RG.s + 0.2);
   if (a === "e-") set("e", RG.e - 0.2); if (a === "e+") set("e", RG.e + 0.2);
   if (a === "snow" || a === "enow") { if (now == null) { toast("먼저 재생하다가 누르세요"); return; } set(a[0], now); }
-  if (a === "play") { RG.stopAt = RG.e; seekPlay(RG.f, RG.s); }
-  if (a === "playctx") { RG.stopAt = RG.e + 2; seekPlay(RG.f, Math.max(0, RG.s - 2)); }
+  if (a === "play") playRange(RG.f, RG.s, RG.e);
+  if (a === "playctx") playRange(RG.f, Math.max(0, RG.s - 2), RG.e + 2);
   if (a === "apply") {
     const known = await rgKnown();
     const res = relabelRange(REVIEW.diar, RG.f, RG.s, RG.e, RG.target, known);
