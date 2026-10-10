@@ -66,7 +66,7 @@ function startWorker() {
       else if ($("#tab-jobs").classList.contains("on")) loadJobs();
       if (m.done) toast("작업이 끝났습니다");
     }
-    if (m.type === "idle") { wakeLock(false); loadJobs(); }
+    if (m.type === "idle") { WSTATE.busy = false; wakeLock(false); loadJobs(); } // 「처리 중」 상태는 일꾼이 쉬면 풀린다
     if (m.type === "bench") onBench(m);
     if (m.type === "error") { keepAwake("model", false); toast(m.message); }
     if (m.type === "notice") toast(m.message);
