@@ -144,6 +144,7 @@ const goReview = async () => { await page.click(".tabs button[data-tab='jobs']")
   const dl = page.waitForEvent("download");
   await page.click("#exTxt");
   const txt = fs.readFileSync(await (await dl).path(), "utf8");
+  assert.equal(txt.charCodeAt(0), 0xfeff, "통합본 TXT 앞에 UTF-8 표시(BOM)가 없음 — 휴대폰에서 한글이 깨짐");
   assert.match(txt, /배소정 \(보충\): 고친 문장/);
   assert.match(txt, /김응옥: 발언 0/); // Plaud 전사가 합쳐짐
   assert.match(txt, /진짜 전사/); // 사전 적용

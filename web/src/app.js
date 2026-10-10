@@ -1203,8 +1203,10 @@ async function doExport(fmt) {
   const data = await reviewData(REVIEW.id);
   const opts = { usePlaud: $("#exPlaud").checked, useGlossary: $("#exGl").checked };
   const name = safeName(data.job.title) + "_통합본." + fmt;
-  if (fmt === "csv") download(name, new Blob([exportCsv(data, opts)], { type: "text/csv;charset=utf-8" }));
-  else download(name, new Blob([exportTxt(data, opts)], { type: "text/plain;charset=utf-8" }));
+  // 앞에 UTF-8 표시(BOM)를 붙인다: 없으면 휴대폰 크롬의 글 보기·윈도 메모장·엑셀이 한글을 EUC-KR로 짐작해 깨져 보임
+  const BOM = "\uFEFF";
+  if (fmt === "csv") download(name, new Blob([BOM + exportCsv(data, opts)], { type: "text/csv;charset=utf-8" }));
+  else download(name, new Blob([BOM + exportTxt(data, opts)], { type: "text/plain;charset=utf-8" }));
 }
 $("#exTxt").addEventListener("click", () => doExport("txt"));
 $("#exCsv").addEventListener("click", () => doExport("csv"));
