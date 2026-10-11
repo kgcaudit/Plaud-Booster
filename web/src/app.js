@@ -204,7 +204,25 @@ function setCrumb() {
   $("#crumbName").classList.toggle("hidden", !name);
   $("#crumbName").textContent = name;
 }
-function showTab(name) {
+/* 휴대폰 「뒤로 가기」: 홈 밖 화면으로 갈 때 방문 기록을 한 칸 쌓아(홈 밖 화면끼리는 그 칸을 바꿔 씀) 뒤로 가기가
+ * 사이트를 떠나지 않고 홈으로 오게 한다. 로고·단추로 홈에 올 때는 그 칸을 되돌려(history.back) 기록이 쌓이지 않게. */
+const NAV = { skip: 0 };
+const TABS = ["jobs", "new", "review", "voices", "glossary", "settings"];
+function navRecord(name) {
+  const url = location.pathname + location.search + "#" + name, st = history.state || {};
+  if (name === "jobs") {
+    if (st.sub) { NAV.skip++; history.back(); } // 쌓아 둔 칸을 걷어 낸다(그 popstate는 건너뜀)
+    else history.replaceState({ home: 1 }, "", url);
+  } else if (st.sub) history.replaceState({ sub: 1 }, "", url);
+  else history.pushState({ sub: 1 }, "", url);
+}
+addEventListener("popstate", (e) => {
+  if (NAV.skip) { NAV.skip--; return; }
+  if (RG.open) closeRange(); // 구간 손보기 시트가 열려 있으면 닫고 화면을 옮긴다
+  const st = e.state || {}, h = location.hash.slice(1);
+  showTab(st.sub && TABS.includes(h) && h !== "jobs" ? h : "jobs", true);
+});
+function showTab(name, fromPop = false) {
   // 녹음 목록이 중심: 카드의 「지금 할 일」 → 작업 화면(review), 위 바 ＋ → 새 녹음(new), ☰ → 목소리·사전·설정
   closeMenu();
   const was = TAB; TAB = name;
@@ -215,7 +233,7 @@ function showTab(name) {
   // 검수를 떠나면 재생을 멈춘다(재생 막대는 검수 화면에만 있어 다른 화면에서는 멈출 방법이 없음)
   if (name !== "review" && !player.paused) player.pause();
   $$(".tab").forEach((x) => x.classList.toggle("on", x.id === "tab-" + name));
-  history.replaceState(null, "", location.pathname + location.search + "#" + name);
+  if (!fromPop) navRecord(name);
   syncSticky();
   if (name === "jobs") return loadJobs();
   if (name === "review") loadReviewJobs();
@@ -1951,6 +1969,8 @@ $("#rsPw").addEventListener("keydown", (e) => { if (e.key === "Enter") restoreEn
   try { if (navigator.storage.persist) await navigator.storage.persist(); } catch { /* 무시 */ }
   startWorker();
   const start = (location.hash || "#jobs").slice(1);
+  // 홈 밖 화면 주소로 바로 열어도 그 아래에 홈 칸을 깔아 둔다(뒤로 가기 → 홈)
+  history.replaceState({ home: 1 }, "", location.pathname + location.search + "#jobs");
   showTab(["jobs", "review", "voices", "glossary", "settings"].includes(start) ? start : "jobs");
   setInterval(() => { if ($("#tab-jobs").classList.contains("on")) loadJobs(); }, 5000);
 })();

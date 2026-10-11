@@ -94,6 +94,20 @@ const goReview = async (title) => {
   assert.equal(await page.locator("#crumbHome").count(), 0); // 「홈」 글자는 없앰 — 로고가 홈 단추
   assert.ok(await page.locator("#logoHome.home .lg-h").isVisible()); // 누르면 잠깐 「HOME」
   assert.ok(await page.locator("#crumbName").isHidden());
+  // 휴대폰 「뒤로 가기」: 홈 밖 화면(새 녹음·메뉴 화면)에서 누르면 사이트를 떠나지 않고 홈으로, 홈 밖 화면끼리 옮겨도 한 번이면 홈
+  const BASEURL = page.url().split("#")[0];
+  await page.click("#btnNew"); await page.waitForSelector("#tab-new.on");
+  await page.goBack(); await page.waitForSelector("#tab-jobs.on");
+  assert.equal(page.url().split("#")[0], BASEURL);
+  await nav(page, "settings"); await nav(page, "voices"); await page.waitForSelector("#tab-voices.on");
+  await page.goBack(); await page.waitForSelector("#tab-jobs.on");
+  assert.equal(page.url().split("#")[0], BASEURL);
+  // 로고로 홈에 오면 쌓았던 칸을 걷어 내 기록이 늘지 않는다
+  const hl = await page.evaluate(() => history.length);
+  await nav(page, "settings"); await page.click("#logoHome"); await page.waitForSelector("#tab-jobs.on");
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => history.length), hl); // 오갈수록 기록이 늘지 않는다
+  assert.equal(await page.evaluate(() => !!(history.state && history.state.home)), true);
   await page.click("#btnNew");
   await page.waitForSelector("#newJob", { state: "visible" });
   await page.click("#btnCancel");
