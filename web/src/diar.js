@@ -426,12 +426,12 @@ export function orderFiles(list) {
  * 시작~끝이 있으면 「~ 오전 08시 40분 31초」, 기기가 붙인 말은 종류로 바꿔 뒤에(Audio·Voice·Recording·음성·녹음 → 「음성」,
  * 통화·Call → 「통화 녹음」, KakaoTalk → 「카카오톡 음성」), 나머지 말(사람 이름·장소 등)은 그대로. 파일이 여럿이면 「… 외 n개」.
  *   "260911_082625-084031_Audio.m4a" → "26년 9월 11일 오전 08시 26분 25초 ~ 오전 08시 40분 31초 · 음성"
- *   "통화 녹음 홍길동_260914_075100.m4a" → "26년 9월 14일 오전 07시 51분 00초 · 통화 녹음 홍길동"
+ *   "통화 녹음 홍길동_260914_075100.m4a" → "26년 9월 14일 오전 07시 51분 · 통화 녹음 홍길동"(00초는 뺌)
  */
 const DEV_WORDS = /^(음성|녹음|음성녹음|새녹음|audio|voice|voices|recording|recordings|record|rec|memo|sound|녹음파일)$/i;
 const CALL_WORDS = /^(통화|통화녹음|call|callrecording|phonecall)$/i;
 export function fmtClock(t) {
-  return `${t.h < 12 ? "오전" : "오후"} ${pad2(t.h % 12 || 12)}시 ${pad2(t.mi)}분${t.sec ? ` ${pad2(t.s)}초` : ""}`;
+  return `${t.h < 12 ? "오전" : "오후"} ${pad2(t.h % 12 || 12)}시 ${pad2(t.mi)}분${t.sec && t.s ? ` ${pad2(t.s)}초` : ""}`; // 초는 이름에 있고 00이 아닐 때만
 }
 export function titleFromFiles(names) {
   const list = (names || []).filter(Boolean);

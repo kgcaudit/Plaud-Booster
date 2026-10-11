@@ -108,7 +108,7 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
   · 검수 보기 칸: 0건 칸은 누를 수 없고(disabled), 보던 칸이 0건이 되면 「전체」로 자동.
   위 고정 높이 60px 이하(e2e 검사). 예전 「원본 음성 › 전사 결과」 단계 줄(#subTabs)은 없앴습니다.
 - **파일 이름 → 작업 이름**(diar.js nameTime·titleFromFiles, 2026-10-11): 「26년 9월 11일 오전 08시 26분 25초 ~ 오전 08시 40분 31초 · 음성」 —
-  시는 두 자리, 초는 이름에 있을 때만, 시작~끝(「082625-084031」)이면 「~」, 기기가 붙인 말은 종류로(Audio·Voice·Recording·음성·녹음 → 음성, 통화 → 「통화 녹음 …」, KakaoTalk → 카카오톡 음성).
+  시는 두 자리, 초는 이름에 있고 00이 아닐 때만(「122300」 → 12시 23분), 시작~끝(「082625-084031」)이면 「~」, 기기가 붙인 말은 종류로(Audio·Voice·Recording·음성·녹음 → 음성, 통화 → 「통화 녹음 …」, KakaoTalk → 카카오톡 음성).
   받는 꼴: 갤럭시 「음성 YYMMDD_HHMMSS」·「통화 녹음 이름_YYMMDD_HHMMSS」, 소니 「YYMMDD_HHMM[_nn]」, 「YYYYMMDD_HHMMSS」, 「YYYY-MM-DD HH-MM-SS」, 카카오톡 「…_YYYYMMDD_HHMMSSmmm」,
   줌 「GMTYYYYMMDD-HHMMSS」(세계 표준시 → 기기 시간대), 날짜만 「YYYYMMDD」. 시각이 없는 이름은 그대로(밑줄만 띄어쓰기). recordedAt(녹음 순서)도 같은 해석을 씁니다.
   검수를 떠나면 재생을 멈춥니다(재생 막대가 검수에만 있어 다른 화면에서는 멈출 방법이 없었음). 작업 목록은 결과 저장소를 키만 읽고(S.keys),
