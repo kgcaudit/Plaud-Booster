@@ -212,7 +212,7 @@ test("소니 녹음: 특징 계산 중 멈추면 100개 단위로 이어서 한�
   ctx.shouldStop = () => stop && n >= 150;
   const r = await runJob({ mode: "sony", stage: "diar" }, [{ name: "a.wav", dur: 1200 }], ctx);
   assert.equal(r.result, null);
-  assert.equal(Object.keys(ctx.store.partial).length, 2); // e0, e1
+  assert.deepEqual(Object.keys(ctx.store.partial).filter((k) => k[0] === "e").sort(), ["e0", "e1"]); // 특징 100개씩(말소리 구간 v…·대역 비 b…도 따로 저장됨)
   stop = false;
   const before = n;
   const r2 = await runJob({ mode: "sony", stage: "diar" }, [{ name: "a.wav", dur: 1200 }], ctx);
