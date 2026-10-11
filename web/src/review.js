@@ -103,3 +103,28 @@ export function jobFlow(job, rv = null) {
   const stage = at < labels.length ? labels[at][1] : "done"; // 지금 단계 열쇠(카드 색)
   return { steps, badge, action, busy: run || st === "준비", group, stage };
 }
+
+/**
+ * 낱말 뒤 조사 고르기 — josa("Speaker 2", "을/를") → "Speaker 2를", josa("김철수", "와/과") → "김철수와".
+ * 받침은 마지막 글자로 본다: 한글은 종성, 숫자는 읽는 소리(1 일·3 삼·6 육·7 칠·8 팔·0 영, 10 십·100 백·1000 천·10000 만),
+ * 로마자는 l·m·n으로 끝날 때만 받침(l은 ㄹ). 끝의 닫는 괄호·따옴표·공백은 건너뛴다. 「으로/로」는 ㄹ 받침 뒤에 「로」.
+ */
+const BATCHIM_FORM = new Set(["을", "이", "은", "과", "으로", "아", "이라", "이나", "이랑"]);
+export function finalOf(word) {
+  const s = String(word ?? "").replace(/[\s)\]}」』"'”’>]+$/u, "");
+  if (!s) return { has: false, rieul: false };
+  const ch = s[s.length - 1], code = ch.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) { const j = (code - 0xac00) % 28; return { has: j > 0, rieul: j === 8 }; }
+  if (/[0-9]/.test(ch)) {
+    if (/[1-9]0+$/.test(s)) return { has: true, rieul: false }; // 10 십 · 100 백 · 1000 천 · 10000 만
+    return { has: "013678".includes(ch), rieul: "178".includes(ch) }; // 영·일·삼·육·칠·팔
+  }
+  if (/[a-z]/i.test(ch)) { const c = ch.toLowerCase(); return { has: "lmn".includes(c), rieul: c === "l" }; }
+  return { has: false, rieul: false };
+}
+export function josa(word, pair) {
+  const [x, y] = pair.split("/"), withB = BATCHIM_FORM.has(x) ? x : y, noB = withB === x ? y : x;
+  const f = finalOf(word);
+  const pick = withB === "으로" ? (f.has && !f.rieul ? "으로" : "로") : f.has ? withB : noB;
+  return String(word ?? "") + pick;
+}

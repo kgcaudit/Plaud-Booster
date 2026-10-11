@@ -199,6 +199,12 @@ const goReview = async (title) => {
   await page.waitForSelector("#audioList li:nth-child(2):has-text('앞 파일과')");
   // 작업 이름은 고른 파일 이름(녹음 시각)을 다듬어 저절로 채워짐
   assert.equal(await page.locator("#jobTitle").inputValue(), "25년 10월 9일 오후 02시 30분 외 1개");
+  // 참석자 칩은 단추 — 자판(Enter·Space)으로 고르고 풀 수 있다
+  const chip0 = page.locator("#spkChips button.chip").first();
+  await chip0.focus(); await page.keyboard.press("Enter");
+  assert.equal(await chip0.getAttribute("aria-pressed"), "true");
+  await page.keyboard.press("Space");
+  assert.equal(await chip0.getAttribute("aria-pressed"), "false");
   await page.fill("#attendees", "2");
   await page.fill("#jobTitle", "소니 시험");
   await page.check("#notice");
@@ -208,13 +214,17 @@ const goReview = async (title) => {
   await page.waitForSelector("#spkPanel .cl");
   assert.equal(await page.locator("#spkPanel .cl").count(), 2);
   // 이름 대기 중 「둘로 나누기」(두 사람이 한 묶음으로 잡혔을 때) → 묶음 3개, 되돌리기로 2개
-  await page.locator("#spkPanel .cl").first().locator("button[data-a='split2']").click();
+  // 빠르게 두 번 눌러도 한 번만 나뉜다
+  await page.evaluate(() => { const b = document.querySelector("#spkPanel .cl button[data-a='split2']"); b.click(); b.click(); });
   await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 3);
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator("#spkPanel .cl").count(), 3, "둘로 나누기가 두 번 됨");
   await page.click("#spkPanel button[data-a='undo']");
   await page.waitForFunction(() => document.querySelectorAll("#spkPanel .cl").length === 2);
   // 구간 손보기: 대표 구간 → 파형에서 끝 옮기기 → 새 사람으로 → 묶음 3개 → 되돌리기
   await page.locator("#spkPanel .cl").first().locator("button.rgbtn").first().click();
   await page.waitForSelector("#rgSheet:not(.hidden)");
+  assert.ok(await page.evaluate(() => document.getElementById("rgSheet").contains(document.activeElement)), "구간 손보기를 열었는데 포커스가 시트 밖");
   const s0 = await page.locator("#rgS").textContent();
   await page.click("#rgSheet button[data-rg='s+']");
   assert.notEqual(await page.locator("#rgS").textContent(), s0);

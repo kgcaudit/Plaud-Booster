@@ -34,7 +34,7 @@
     <button type="button" role="menuitem" data-tab="settings"><span>⚙ 설정·백업</span><small>가속·모델·백업</small></button>
     <hr>
     <div id="sysline" class="sysline">준비 중…</div>
-    <div class="about">🔒 음원과 전사는 이 기기 브라우저 밖으로 나가지 않습니다 · Plaud · 소니 녹음기 · 휴대폰 녹음을 화자별 녹취록으로</div>
+    <div class="about">🔒 음원과 전사는 이 기기 브라우저 밖으로 나가지 않습니다. Plaud·소니 녹음기·휴대폰 녹음을 화자별 녹취록으로 만듭니다.</div>
   </div>
 </nav>
 
@@ -43,8 +43,8 @@
 <div id="gpuAsk" class="ask hidden" role="alertdialog" aria-labelledby="gpuAskT">
   <b id="gpuAskT">그래픽 칩 가속 단계를 어떻게 할까요?</b>
   <p>지난번 그래픽 칩 가속(<span id="gpuAskNow">-</span>)으로 모델을 올리거나 계산하던 중에 이 페이지가 끝까지 마치지 못하고 닫혔습니다.
-    <b>브라우저가 스스로 꺼진 것</b>이라면 이 기기에는 그 단계가 버거운 것이니 단계를 낮추는 편이 안전합니다.
-    <b>직접 닫거나 새로 고친 것</b>이라면 그대로 쓰셔도 됩니다. 고르시면 처리를 이어 갑니다.</p>
+    <b>브라우저가 스스로 꺼졌다면</b> 이 기기에는 그 단계가 버거운 것이니 한 단계 낮추는 편이 안전합니다.
+    <b>직접 닫았거나 새로 고쳤다면</b> 그대로 쓰셔도 됩니다. 고르시면 처리를 이어 갑니다.</p>
   <p class="row" id="gpuAskBtns"></p>
   <p class="note">나중에 ☰ 메뉴 › 설정·백업의 「가속 단계」에서 언제든 바꿀 수 있습니다.</p>
 </div>
@@ -71,21 +71,21 @@
       <label class="mode"><input type="radio" name="source" value="sony">
         <b>소니 녹음기</b><span>ICD-TX660 등 · MP3·WAV · 여러 파일은 파일 이름의 녹음 시각 순으로 자동 정렬</span></label>
       <label class="mode"><input type="radio" name="source" value="phone">
-        <b>휴대폰 · 기타 기기</b><span>휴대폰 녹음 앱·통화 녹음(m4a·mp3·wav 등) · 녹음 시각은 파일 이름 → 파일 정보 → 저장 시각 순으로 찾음</span></label>
+        <b>휴대폰·기타 기기</b><span>휴대폰 녹음 앱·통화 녹음(m4a·mp3·wav 등) · 녹음 시각은 파일 이름 → 파일 정보 → 저장 시각 순으로 찾음</span></label>
       <details id="srcTip" class="srctip span hidden"></details>
-      <p class="note span">같은 회의를 Plaud와 다른 기기로 함께 녹음했다면 — 두 녹음을 합치는 기능은 준비 중입니다. 지금은 출처별로 따로 작업하세요.</p>
+      <p class="note span">같은 회의를 Plaud와 다른 기기로 함께 녹음했어도 아직은 두 녹음을 합칠 수 없습니다. 출처마다 따로 등록하세요.</p>
     </fieldset>
 
     <fieldset id="fsTask" class="modes hidden">
       <legend><span class="num">3.</span> 할 일</legend>
       <label class="mode" data-src="plaud"><input type="radio" name="mode" value="gap">
-        <b>빠진 구간 채우기</b><span>Plaud 전사가 녹음 중간에 끊겼을 때, 끊긴 뒤부터 녹음 끝까지 전사하고 Plaud 이름으로 화자를 맞힙니다.</span></label>
+        <b>빠진 구간 채우기</b><span>Plaud 전사가 녹음 도중에 끊겼을 때 그 뒤부터 녹음 끝까지 전사하고, Plaud에 붙은 이름으로 화자를 맞힙니다.</span></label>
       <label class="mode" data-src="plaud"><input type="radio" name="mode" value="range">
         <b>잘못된 구간 다시 전사</b><span>잘못 전사된 구간(시작~끝)만 다시 전사하고 화자를 맞힙니다.</span></label>
       <label class="mode" data-src="plaud"><input type="radio" name="mode" value="enroll">
         <b>목소리 기준만 등록</b><span>Plaud에 이름이 붙은 사람의 목소리를 저장해, 다른 녹음에서 이름을 추천·판정하는 데 씁니다.</span></label>
       <label class="mode" data-src="plaud dev"><input type="radio" name="mode" value="diar">
-        <b>화자 분리 · 전사 <em>권장</em></b><span>비슷한 목소리를 먼저 묶고(Speaker 1, 2…), 대표 구간을 들어 이름을 붙인 뒤 전사합니다.</span></label>
+        <b>화자 분리·전사 <em>권장</em></b><span>비슷한 목소리를 먼저 묶고(Speaker 1, 2…) 대표 구간을 들어 이름을 지정한 뒤 전사합니다.</span></label>
       <label class="mode" data-src="plaud dev"><input type="radio" name="mode" value="fragment">
         <b>저장된 목소리로 바로 맞히기</b><span>이름 지정 없이, 저장된 목소리 기준 중 가장 닮은 사람으로 바로 판정합니다(아는 사람만 있을 때).</span></label>
       <label class="chk span hidden" id="callWrap"><input type="checkbox" id="isCall"> 통화 녹음(두 사람) — 인원을 2명으로 두고 묶습니다</label>
@@ -93,7 +93,7 @@
 
 
     <fieldset id="fsTranscript" class="after-src hidden">
-      <legend><span class="num">4.</span> Plaud 전사 파일 <small id="trHint">필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(타임스탬프·화자 켜기)</small></legend>
+      <legend><span class="num">4.</span> Plaud 전사 파일 <small id="trHint">필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(시간·화자를 켜고 내보내기)</small></legend>
       <input type="file" id="trFile" accept=".txt,.srt,.docx,.json">
       <div id="trInfo" class="trinfo"></div>
       <div id="gapTape" class="tape hidden"></div>
@@ -107,14 +107,14 @@
     </fieldset>
 
     <fieldset id="fsSpeakers" class="after-src hidden">
-      <legend><span class="num">5.</span> <span id="spkLegend">화자 후보</span> <small id="spkHint">고르지 않으면 저장된 사람 전원 + 이 회의 전사의 사람 중에서 맞힙니다</small></legend>
+      <legend><span class="num">5.</span> <span id="spkLegend">화자 후보</span> <small id="spkHint">고르지 않으면 저장된 사람 전원과 이 회의 전사에 나온 사람 중에서 맞힙니다</small></legend>
       <div id="spkChips" class="chips"></div>
       <label class="chk" id="attWrap">참석 인원(선택) <input type="number" id="attendees" min="0" max="30" class="num" placeholder="모름"></label>
       <label class="chk" id="useVpWrap"><input type="checkbox" id="useVp" checked> 저장된 목소리 기준 함께 쓰기</label>
     </fieldset>
 
     <fieldset class="after-src hidden">
-      <legend><span class="num">6.</span> 작업 이름 · 언어 · 녹음 고지</legend>
+      <legend><span class="num">6.</span> 녹음 제목·언어·고지</legend>
       <input id="jobTitle" placeholder="예: 10-09 ○○현장 면담" class="wide">
       <label class="chk" title="한국어로 두어도 말 중간의 영어 낱말·문장은 영어로 받아 적습니다. 회의 전체가 영어일 때만 영어를 고르세요">말하는 언어
         <select id="jobLang"><option value="ko">한국어(영어 섞여도 됨)</option><option value="en">영어</option></select></label>
@@ -134,12 +134,12 @@
 <section id="tab-review" class="tab">
   <!-- 작업 선택은 녹음 목록의 카드로 한다(이 칸은 숨김 — 같은 목록이 두 곳에 있던 것) -->
   <div class="bar hidden" id="rvBar">
-    <select id="rvJob" aria-label="작업 선택"></select>
+    <select id="rvJob" aria-label="녹음 선택"></select>
   </div>
   <div class="jhead" id="rvHead"></div>
   <div id="rvNone" class="empty hidden">
-    <p>열 녹음이 없습니다.<br>녹음 목록에서 카드의 단추를 눌러 들어오세요.</p>
-    <button type="button" id="rvGoJobs" class="primary">녹음 목록으로</button>
+    <p>열 녹음이 없습니다.<br>홈에서 녹음 카드의 단추를 눌러 들어오세요.</p>
+    <button type="button" id="rvGoJobs" class="primary">홈으로</button>
   </div>
   <!-- 검수는 할 일 순서대로: ① 화자 이름 지정(화자 분리 작업만) → ② 발언 검수 → ③ 내보내기 -->
   <section class="step" id="stNames">
@@ -168,8 +168,8 @@
         <label class="chk"><input type="checkbox" id="rvEdited"> 고친 것만 <span class="msg" id="rvEditedN"></span></label>
         <label class="chk" id="rvPlaudWrap"><input type="checkbox" id="rvPlaud"> Plaud 전사</label>
         <span class="spacer"></span>
-        <button type="button" id="rvAllOk" class="bulk" title="지금 보이는 발언을 모두 확인으로">✓ 모두 확인</button>
-        <button type="button" id="rvUndo" disabled title="되돌리기 (Ctrl+Z / ⌘Z)">↶</button>
+        <button type="button" id="rvAllOk" class="bulk" title="지금 보이는 발언을 모두 확인합니다">✓ 모두 확인</button>
+        <button type="button" id="rvUndo" disabled title="되돌리기(Ctrl+Z / ⌘Z)">↶</button>
       </div>
       <div id="rvStats" class="rvstats"></div>
       <div class="tablewrap"><table class="rv">
@@ -218,7 +218,7 @@
 <!-- ======================= 사전 ======================= -->
 <section id="tab-glossary" class="tab">
   <div class="bar"><h2>인명·용어 사전</h2><span class="spacer"></span><button type="button" id="glAdd">＋ 줄 추가</button><button type="button" id="glSave" class="primary">저장</button></div>
-  <p class="note">음성인식이 잘못 적는 이름·용어를 바로잡습니다. 검수 화면 표시와 내보내기에만 적용되고 원문은 그대로 둡니다.</p>
+  <p class="note">음성 인식이 잘못 적는 이름·용어를 바로잡습니다. 검수 화면 표시와 내보내기에만 적용되고 원문은 그대로 둡니다.</p>
   <table class="gl"><thead><tr><th>잘못 적힌 말</th><th>바로잡을 말</th><th></th></tr></thead><tbody id="glBody"></tbody></table>
 </section>
 
@@ -242,7 +242,7 @@
     </div>
     <div class="card">
       <h3>기기 성능 시험</h3>
-      <p class="note">이 기기에서 각 단계가 얼마나 걸리는지 잽니다(합성 음원만 씀, 1~5분). 충전기를 연결하고, 처리 중인 작업이 없을 때 누르세요. 결과는 더 빠른 처리 방식(그래픽 칩 가속 등)을 고르는 근거로 씁니다.</p>
+      <p class="note">이 기기에서 각 단계가 얼마나 걸리는지 잽니다(합성 음원만 씀, 1~5분). 충전기를 연결하고 처리 중인 녹음이 없을 때 누르세요. 결과는 더 빠른 처리 방식(그래픽 칩 가속 등)을 고르는 근거로 씁니다.</p>
       <p class="row"><button type="button" id="btnBench">시험 시작</button> <span id="benchMsg" class="msg"></span></p>
       <dl id="benchOut" class="info bench"></dl>
       <div id="benchHist" class="benchhist"></div>
@@ -250,7 +250,7 @@
     <div class="card">
       <h3>저장 공간·백업</h3>
       <p id="storeState" class="note">-</p>
-      <p class="note">작업 결과·검수·목소리 기준은 <b>이 브라우저에만</b> 저장됩니다. 브라우저 데이터를 지우면 함께 사라지므로, 작업이 끝날 때마다 백업을 받아 두세요(음원은 빠집니다).</p>
+      <p class="note">전사 결과·검수 내용·목소리 기준은 <b>이 브라우저에만</b> 저장됩니다. 브라우저 데이터를 지우면 함께 사라지니 녹음 하나를 마칠 때마다 백업을 받아 두세요(음원은 빠집니다).</p>
       <p class="row"><button type="button" id="btnBackup">백업 내려받기</button>
       <label class="button">백업 올리기 <input type="file" id="restoreFile" accept=".json" hidden></label></p>
       <p id="restoreMsg" class="msg"></p>
@@ -260,9 +260,9 @@
       <ul class="tips">
         <li>처리는 이 탭에서 돌아갑니다. <b>처리하는 동안 탭을 닫지 마세요.</b> 닫았다가 다시 열면 끊긴 구간부터 이어서 합니다.</li>
         <li>음원과 전사는 인터넷으로 나가지 않습니다. 이 사이트가 받아 오는 것은 화면과 모델 파일뿐입니다.</li>
-        <li>휴대폰 녹음은 작업을 등록한 뒤 휴대폰에서 지워도 됩니다(이 브라우저에 16kHz로 보관 — 다 쓴 작업은 「음원 지우기」).</li>
-        <li>처리 속도는 PC 성능에 따라 다릅니다. 시험(스레드 1개)에서는 음성 1분에 약 7분, 목소리 기준 만들기에 약 5분이 걸렸습니다. 스레드가 많을수록 빨라집니다(위 「처리 스레드」).</li>
-        <li>다 쓴 작업은 「음원 지우기」로 음원만 지울 수 있습니다(결과는 남음).</li>
+        <li>휴대폰의 원본 녹음 파일은 등록한 뒤 지워도 됩니다. 이 브라우저에 16kHz로 따로 보관합니다.</li>
+        <li>처리 속도는 기기 성능에 따라 다릅니다. 시험(스레드 1개)에서는 음성 1분에 약 7분, 목소리 기준 만들기에 약 5분이 걸렸습니다. 스레드가 많을수록 빨라집니다(위 「처리 스레드」).</li>
+        <li>다 쓴 녹음은 카드의 ⋯ › 「음원만 지우기」로 음원만 지울 수 있습니다(결과는 남음).</li>
       </ul>
     </div>
   </div>
@@ -272,7 +272,7 @@
 <div id="spkPop" class="spkpop hidden" role="dialog" aria-label="발언 화자 바꾸기"></div>
 <!-- 구간 손보기(이름 대기 중): 1 구간 정하기 → 2 누구 말인지 → 3 비슷한 곳 -->
 <div id="rgSheet" class="rgsheet hidden" role="dialog" aria-modal="true" aria-labelledby="rgTitle">
-  <div class="rg-in">
+  <div class="rg-in" tabindex="-1">
     <div class="flow"><span data-st="1">1 구간 정하기</span>›<span data-st="2">2 누구 말인지</span>›<span data-st="3">3 비슷한 곳</span></div>
     <div id="rgEdit">
       <h3 id="rgTitle">✂ 구간 손보기 <span class="msg" id="rgFrom"></span></h3>
@@ -287,7 +287,7 @@
       <div class="plays"><button type="button" class="primary" data-rg="play">▶ 구간만 듣기</button><button type="button" data-rg="playctx">▶ 앞뒤 2초까지</button></div>
       <div class="who" id="rgWhoQ"></div>
       <div class="whos" id="rgWho"></div>
-      <label class="opt" id="rgFindWrap"><input type="checkbox" id="rgFind" checked><span>이 구간을 그 사람 목소리 기준으로 써서 <b>비슷한 곳 찾기</b><small>원래 묶음 안에서 그 목소리와 더 닮은 곳을 보여 줍니다(확인한 것만 옮김)</small></span></label>
+      <label class="opt" id="rgFindWrap"><input type="checkbox" id="rgFind" checked><span>이 구간을 그 사람 목소리 기준으로 써서 <b>비슷한 곳 찾기</b><small>원래 묶음 안에서 그 목소리와 더 닮은 곳을 보여 줍니다(들어 보고 고른 곳만 옮김)</small></span></label>
       <div class="act2"><button type="button" data-rg="close">취소</button><button type="button" class="primary" data-rg="apply" disabled>적용</button></div>
     </div>
     <div id="rgSim" class="hidden">

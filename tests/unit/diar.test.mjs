@@ -329,3 +329,14 @@ test("음량 맞춤: 고른 소리면 묶음 앞뒤 가장자리도 가운데와
   // 예전 방식(늘 3초로 나눔)이면 맨 앞 칸 배율이 √2배(+3dB)였다
   assert.ok(g[0] < mid * 1.01);
 });
+
+import { titleFromFiles, nameTime } from "../../web/src/diar.js";
+test("파일 이름: 날짜 뒤 「1차」「2차」는 순번으로 먹지 않고, 붙여 쓴 12자리 YYMMDDHHMMSS도 읽는다", () => {
+  assert.equal(titleFromFiles(["20251008_1차 면담.m4a"]), "25년 10월 8일 · 1차 면담");
+  assert.equal(titleFromFiles(["회의 20251008 2차.m4a"]), "25년 10월 8일 · 회의 2차");
+  assert.equal(nameTime("251009_1430_01").seq, 1); // 소니 순번은 그대로
+  const r = nameTime("REC_260914075100.wav");
+  assert.deepEqual([r.y, r.mo, r.d, r.time.h, r.time.mi, r.time.s], [2026, 9, 14, 7, 51, 0]);
+  assert.equal(titleFromFiles(["REC_260914075100.wav"]), "26년 9월 14일 오전 07시 51분 · 음성");
+  assert.equal(nameTime("20251008_143000").y, 2025); // 4자리 해가 맞으면 그대로
+});

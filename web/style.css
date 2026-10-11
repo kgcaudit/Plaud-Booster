@@ -540,7 +540,8 @@ body.rg-open { overflow: hidden; }
 .rgaxis { display: flex; justify-content: space-between; font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; margin: 2px 2px 4px; }
 .rglegend { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--mute); margin-bottom: 8px; }
 .rglegend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; background: var(--cc); }
-.rglegend i.sel { background: rgba(185, 91, 59, .3); } .rglegend i.ph { background: #A50E2E; }
+.rglegend i.sel { background: rgba(185, 91, 59, .3); } .rglegend i.ph { background: var(--bad); }
+.rg-in:focus:not(:focus-visible) { outline: none; }
 .ends { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 8px; }
 .end { border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; min-width: 0; }
 .end .k { font-size: 12px; color: var(--mute); }

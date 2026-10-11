@@ -187,3 +187,45 @@ test("안정화: 특징 묶음 서명·누락 구간 끝 찾기는 10분씩 읽�
   const res = await runJob({ mode: "range", range: { from: 24, to: 60 } }, [{ name: "a.wav", dur: 90 }], ctx);
   assert.equal(res.result, null); assert.equal(ctx.store.enroll, null);
 });
+
+import { collapseRepeats } from "../../web/src/engine.js";
+test("되풀이 환각: 앞에 실제 말이 있으면 되풀이만 한 번으로 줄여 남기고, 되풀이뿐이면 환각", () => {
+  const t = "그 공사비 기성은 3월에 지급했고 확인했습니다 확인했습니다 확인했습니다 확인했습니다";
+  assert.ok(!isHallu(t));
+  assert.equal(collapseRepeats(t), "그 공사비 기성은 3월에 지급했고 확인했습니다");
+  assert.ok(isHallu("확인했습니다 확인했습니다 확인했습니다 확인했습니다"));
+  assert.ok(isHallu("네네네네네네네네네네네네네네네네"));
+  assert.equal(collapseRepeats("네 알겠습니다"), "네 알겠습니다");
+  assert.equal(collapseRepeats("네 네 네 네"), "네 네 네 네"); // 짧은 되풀이는 실제 말일 수 있어 그대로
+  assert.ok(!isHallu("네 네 네 네"));
+});
+
+test("묶은 창을 끝까지 전사하지 못하면(cut) 그 뒤에 시작하는 발언은 혼자 다시 전사한다", async () => {
+  const x = new Float32Array(60 * SR);
+  const units = [0, 5, 10, 15].map((s) => ({ f: 0, s, e: s + 2, c: 0, sim: 0.9, margin: 0.5 }));
+  const diar = { kind: "diar", clusters: [{ id: 0, label: "S1" }], units, narrow: false };
+  const ctx = makeCtx(x);
+  ctx.store.chunks = diar;
+  const solo = [];
+  ctx.transcribe = async (a) => { solo.push(a.t0); return `혼자 ${a.t0.toFixed(1)}`; };
+  // 묶은 창: 첫 발언 글만 닫히고(0~2초대) 둘째 발언 중간에서 끊김(토큰 한도)
+  ctx.transcribeTs = async () => { const s = [{ s: 0.2, e: 2.5, text: "첫 말" }, { s: 3.4, e: 12, text: "둘째 말 반쯤" }]; s.cut = 2.5; return s; };
+  const r = await runJob({ mode: "diar", stage: "transcribe" }, [{ name: "a.wav", dur: 60 }], ctx);
+  const texts = r.result.segs.map((g) => g.text);
+  assert.equal(texts[0], "첫 말");
+  assert.equal(r.result.segs.length, 4); // 발언이 하나도 빠지지 않음
+  assert.equal(solo.length, 3); // 끊긴 뒤에 시작하는 세 발언은 혼자 다시
+  assert.ok(texts.slice(1).every((t) => t.startsWith("혼자")));
+});
+
+import { Whisper, lastClosed } from "../../web/src/models.js";
+test("Whisper 되풀이 멈춤: 끝의 겹친 벌을 한 벌만 남기고, 닫힌 시각을 찾는다", () => {
+  const ids = [5, 6, 7, 1, 2, 1, 2, 1, 2, 1, 2];
+  const p = Whisper.looping(ids);
+  assert.equal(p, 2);
+  assert.equal(Whisper.trimLoop(ids, p), 6); // [5,6,7,1,2]
+  assert.equal(Whisper.looping([1, 2, 3, 4]), 0);
+  const TS0 = 50365;
+  assert.equal(lastClosed([TS0, 10, 11, TS0 + 50, TS0 + 60, 12], TS0), 1);
+  assert.equal(lastClosed([TS0, 10, 11], TS0), 0);
+});

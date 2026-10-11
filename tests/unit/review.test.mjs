@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd } from "../../web/src/review.js";
+import { inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd, josa } from "../../web/src/review.js";
 import { mergedLines } from "../../web/src/export.js";
 import { titleFromFiles } from "../../web/src/diar.js";
 
@@ -194,4 +194,22 @@ test("녹음 카드: 진행 단계와 지금 할 일", () => {
   assert.equal(jobFlow({ mode: "gap", status: "완료" }).action.label, "검수하기 →");
   assert.equal(jobFlow({ mode: "enroll", status: "완료" }).action.a, "voices");
   assert.equal(jobFlow({ mode: "fragment", status: "준비" }).badge, "등록 중");
+});
+
+test("조사 고르기(josa): 한글 받침·숫자 읽기·로마자·ㄹ 받침 뒤 「로」", () => {
+  assert.equal(josa("김철수", "와/과"), "김철수와");
+  assert.equal(josa("김철수 팀장", "와/과"), "김철수 팀장과");
+  assert.equal(josa("Speaker 2", "을/를"), "Speaker 2를");
+  assert.equal(josa("Speaker 1", "을/를"), "Speaker 1을");
+  assert.equal(josa("S3", "와/과"), "S3과");
+  assert.equal(josa("S10", "와/과"), "S10과"); // 십
+  assert.equal(josa("S4", "이/가"), "S4가");
+  assert.equal(josa("김○○(S1)", "으로/로"), "김○○(S1)로"); // 일 — ㄹ 받침 뒤 「로」
+  assert.equal(josa("박팀장", "으로/로"), "박팀장으로");
+  assert.equal(josa("서울", "으로/로"), "서울로");
+  assert.equal(josa("나", "으로/로"), "나로");
+  assert.equal(josa("Tom", "은/는"), "Tom은");
+  assert.equal(josa("Mike", "은/는"), "Mike는");
+  assert.equal(josa("「사용 - 빠름」", "으로/로"), "「사용 - 빠름」으로");
+  assert.equal(josa("", "을/를"), "를");
 });

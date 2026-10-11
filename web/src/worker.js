@@ -211,10 +211,15 @@ async function gpuGuard(level) {
   if (pend && pend.v !== 2) { await S.del("kv", "gpuLoading"); return level; } // 예전 형식 표시는 버린다(판정 기준이 달랐음)
   if (!pend || !(pend.crashed || gpuCrashed(pend, cleanExitAt))) return level;
   const chosen = await askGpu(pend.level ?? level); // 그때 쓰던 단계를 알려 주고 고르게 한다
+  // 답하기 전에 중지했으면 아무것도 저장하지 않는다(꺼짐 흔적을 남겨 다음에 다시 묻는다 — 예전엔 꺼진 단계를 그대로 저장)
+  if (chosen == null) throw Object.assign(new Error("그래픽 칩 질문에 답하기 전에 중지했습니다"), { name: "GpuAskAborted" });
+  await applyGpuChoice(chosen);
+  return chosen;
+}
+async function applyGpuChoice(chosen) {
   await S.del("kv", "gpuLoading");
   await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), gpuLevel: chosen });
   gpuLevel = chosen;
-  return chosen;
 }
 
 /** 그래픽 칩 가속을 계속 쓸지 화면에 묻고 답을 기다린다(true = 계속 사용) */
@@ -236,17 +241,28 @@ async function processJob(job) {
   const id = job.id;
   // 「대기」일 때만 가져간다(그 사이 화면에서 멈춤·지우기를 했으면 건너뜀)
   let claimed = false;
-  await S.update("jobs", id, (j) => { if (!j || j.status !== "대기") return j; claimed = true; return { ...j, status: "처리중", error: null, startedAt: S.now(), progress: { pct: 1, msg: "모델 준비" } }; });
+  await S.update("jobs", id, (j) => { if (!j || j.status !== "대기") return j; claimed = true; return { ...j, status: "처리중", error: null, startedAt: S.now(), progress: { pct: 1, msg: "모델 준비 중" } }; });
   stops.delete(id);
   if (!claimed) return;
   post({ type: "job", id });
-  await ensureModels(isDiar(job.mode) && job.stage !== "transcribe" ? "diar" : "all");
+  // 화자 분리 단계·목소리 기준 만들기(enroll)는 Silero·CAM++만 — Whisper(약 0.8GB)는 전사할 때만 올린다
+  const need = (isDiar(job.mode) && job.stage !== "transcribe") || job.mode === "enroll" ? "diar" : "all";
+  try { await ensureModels(need); }
+  catch (e) {
+    if (e.name !== "GpuAskAborted") throw e;
+    const j = await S.get("jobs", id);
+    await S.saveJob(id, { status: "중지", progress: { pct: j?.progress?.pct || 0, msg: "중지됨 — 「이어서 처리」를 누르면 멈춘 곳부터 합니다" } });
+    post({ type: "job", id });
+    return;
+  }
   if (whisper) whisper.lang = job.lang || "ko"; // 말하는 언어(한국어·영어·자동) — 예전 작업은 한국어
   let last = 0;
   const progress = async (pct, msg) => {
     if (Date.now() - last < 1500 && pct < 99) return;
     last = Date.now();
-    if (!(await S.saveJob(id, { progress: { pct, msg } }))) stops.add(id); // 처리 중에 지워진 작업 — 멈춘다
+    // 엔진은 진행률을 기다리지 않고 부르므로 저장 실패를 여기서 받는다(받지 않으면 처리되지 않은 거부가 남음)
+    try { if (!(await S.saveJob(id, { progress: { pct, msg } }))) stops.add(id); } // 처리 중에 지워진 작업 — 멈춘다
+    catch (e) { console.warn(e); }
     post({ type: "job", id, pct, msg });
   };
   const vpStore = Object.fromEntries(await S.all("voiceprints"));
@@ -271,13 +287,13 @@ async function processJob(job) {
   const { result, fresh, awaiting, diar } = await runJob(job, job.audioFiles, ctx);
   if (!(await S.get("jobs", id))) { await S.resetJob(id); return; } // 처리 중에 지워졌으면 남은 중간 결과도 치운다
   if (awaiting) {
-    await S.saveJob(id, { status: "이름 대기", stats: { clusters: diar.clusters.length, units: diar.units.length }, progress: { pct: 100, msg: "화자 이름을 붙인 뒤 전사를 시작하세요" } });
+    await S.saveJob(id, { status: "이름 대기", stats: { clusters: diar.clusters.length, units: diar.units.length }, progress: { pct: 100, msg: "화자 이름을 지정한 뒤 전사를 시작하세요" } });
     post({ type: "job", id, naming: true });
     return;
   }
   if (!result) {
     const j = await S.get("jobs", id);
-    await S.saveJob(id, { status: "중지", progress: { pct: j.progress?.pct || 0, msg: "중지됨 — 다시 시작하면 이어서 합니다" } });
+    await S.saveJob(id, { status: "중지", progress: { pct: j.progress?.pct || 0, msg: "중지됨 — 「이어서 처리」를 누르면 멈춘 곳부터 합니다" } });
     post({ type: "job", id });
     return;
   }
@@ -295,6 +311,8 @@ async function processJob(job) {
     });
   }
   await S.saveJob(id, { status: "완료", stats: result.stats, finishedAt: S.now(), progress: { pct: 100, msg: "완료" } });
+  // 중간 결과 정리 — 화자 분리 작업은 남긴다: 완료 뒤 뺐던 묶음을 다시 넣고 「이어서 처리」하면 이미 전사한 발언을 그대로 쓰기 때문
+  if (!isDiar(job.mode)) await S.clearPartials(id);
   post({ type: "job", id, done: true });
 }
 
@@ -321,6 +339,8 @@ async function loop() {
         await processJob(job);
       } catch (e) {
         console.error(e);
+        // 처리 중에 지워진 작업에서 난 오류: 지운 뒤에 쓰인 중간 결과를 치우고 오류로 남기지 않는다
+        if (!(await S.get("jobs", job.id).catch(() => true))) { await S.resetJob(job.id).catch(() => {}); continue; }
         // 그래픽 칩에서 계산하다 난 오류(장치 잃음 등)면 다음 작업에서 새로 올리게 버린다
         if (whisper && whisper.device === "gpu") { whisper.release().catch(() => {}); whisper = null; }
         const msg = e && e.name === "QuotaExceededError"
@@ -329,14 +349,18 @@ async function loop() {
         // 처리 중에 지워진 작업이면 저장이 실패할 수 있다 — 그래도 다음 작업으로 넘어간다
         try { await S.saveJob(job.id, { status: "오류", error: msg }); } catch { /* 지워진 작업 */ }
         post({ type: "job", id: job.id });
+      } finally {
+        S.dropFileCache(job.id); // 끝났거나 지워진 작업의 음원 파일을 계속 붙들지 않게
       }
     }
+  } catch (e) {
+    console.error(e); // 대기 작업 읽기 실패 등 — 15초마다 다시 확인한다
   } finally {
     busy = false;
     post({ type: "idle" });
   }
   // 처리하는 동안 들어온 「시작」 요청은 busy라 건너뛰었으므로, 끝난 뒤 대기 작업이 남았으면 다시 돈다
-  if (owner && (await nextJob())) setTimeout(loop, 0);
+  try { if (owner && (await nextJob())) setTimeout(loop, 0); } catch (e) { console.error(e); }
 }
 
 /* ------------------------------------------------------------------ 기기 성능 시험 */
@@ -394,14 +418,18 @@ self.onmessage = async (ev) => {
       if ("cleanExitAt" in m) cleanExitAt = +m.cleanExitAt || 0;
       if (typeof m.level === "number") { gpuLevel = m.level; envReady(); }
     }
-    if (m.type === "gpuAnswer" && gpuReply) { const r = gpuReply; gpuReply = null; r(Math.max(0, Math.min(4, +m.level || 0))); }
+    if (m.type === "gpuAnswer") {
+      const lv = Math.max(0, Math.min(4, +m.level || 0));
+      if (gpuReply) { const r = gpuReply; gpuReply = null; r(lv); }
+      else if (!whisper) await applyGpuChoice(lv); // 중지로 질문이 풀린 뒤 늦게 온 답 — 고른 단계를 다음 처리에 쓴다
+    }
     if (m.type === "status" && gpuReply) post({ type: "gpuAsk", level: gpuAskLevel }); // 새로 연 화면에도 질문을 다시 보인다
     if (m.type === "kick") { if (owner) loop(); else if (bc) bc.postMessage({ type: "kick" }); } // 처리 맡은 탭이 따로 있으면 그쪽에 알림
     if (m.type === "stop") { onStop(m.id); if (bc) bc.postMessage({ type: "stop", id: m.id }); }
     if (m.type === "status") post({ type: "status", models: await modelStatus(), busy, owner, coi: self.crossOriginIsolated, fake: FAKE });
     if (m.type === "bench") {
       if (!owner) { post({ type: "bench", error: "다른 탭에서 처리를 맡고 있어 여기서는 시험할 수 없습니다(메모리가 모자라 둘 다 꺼질 수 있음). 그 탭을 닫고 다시 누르세요." }); return; }
-      if (busy) { post({ type: "bench", error: "작업을 처리하는 중에는 시험할 수 없습니다. 작업이 끝난 뒤 다시 누르세요." }); return; }
+      if (busy) { post({ type: "bench", error: "녹음을 처리하는 동안에는 시험할 수 없습니다. 처리가 끝난 뒤 다시 누르세요." }); return; }
       busy = true;
       try { post({ type: "bench", result: await bench() }); }
       catch (e) { post({ type: "bench", error: String((e && e.message) || e) }); }
@@ -416,7 +444,7 @@ self.onmessage = async (ev) => {
 
 function onStop(id) {
   stops.add(id);
-  if (gpuReply && busy) { const r = gpuReply; gpuReply = null; r(gpuAskLevel); } // 그래픽 칩 질문을 기다리던 중이면 풀어서 멈춤이 먹히게
+  if (gpuReply && busy) { const r = gpuReply; gpuReply = null; r(null); } // 그래픽 칩 질문을 기다리던 중이면 답 없이 풀어서 멈춤이 먹히게(아무것도 저장하지 않음)
 }
 // 탭을 여러 개 열면 처리는 한 탭(owner)에서만 한다. 다른 탭에서 넣은 「시작」·「중지」는 이 통로로 처리 탭 일꾼에 전한다
 // (예전에는 그 탭 일꾼만 받아 아무 일도 없었음 — 작업이 계속 「대기」, 중지가 안 먹힘)
@@ -436,10 +464,14 @@ let owner = false;
       return owner ? new Promise(() => {}) : undefined; // 가진 쪽은 끝까지 붙든다
     });
   });
-  if (owner) await becomeOwner();
+  if (owner) await becomeOwner().catch((e) => console.error(e));
   else if (self.navigator.locks) {
     // 다른 탭이 닫히면(또는 빠른 새로 고침으로 앞 일꾼이 아직 놓지 않았으면) 그때 넘겨받는다
-    self.navigator.locks.request("plaud-booster-worker", () => { owner = true; becomeOwner().then(() => { post({ type: "hello", owner: true }); loop(); }); return new Promise(() => {}); });
+    self.navigator.locks.request("plaud-booster-worker", () => {
+      owner = true;
+      becomeOwner().catch((e) => console.error(e)).then(() => { post({ type: "hello", owner: true }); loop(); });
+      return new Promise(() => {});
+    });
   }
   post({ type: "hello", owner });
 })();
@@ -448,7 +480,7 @@ async function becomeOwner() {
   for (const [id, j] of await S.all("jobs")) {
     if (j.status === "처리중") await S.saveJob(id, { status: "대기" });
     // 음원 준비(변환) 중에 탭이 닫혀 1시간 넘게 「준비」로 남은 작업 — 이어서 할 수 없으니 알려 준다(진행 막대만 끝없이 보이던 것)
-    else if (j.status === "준비" && Date.now() - Date.parse(j.updatedAt || j.createdAt || 0) > 3600e3) await S.saveJob(id, { status: "오류", error: "음원 준비가 끊겼습니다 — 이 작업을 지우고 다시 등록하세요" });
+    else if (j.status === "준비" && Date.now() - Date.parse(j.updatedAt || j.createdAt || 0) > 3600e3) await S.saveJob(id, { status: "오류", error: "음원 준비가 끊겼습니다 — 이 녹음을 지우고 다시 등록하세요" });
   }
   // 그래픽 칩 시험 중 꺼진 흔적은 지금 판정해 표시해 둔다 — 다음 정상 종료 기록에 묻혀 다음번엔 못 알아보는 일을 막음
   Promise.race([envWait, new Promise((r) => setTimeout(r, 10000))]).then(async () => {

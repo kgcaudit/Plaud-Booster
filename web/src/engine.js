@@ -29,9 +29,24 @@ export function cleanText(t) {
  */
 export const leadPad = (gap) => Math.min(0.5, Math.max(0.15, (Number.isFinite(gap) ? gap : 9) - 0.05));
 
+// 같은 말(2글자 이상)이 4번 넘게 잇달아 나오는 곳(모두 12글자 이상). Whisper가 같은 말을 되풀이하며 헛도는 모양
+const REPEAT = /(\S.+?)(?:[\s,.!?]*\1){3,}/gu;
+const eachRepeat = (t, f) => t.replace(REPEAT, (m, u) => (m.length >= 12 ? f(u) : m));
+
+/**
+ * 되풀이를 한 번으로 줄인다: 「…확인했습니다 확인했습니다 확인했습니다 확인했습니다」 → 「…확인했습니다」.
+ * 앞의 실제 말은 그대로 둔다(예전에는 되풀이가 있으면 발언을 통째로 환각으로 버려 앞말까지 잃었음).
+ */
+export function collapseRepeats(t) {
+  return eachRepeat(String(t || ""), (u) => u).replace(/\s{2,}/g, " ").trim();
+}
+
 export function isHallu(t) {
-  t = t.trim();
-  return !t || t === "-" || t === "." || HALLU.test(t) || /(.{4,})\1{3,}/u.test(t);
+  t = String(t || "").trim();
+  if (!t || t === "-" || t === "." || HALLU.test(t)) return true;
+  // 되풀이를 걷어 낸 나머지에 실제 말(글자·숫자 2개 이상)이 없을 때만 환각 — 되풀이 앞뒤에 말이 있으면 줄여서 남긴다
+  const rest = eachRepeat(t, () => " ");
+  return rest !== t && (rest.match(/[\p{L}\p{N}]/gu) || []).length < 2;
 }
 
 export function normalize(v) {
@@ -287,7 +302,7 @@ export async function runSony(job, files, ctx) {
       const left = ((wins.length - n) / B) * ((Date.now() - tic) / fresh) / 60000;
       ctx.progress(15 + Math.floor((n / wins.length) * 80), `목소리 특징 ${n}/${wins.length} · 남은 시간 약 ${Math.ceil(left)}분`);
     }
-    ctx.progress(96, "화자 묶는 중");
+    ctx.progress(96, "화자 분리 중");
     const known = knownPrints(ctx.vpStore, job.speakers);
     const cap = job.attendees ? job.attendees + 2 : 0;
     const cutOpt = narrow ? { cut: DEFAULTS.narrowCut, ...(wins.length > DEFAULTS.maxWin ? { cut: DEFAULTS.bigCut + 0.1 } : {}) } : {};
@@ -326,22 +341,25 @@ export async function runSony(job, files, ctx) {
       const spans = [];
       let o = 0;
       clips.forEach((c, j) => { all.set(c, o); spans.push([o / 16000, (o + c.length) / 16000]); o += c.length + (j < clips.length - 1 ? gapN : 0); });
-      texts = assignPack(spans, (await ctx.transcribeTs(all)).map((g) => ({ ...g, text: cleanText(g.text) })).filter((g) => g.text));
+      const ts = await ctx.transcribeTs(all);
+      texts = assignPack(spans, ts.map((g) => ({ ...g, text: cleanText(g.text) })).filter((g) => g.text));
+      // 창 끝까지 전사하지 못했으면(토큰 한도·되풀이 멈춤, ts.cut = 마지막으로 닫힌 시각) 그 뒤에 시작하는 발언은 묶음 글을 믿지 않는다
+      if (Number.isFinite(ts.cut)) spans.forEach(([a], j) => { if (a >= ts.cut) texts[j] = ""; });
       // 묶은 창에서 글을 못 받은 발언은 버리지 않고 혼자 다시 전사한다(말이 통째로 빠지지 않게)
       for (let j = 0; j < g.length; j++) if (!texts[j]) texts[j] = cleanText(await ctx.transcribe(clips[j]));
     }
     for (let j = 0; j < g.length; j++) {
-      const rec = { k: g[j], text: texts[j] };
+      const rec = { k: g[j], text: collapseRepeats(texts[j]) };
       if (g.length > 1) rec.pack = g.length;
       if (!rec.text) rec.empty = true; // 혼자 다시 전사해도 글이 없는 발언
-      else if (isHallu(rec.text)) rec.hallu = true;
+      else if (isHallu(texts[j])) rec.hallu = true;
       await ctx.savePartial(rec);
       done[g[j]] = rec;
     }
     nNew += g.length;
     const n = todo.filter((q) => done[q]).length;
     const left = ((todo.length - n) * (Date.now() - tic)) / nNew / 60000;
-    ctx.progress(Math.floor((n / Math.max(1, todo.length)) * 99), `${n}/${todo.length} 발언 전사 · 남은 시간 약 ${Math.ceil(left)}분${pace()}`);
+    ctx.progress(Math.floor((n / Math.max(1, todo.length)) * 99), `발언 전사 ${n}/${todo.length} · 남은 시간 약 ${Math.ceil(left)}분${pace()}`);
   }
   const segs = [];
   let dropped = 0;
@@ -445,9 +463,9 @@ export async function runJob(job, files, ctx) {
     const [fi, s, e] = chunks[k];
     const prev = chunks[k - 1] && chunks[k - 1][0] === fi ? chunks[k - 1][2] : -9;
     const audio = await ctx.readAudio(fi, Math.max(0, s - leadPad(s - prev)), e + 0.15);
-    const text = cleanText(await ctx.transcribe(audio));
-    const rec = { k, file: fi, start: s, end: e, text };
-    if (isHallu(text)) rec.hallu = true;
+    const raw = cleanText(await ctx.transcribe(audio));
+    const rec = { k, file: fi, start: s, end: e, text: collapseRepeats(raw) };
+    if (isHallu(raw)) rec.hallu = true;
     else {
       const embedAt = async (a, b) => ctx.embed(await ctx.readAudio(fi, a, b));
       const [votes, whole] = Object.keys(C).length ? await match(embedAt, s, e, C) : [{}, {}];
@@ -459,7 +477,7 @@ export async function runJob(job, files, ctx) {
     nNew++;
     const n = Object.keys(done).length;
     const left = ((chunks.length - n) * (Date.now() - tic)) / nNew / 60000;
-    ctx.progress(10 + Math.floor((n / Math.max(1, chunks.length)) * 89), `${n}/${chunks.length} 구간 · 남은 시간 약 ${Math.ceil(left)}분${pace()}`);
+    ctx.progress(10 + Math.floor((n / Math.max(1, chunks.length)) * 89), `구간 전사 ${n}/${chunks.length} · 남은 시간 약 ${Math.ceil(left)}분${pace()}`);
   }
 
   const segs = [];

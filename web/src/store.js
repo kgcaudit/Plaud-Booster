@@ -118,8 +118,13 @@ export async function audioFile(jobId, fileIndex) {
   return (await dir.getFileHandle(`${fileIndex}.pcm`)).getFile();
 }
 
-export async function deleteAudio(jobId) {
+/** 이 작업의 음원 파일 붙잡기를 놓는다(일꾼이 작업을 마쳤거나 작업이 지워졌을 때 — 지운 파일을 계속 가리키지 않게) */
+export function dropFileCache(jobId) {
   for (const k of [...fileCache.keys()]) if (k.startsWith(jobId + "/")) fileCache.delete(k);
+}
+
+export async function deleteAudio(jobId) {
+  dropFileCache(jobId);
   try {
     const root = await navigator.storage.getDirectory();
     const a = await root.getDirectoryHandle("audio", { create: true });

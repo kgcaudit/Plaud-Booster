@@ -7,6 +7,9 @@ import { agcGains } from "./diar.js";
 // 디코더 첫 걸음의 빈 self k·v 캐시(약 9MB). wasm 실행기는 입력을 복사해 쓰므로 하나를 계속 다시 쓴다
 // (예전엔 창마다 두 개씩 새로 만들어 0으로 채움 — 18MB씩 할당)
 const ZERO_CACHE = new Float32Array(4 * 448 * 1280);
+// 디코더가 볼 수 있는 토큰 자리 수(위치 임베딩 448개 — decoder.onnx의 positional_embedding [448, 1280]·self 캐시 448).
+// 한 창에서 고를 수 있는 토큰은 이 수에서 앞머리(시작·언어·할 일 토큰)를 뺀 만큼이다.
+const N_CTX = 448;
 
 export class Whisper {
   /** @param ort onnxruntime-web 모듈, encBytes/decBytes: Uint8Array, tokensText: tokens.txt 내용 */
@@ -76,7 +79,8 @@ export class Whisper {
     this.SOT = 50258n; this.KO = 50264n; this.EN = 50259n; this.TRANSCRIBE = 50360n; this.NOTS = 50364n; this.EOT = 50257;
     // 말하는 언어: "ko"(기본 — 한국어 속 영어 낱말·문장도 받아 적음) · "en"(영어 회의). 작업마다 일꾼이 정해 준다(job.lang)
     this.lang = "ko";
-    this.maxTokens = 220;
+    // 더 줄이고 싶을 때만 정한다(없으면 디코더 자리 끝까지). 예전 220은 24초 묶음 창에서 끝까지 못 가 뒤 발언을 잃었다
+    this.maxTokens = 0;
   }
 
   detok(ids) {
@@ -87,16 +91,34 @@ export class Whisper {
     return new TextDecoder("utf-8").decode(all).trim();
   }
 
-  /** 마지막 토큰들이 같은 묶음을 4번 이상 되풀이하면 멈춘다(환각 반복 방지) */
+  /** 이번 창에서 고를 수 있는 토큰 수(디코더 자리 끝까지, maxTokens로 더 줄일 수 있음) */
+  stepLimit(promptLen) {
+    const cap = N_CTX - promptLen;
+    return this.maxTokens > 0 ? Math.min(this.maxTokens, cap) : cap;
+  }
+
+  /** 마지막 토큰들이 같은 묶음을 4번 이상 되풀이하면 멈춘다(환각 반복 방지). 되풀이한 묶음 길이(없으면 0) */
   static looping(ids) {
     for (let p = 1; p <= 12; p++) {
       if (ids.length < p * 4) break;
       const tail = ids.slice(-p);
       let rep = true;
       for (let r = 2; r <= 4 && rep; r++) for (let j = 0; j < p; j++) if (ids[ids.length - r * p + j] !== tail[j]) { rep = false; break; }
-      if (rep) return true;
+      if (rep) return p;
     }
-    return false;
+    return 0;
+  }
+
+  /**
+   * 되풀이 멈춤 뒤: 끝에 잇달아 붙은 같은 묶음(길이 p)을 한 벌만 남기고 뺀 토큰 수를 돌려준다.
+   * 예전에는 되풀이까지 그대로 글로 만들어 환각 판정에서 발언 전체(앞의 실제 말까지)가 버려졌다.
+   */
+  static trimLoop(ids, p) {
+    let n = ids.length;
+    const same = (a) => { for (let j = 0; j < p; j++) if (ids[a + j] !== ids[n - p + j]) return false; return true; };
+    let cut = 0;
+    while (n - 2 * p >= 0 && same(n - 2 * p)) { n -= p; cut += p; }
+    return cut;
   }
 
   /**
@@ -126,14 +148,16 @@ export class Whisper {
     });
     const res = [];
     let off = prompt.length;
-    for (let step = 0; step < this.maxTokens; step++) {
+    const lim = this.stepLimit(prompt.length);
+    for (let step = 0; step < lim; step++) {
       const L = out.logits;
       const V = L.dims[2], base = (L.dims[1] - 1) * V, d = L.data;
       let best = 0, bi = 0;
       for (let i = 0; i < V; i++) if (d[base + i] > best || i === 0) { best = d[base + i]; bi = i; }
       if (bi === this.EOT) break;
       res.push(bi);
-      if (Whisper.looping(res)) break;
+      const loop = Whisper.looping(res);
+      if (loop) { res.length -= Whisper.trimLoop(res, loop); break; }
       const prev = out;
       out = await this.dec.run({
         tokens: i64([BigInt(bi)], [1, 1]), in_n_layer_self_k_cache: prev.out_n_layer_self_k_cache,
@@ -165,8 +189,9 @@ Whisper.prototype.transcribeTs = async function (audio) {
   let out = await this.dec.run({ tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
     n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]) });
   const res = [];
-  let off = prompt.length;
-  for (let step = 0; step < this.maxTokens; step++) {
+  let off = prompt.length, finished = false;
+  const lim = this.stepLimit(prompt.length);
+  for (let step = 0; step < lim; step++) {
     const L = out.logits, V = L.dims[2], base = (L.dims[1] - 1) * V, d = L.data;
     const last = res.length ? res[res.length - 1] : -1, prev = res.length > 1 ? res[res.length - 2] : -1;
     const isT = (t) => t >= TS0;
@@ -194,9 +219,16 @@ Whisper.prototype.transcribeTs = async function (audio) {
       for (let i = tsLo; i <= Math.min(tsHi, V - 1); i++) lse += Math.exp(d[base + i] - bestT);
       pick = bestT + Math.log(lse) > bestX ? bt : bx;
     }
-    if (pick < 0 || pick === EOT) break;
+    if (pick < 0 || pick === EOT) { finished = true; break; }
     res.push(pick);
-    if (!isT(pick) && Whisper.looping(res.filter((t) => !isT(t)))) break;
+    if (!isT(pick)) {
+      const txt = res.filter((t) => !isT(t)), loop = Whisper.looping(txt);
+      if (loop) { // 되풀이: 글 토큰 끝의 겹친 벌을 빼고(사이에 낀 시각도 함께) 멈춘다 — 창 끝까지 못 갔으므로 finished는 거짓
+        let drop = Whisper.trimLoop(txt, loop);
+        while (drop > 0 && res.length) { if (!isT(res.pop())) drop--; }
+        break;
+      }
+    }
     const p = out;
     out = await this.dec.run({ tokens: i64([BigInt(pick)], [1, 1]), in_n_layer_self_k_cache: p.out_n_layer_self_k_cache,
       in_n_layer_self_v_cache: p.out_n_layer_self_v_cache, n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([BigInt(off)], [1]) });
@@ -205,8 +237,18 @@ Whisper.prototype.transcribeTs = async function (audio) {
   }
   for (const t of Object.values(out)) t.dispose?.();
   ck.dispose?.(); cv.dispose?.();
-  return tsSegments(res, TS0, dur, (ids) => this.detok(ids));
+  const segs = tsSegments(res, TS0, dur, (ids) => this.detok(ids));
+  // 끝(EOT)까지 못 갔으면(토큰 한도·되풀이 멈춤) 마지막으로 닫힌 시각(초)을 알린다 — 그 뒤에 시작하는 발언은 부르는 쪽이 혼자 다시 전사
+  if (!finished) segs.cut = lastClosed(res, TS0);
+  return segs;
 };
+
+/** 글 뒤에 온(닫는) 시각 토큰 가운데 마지막 것(초). 없으면 0 */
+export function lastClosed(ids, TS0) {
+  let t = 0;
+  for (let i = 1; i < ids.length; i++) if (ids[i] >= TS0 && ids[i - 1] < TS0) t = (ids[i] - TS0) * 0.02;
+  return t;
+}
 
 /** 토큰 열 → [{s, e, text}] (닫는 시각이 없으면 창 끝까지) */
 export function tsSegments(ids, TS0, dur, detok) {

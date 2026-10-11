@@ -375,19 +375,27 @@ export function nameTime(name) {
   const okD = (y, mo, d) => mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 1990 && y <= 2099;
   const okT = (h, mi, s) => h <= 23 && mi <= 59 && s <= 59;
   // ① 붙여 쓴 꼴: [GMT]YYMMDD|YYYYMMDD [_- T] HHMM[SS][mmm] [-~ HHMM[SS]] [_seq]
-  const A = /(GMT)?(?<!\d)(\d{4}|\d{2})(\d{2})(\d{2})(?:[_\- T]?(\d{2})(\d{2})(\d{2})?(\d{3})?(?:[-~](\d{2})(\d{2})(\d{2})?)?)?(?:[_\- ](\d{1,3}))?(?!\d)/g;
-  for (const m of str.matchAll(A)) {
+  // 순번 뒤에 글자가 붙으면 순번이 아니다(「20251008_1차 면담」의 「1차」를 먹지 않게)
+  const pat = (yr) => `(GMT)?(?<!\\d)${yr}(\\d{2})(\\d{2})(?:[_\\- T]?(\\d{2})(\\d{2})(\\d{2})?(\\d{3})?(?:[-~](\\d{2})(\\d{2})(\\d{2})?)?)?(?:[_\\- ](\\d{1,3})(?![\\d\\p{L}]))?(?!\\d)`;
+  const A = new RegExp(pat("(\\d{4}|\\d{2})"), "gu");
+  const A2 = new RegExp(pat("(\\d{2})"), "uy"); // 4자리 해로 안 맞으면 같은 자리에서 2자리 해로 다시(「REC_260914075100」)
+  const parse = (m) => {
     const y = m[2].length === 2 ? 2000 + p2(m[2]) : p2(m[2]), mo = p2(m[3]), d = p2(m[4]);
-    if (!okD(y, mo, d)) continue;
+    if (!okD(y, mo, d)) return null;
     let time = null, end = null;
     if (m[5] != null) {
       const h = p2(m[5]), mi = p2(m[6]), s = p2(m[7] || 0);
-      if (!okT(h, mi, s)) continue;
+      if (!okT(h, mi, s)) return null;
       time = { h, mi, s, sec: m[7] != null };
       if (m[9] != null) { const eh = p2(m[9]), em = p2(m[10]), es = p2(m[11] || 0); if (okT(eh, em, es)) end = { h: eh, mi: em, s: es, sec: m[11] != null }; }
-    } else if (m[2].length === 2) continue; // 6자리만 있는 것은 날짜로 보지 않음(번호와 헷갈림)
+    } else if (m[2].length === 2) return null; // 6자리만 있는 것은 날짜로 보지 않음(번호와 헷갈림)
     const r = { y, mo, d, time, end, seq: m[12] ? +m[12] : 0, utc: !!m[1], raw: m[0] };
     return m[1] && time ? toLocal(r) : r;
+  };
+  for (const m of str.matchAll(A)) {
+    let r = parse(m);
+    if (!r && m[2].length === 4) { A2.lastIndex = m.index; const m2 = A2.exec(str); if (m2) r = parse(m2); }
+    if (r) return r;
   }
   // ② 구분자 꼴: YYYY-MM-DD[ HH-MM[-SS]] (- . / _ :)
   const B = /(?<!\d)(\d{4})[-./](\d{1,2})[-./](\d{1,2})(?:[ _T]+(\d{1,2})[:.\-_](\d{2})(?:[:.\-_](\d{2}))?)?(?!\d)/;
