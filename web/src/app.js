@@ -189,7 +189,7 @@ function renderSys() {
 
 /* ================================================================== 탭 */
 $$(".tabs button[data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
-const SECONDARY = { new: "새 녹음", voices: "목소리 기준", glossary: "인명·용어 사전", settings: "설정·백업" };
+const SECONDARY = { new: "새 녹음", voices: "목소리 기준", glossary: "교정 사전", settings: "설정·백업" };
 let TAB = "jobs";
 /** 빵부스러기: 홈 › (녹음 제목 | 새 녹음 | 메뉴 화면 이름). 홈(녹음 목록)에서는 「홈」만. 로고(#logoHome)도 홈으로 */
 function setCrumb() {
@@ -218,7 +218,7 @@ function showTab(name) {
   if (name === "settings") loadSettings();
 }
 
-/* ☰ 메뉴: 목소리 기준 · 인명·용어 사전 · 설정·백업 + 엔진 상태 전체 */
+/* ☰ 메뉴: 목소리 기준 · 교정 사전 · 설정·백업 + 엔진 상태 전체 */
 const menuBtn = $("#menuBtn"), menuPanel = $("#menuPanel");
 function openMenu() {
   menuPanel.classList.remove("hidden"); menuBtn.setAttribute("aria-expanded", "true"); menuBtn.textContent = "✕";
@@ -1748,7 +1748,7 @@ $("#glSave").addEventListener("click", async () => {
   const pairs = $$("#glBody tr").map((tr) => ({ from: $(".f", tr).value.trim(), to: $(".t", tr).value.trim() })).filter((p) => p.from);
   await S.put("kv", "glossary", { pairs, updatedAt: S.now() });
   REVIEW.gl = pairs;
-  toast("사전을 저장했습니다");
+  toast("교정 사전을 저장했습니다");
 });
 
 /* ================================================================== 설정·백업 */
@@ -1886,7 +1886,7 @@ $("#restoreFile").addEventListener("change", async (ev) => {
       if (j.edits) await S.put("edits", id, j.edits);
       if (j.plaud) await S.put("plaud", id, j.plaud);
     }
-    $("#restoreMsg").textContent = `합쳐 넣음 — 목소리 기준 ${m.added.voiceprints}건, 사전 ${m.added.glossary}건, 녹음 ${m.added.jobs}건`;
+    $("#restoreMsg").textContent = `합쳐 넣음 — 목소리 기준 ${m.added.voiceprints}건, 교정 사전 ${m.added.glossary}건, 녹음 ${m.added.jobs}건`;
   } catch (e) { $("#restoreMsg").textContent = "실패: " + e.message; }
   ev.target.value = "";
 });

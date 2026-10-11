@@ -30,7 +30,7 @@
       <div class="bs">AI-Powered Voice Intelligence</div>
     </div>
     <button type="button" role="menuitem" data-tab="voices"><span>🎙 목소리 기준</span><small id="mnVp"></small></button>
-    <button type="button" role="menuitem" data-tab="glossary"><span>📖 인명·용어 사전</span><small id="mnGl"></small></button>
+    <button type="button" role="menuitem" data-tab="glossary"><span>📖 교정 사전</span><small id="mnGl"></small></button>
     <button type="button" role="menuitem" data-tab="settings"><span>⚙ 설정·백업</span><small>가속·모델·백업</small></button>
     <hr>
     <div id="sysline" class="sysline">준비 중…</div>
@@ -186,7 +186,7 @@
     <div class="sb exp">
       <div class="warnline hidden" id="exWarn"></div>
       <label class="chk" id="exPlaudWrap"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
-      <label class="chk" title="인명·용어 사전의 「잘못 적힌 말 → 바로잡을 말」을 통합본 TXT·CSV에 적용합니다(원문은 그대로)"><input type="checkbox" id="exGl" checked> 내보낼 때 사전 적용 <span class="msg" id="exGlN"></span></label>
+      <label class="chk" title="교정 사전의 「잘못 적힌 말 → 바로잡을 말」을 통합본 TXT·CSV에 적용합니다(원문은 그대로)"><input type="checkbox" id="exGl" checked> 내보낼 때 교정 사전 적용 <span class="msg" id="exGlN"></span></label>
       <div class="btns"><button type="button" id="exTxt" class="primary">통합본 TXT</button><button type="button" id="exCsv">CSV</button></div>
       <p class="hint">나눈 발언은 조각마다 한 줄씩, 각자의 화자·시각으로 나갑니다.</p>
     </div>
@@ -226,7 +226,7 @@
 
 <!-- ======================= 사전 ======================= -->
 <section id="tab-glossary" class="tab">
-  <div class="bar"><h2>인명·용어 사전</h2><span class="spacer"></span><button type="button" id="glAdd">＋ 줄 추가</button><button type="button" id="glSave" class="primary">저장</button></div>
+  <div class="bar"><h2>교정 사전</h2><span class="spacer"></span><button type="button" id="glAdd">＋ 줄 추가</button><button type="button" id="glSave" class="primary">저장</button></div>
   <p class="note">음성 인식이 잘못 적는 이름·용어를 바로잡습니다. 검수 화면 표시와 내보내기에만 적용되고 원문은 그대로 둡니다.</p>
   <table class="gl"><thead><tr><th>잘못 적힌 말</th><th>바로잡을 말</th><th></th></tr></thead><tbody id="glBody"></tbody></table>
 </section>
