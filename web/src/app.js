@@ -1048,7 +1048,8 @@ if (MS) {
   player.addEventListener("pause", () => { MS.playbackState = "paused"; mediaMeta(); });
   player.addEventListener("timeupdate", () => mediaMeta());
 }
-const PAL = ["#2f6fa8", "#1b7f74", "#a2620a", "#6a43a8", "#b3261e", "#4a7a1e", "#8a5a44", "#3d5a80"];
+// 화자 색 — OLO 타일 색조(style.css .cc0~7과 같은 순서)
+const PAL = ["#B95B3B", "#3E7F80", "#6A5A9E", "#B04A6A", "#2E8B6B", "#8A6A3B", "#55606B", "#4C7A3E"];
 const TL = { id: null, file: 0, loaded: -1, t: 0, env: {}, items: [], Z: 45, drag: null, cur: null, raf: 0 };
 const PRE = 0.3; // ▶는 발언 시각 0.3초 앞부터(첫 소리가 잘리지 않을 만큼만 — 2초 앞부터 틀면 적힌 시각과 들리는 소리가 어긋나 보였음)
 const fileDur = (fi) => ((REVIEW.data?.job.audioFiles || [])[fi] || {}).dur || 0;
@@ -1166,14 +1167,14 @@ function tlDraw(scrollToCur = false) {
   }
   g.fillStyle = mute; g.globalAlpha = 0.8;
   for (let s = Math.ceil(a / 10) * 10; s < a + span; s += 10) { if (s < 0) continue; g.fillRect(X(s), h - 4, 1, 4); }
-  g.globalAlpha = 1; g.fillStyle = "#d33"; g.fillRect(w / 2 - 1, 0, 2, h);
+  g.globalAlpha = 1; g.fillStyle = "#A50E2E"; g.fillRect(w / 2 - 1, 0, 2, h);
   // 아래 띠: 녹음 전체
   const [o, ow, oh] = canvasCtx($("#tlAll"));
   const OX = (sec) => (sec / dur) * ow;
   o.fillStyle = "rgba(128,128,128,.18)"; o.fillRect(0, 0, ow, oh);
   for (const x of items) { o.globalAlpha = x.plaud ? 0.35 : 0.9; o.fillStyle = x.color; o.fillRect(OX(x.s), x.plaud ? oh - 4 : 3, Math.max(1, OX(x.e) - OX(x.s)), x.plaud ? 4 : oh - 6); }
   o.globalAlpha = 1; o.strokeStyle = ink; o.lineWidth = 1; o.strokeRect(Math.max(0, OX(a)) + 0.5, 0.5, Math.max(2, OX(a + span) - Math.max(0, OX(a))), oh - 1);
-  o.fillStyle = "#d33"; o.fillRect(OX(t) - 1, 0, 2, oh);
+  o.fillStyle = "#A50E2E"; o.fillRect(OX(t) - 1, 0, 2, oh);
   // 지금 발언
   const cur = items.find((x) => !x.plaud && x.s <= t && t < x.e) || items.find((x) => x.s <= t && t < x.e);
   $("#tlTime").textContent = `${hms(t)} / ${hms(dur)}`;
@@ -1902,7 +1903,7 @@ function rgDraw() {
   const [g, w, h] = canvasCtx($("#rgWave"));
   const X = (t) => ((t - RG.vs) / (RG.ve - RG.vs)) * w;
   const css = getComputedStyle(document.body);
-  g.fillStyle = css.getPropertyValue("--bg") || "#f6f5f1"; g.fillRect(0, 0, w, h);
+  g.fillStyle = css.getPropertyValue("--bg") || "#F7F4EF"; g.fillRect(0, 0, w, h);
   // 위 띠: 지금 묶음(사람이 정한 곳은 진하게)
   for (const t of REVIEW.diar.turns) {
     if ((t.f || 0) !== RG.f || t.e <= RG.vs || t.s >= RG.ve) continue;
@@ -1911,20 +1912,20 @@ function rgDraw() {
   }
   g.globalAlpha = 1;
   // 고른 구간
-  g.fillStyle = "rgba(31,95,139,.16)"; g.fillRect(X(RG.s), 10, X(RG.e) - X(RG.s), h - 10);
+  g.fillStyle = "rgba(185,91,59,.16)"; g.fillRect(X(RG.s), 10, X(RG.e) - X(RG.s), h - 10);
   // 파형
   if (RG.peaks) {
     const n = RG.peaks.length, bw = w / n, mid = (h + 10) / 2, amp = (h - 30) / 2;
-    g.fillStyle = css.getPropertyValue("--mute") || "#6b7078";
+    g.fillStyle = css.getPropertyValue("--mute") || "#6F6358";
     for (let k = 0; k < n; k++) { const v = Math.max(0.5, RG.peaks[k] * amp); g.fillRect(k * bw, mid - v, Math.max(1, bw - 0.6), 2 * v); }
   } else { g.fillStyle = css.getPropertyValue("--mute"); g.font = "12px system-ui"; g.fillText("파형 읽는 중…", 8, h / 2); }
   // 손잡이
-  g.fillStyle = "#1f5f8b";
+  g.fillStyle = "#B95B3B";
   for (const t of [RG.s, RG.e]) { const x = X(t); g.fillRect(x - 1.5, 10, 3, h - 10); g.beginPath(); g.roundRect(x - 10, h - 24, 20, 24, 4); g.fill(); }
   g.strokeStyle = "#fff"; g.lineWidth = 1.6;
   for (const t of [RG.s, RG.e]) { const x = X(t); g.beginPath(); g.moveTo(x - 3, h - 17); g.lineTo(x - 3, h - 7); g.moveTo(x + 3, h - 17); g.lineTo(x + 3, h - 7); g.stroke(); }
   // 재생 위치
-  if (TL.loaded === RG.f) { const p = player.currentTime; if (p >= RG.vs && p <= RG.ve) { g.fillStyle = "#d33"; g.fillRect(X(p) - 1, 0, 2, h); } }
+  if (TL.loaded === RG.f) { const p = player.currentTime; if (p >= RG.vs && p <= RG.ve) { g.fillStyle = "#A50E2E"; g.fillRect(X(p) - 1, 0, 2, h); } }
 }
 // 파형 끌기: 손잡이 가까이면 그 끝을, 아니면 새로 고르기. 끌지 않고 누르면 그 자리로 재생 위치를 옮김
 (() => {
