@@ -86,7 +86,7 @@ async function detectDevice() {
   if (DEV) return DEV;
   const raw = { webgpu: false };
   try {
-    const ad = navigator.gpu && (await navigator.gpu.requestAdapter());
+    const ad = navigator.gpu && (await navigator.gpu.requestAdapter({ powerPreference: "high-performance" }));
     if (ad) { raw.webgpu = true; const i = ad.info || {}; raw.arch = i.architecture || ""; raw.vendor = i.vendor || ""; }
   } catch { /* 없음 */ }
   try {
@@ -1805,7 +1805,7 @@ $("#btnClearModels").addEventListener("click", async () => {
 async function gpuInfo() {
   try {
     if (!navigator.gpu) return { ok: false, why: "이 브라우저에 WebGPU 없음" };
-    const ad = await navigator.gpu.requestAdapter();
+    const ad = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
     if (!ad) return { ok: false, why: "그래픽 칩을 쓸 수 없음" };
     const info = ad.info || {};
     return { ok: true, f16: ad.features.has("shader-f16"), name: [info.vendor, info.architecture, info.description].filter(Boolean).join(" ") || "알 수 없음" };

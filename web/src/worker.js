@@ -162,11 +162,12 @@ async function ensureModels(need = "all") {
     else if (!/^nbits/.test(encFiles(m)[0].format || "")) gpuOffWhy = "인코더가 그래픽 칩용 형식이 아님";
     else if (!self.navigator.gpu) gpuOffWhy = "이 브라우저의 일꾼에서 WebGPU를 쓸 수 없음";
     else {
-      try { adapter = await self.navigator.gpu.requestAdapter(); } catch { adapter = null; }
+      try { adapter = await self.navigator.gpu.requestAdapter({ powerPreference: "high-performance" }); } catch { adapter = null; } // 노트북: 내장보다 외장 그래픽 칩을 먼저
       gpuOffWhy = adapter ? "" : "그래픽 칩(어댑터)을 얻지 못함";
     }
     useGpu = !!adapter;
     ort = useGpu ? await import("../vendor/ort/ort.webgpu.min.mjs") : await import("../vendor/ort/ort.wasm.min.mjs");
+    if (useGpu && ort.env.webgpu) ort.env.webgpu.powerPreference = "high-performance";
     const hc = self.navigator.hardwareConcurrency || 4;
     // 화면용으로 하나 남긴다(2코어 이하는 전부). 그래픽 칩이 인코더를 맡으면 CPU는 디코더만 하므로 둘을 남겨 화면이 덜 굼뜨게
     ort.env.wasm.numThreads = set.threads || Math.min(16, hc > 2 ? hc - (useGpu && hc > 4 ? 2 : 1) : hc);
