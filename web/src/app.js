@@ -128,7 +128,7 @@ async function renderLevelNow() {
   const b = $("#btnReload"); if (b) b.addEventListener("click", () => location.reload());
 }
 const devText = (d) => [d.name ? `${d.name}${d.model ? `(${d.model})` : ""}` : d.model, d.soc, d.gpu].filter(Boolean).join(" · ") || "알 수 없는 기기";
-/* 화면 꺼짐 방지: 이 페이지가 무언가 처리하는 동안(전사·화자 나누기·모델 받기/열기·음원 준비·성능 시험) 화면을 켜 둔다.
+/* 화면 꺼짐 방지: 이 페이지가 무언가 처리하는 동안(전사·화자 분리·모델 받기/열기·음원 준비·성능 시험) 화면을 켜 둔다.
    브라우저는 탭이 가려지면 이 잠금을 풀기 때문에, 다시 보이면 곧바로 다시 건다. 처리할 것이 없으면 놓는다. */
 const AWAKE = new Set();
 let lock = null, lockBusy = false;
@@ -545,7 +545,7 @@ async function loadJobs() {
     return;
   }
   const RV = await rvMap();
-  const html = JOBS.map((j) => {
+  const card = (j) => {
     const p = j.progress || {}, s = j.stats || {}, f = jobFlow(j, RV[j.id]);
     const dur = (j.audioFiles || []).reduce((m, x) => m + (x.dur || 0), 0);
     const result = isDiar(j.mode) ? (s.segments != null ? `발언 ${s.segments}` : s.clusters ? `화자 ${s.clusters}묶음` : "")
@@ -572,15 +572,21 @@ async function loadJobs() {
       ? `<div class="prog"><span class="pbar"><i data-w="${p.pct || 0}"></i></span><span>${p.pct || 0}% · ${esc(p.msg || "")}</span></div>
          ${prep ? "" : '<div class="row end"><button type="button" data-a="stop">중지</button></div>'}`
       : f.action ? `<button type="button" class="go${f.action.primary ? " primary" : ""}" data-a="${f.action.a}">${esc(f.action.label)}</button>` : "";
-    return `<div class="job" data-id="${esc(j.id)}">
-      <div class="hd"><span class="t">${esc(j.title)}</span><span class="badge st-${esc(String(j.status).replace(/\s/g, ""))}">${esc(f.badge)}</span>${more}</div>
+    return `<div class="job" data-id="${esc(j.id)}" data-stage="${f.stage}">
+      <div class="hd"><span class="t">${esc(j.title)}</span><span class="badge stg st-${esc(String(j.status).replace(/\s/g, ""))}">${esc(f.badge)}</span>${more}</div>
       <div class="meta">${esc(meta)}</div>
       ${trackHtml(f)}
       ${j.error ? `<p class="msg err">${esc(j.error)}</p>` : ""}
       ${f.busy && j.status === "처리중" && BATT.warn ? `<p class="note batt">${BATT.warn}</p>` : ""}
       ${act}
     </div>`;
-  }).join("");
+  };
+  // 묶음: 지금 할 일(사람 차례) → 처리 중(앱 차례) → 끝난 녹음 — 각 묶음 안은 최근 등록 순
+  const groups = { todo: [], run: [], done: [] };
+  for (const j of JOBS) groups[jobFlow(j, RV[j.id]).group].push(j);
+  const GN = { todo: "지금 할 일", run: "처리 중", done: "끝난 녹음" };
+  const html = Object.keys(GN).filter((g) => groups[g].length)
+    .map((g) => `<section class="jgroup ${g}"><h3>${GN[g]} <b>${groups[g].length}</b></h3>${groups[g].map(card).join("")}</section>`).join("");
   if (html === el.dataset.last) return; // 바뀐 게 없으면 다시 그리지 않는다
   el.dataset.last = html.length > 200000 ? "" : html;
   // 열려 있던 ⋯는 다시 그린 뒤에도 열어 둔다
@@ -624,7 +630,7 @@ $("#jobList").addEventListener("click", async (ev) => {
 });
 
 /* ================================================================== 검수 */
-// 할 일 순서대로 세 단계: ① 화자 이름 정하기(화자 나누기 작업만) → ② 발언 검수 → ③ 내보내기.
+// 할 일 순서대로 세 단계: ① 화자 이름 지정(화자 분리 작업만) → ② 발언 검수 → ③ 내보내기.
 // 보기 범위는 포함 관계(전체 ⊃ 확인함·미검수, 미검수 ⊃ 확인 필요·판정 확실) — 규칙은 review.js.
 const REVIEW = { id: null, want: null, data: null, edits: {}, names: {}, filter: "need", editedOnly: false, saveT: null, gl: [], split: null, visible: [], fold: {}, undo: [], only: null, tok: 0 };
 async function loadReviewJobs() {
@@ -712,7 +718,9 @@ function renderHead() {
   const j = { ...d.job, id: REVIEW.id }, s = (d.result && d.result.stats) || j.stats || {};
   const dur = (j.audioFiles || []).reduce((m, x) => m + (x.dur || 0), 0);
   const meta = [jobKind(j), dur ? hms(dur) : "", d.result ? `발언 ${d.result.segs.length}` : s.clusters ? `화자 ${s.clusters}묶음` : ""].filter(Boolean).join(" · ");
-  el.innerHTML = `<div class="t">${esc(j.title)}</div><div class="meta">${esc(meta)}</div>${trackHtml(jobFlow(j, REVIEW.rv && REVIEW.rv.v))}`;
+  const f = jobFlow(j, REVIEW.rv && REVIEW.rv.v);
+  el.dataset.stage = f.stage;
+  el.innerHTML = `<div class="t">${esc(j.title)}</div><div class="meta">${esc(meta)}</div>${trackHtml(f)}`;
 }
 const gloss = (t) => { for (const p of REVIEW.gl || []) if (p.from) t = t.split(p.from).join(p.to); return t; };
 const isNeed = (g) => {
@@ -1383,7 +1391,7 @@ const clustersOf = () => (REVIEW.data && (REVIEW.data.result?.clusters || REVIEW
 const clusterIndex = (id) => Math.max(0, clustersOf().findIndex((c) => c.id === id));
 const clusterLabel = (id) => (clustersOf().find((c) => c.id === id) || {}).label || id;
 
-function pushUndo(diar) { // diar: 묶음을 나누기 전 화자 나누기 결과(되돌릴 때 다시 저장)
+function pushUndo(diar) { // diar: 묶음을 나누기 전 화자 분리 결과(되돌릴 때 다시 저장)
   REVIEW.undo.push({ s: JSON.stringify({ e: REVIEW.edits, names: REVIEW.names }), diar });
   if (REVIEW.undo.length > 100) REVIEW.undo.shift();
   updUndo();
@@ -1629,7 +1637,7 @@ async function loadVoices() {
     return `<tr data-n="${esc(name)}"><td><b>${esc(name)}</b></td><td>${n}</td>
       <td class="src">${items.map(([src, it]) => `<div><span>${esc(src)} (${it.n})</span><button type="button" data-src="${esc(src)}" title="이 출처만 빼기">빼기</button></div>`).join("")}</td>
       <td class="nowrap"><button type="button" data-a="ren">이름 바꾸기·합치기</button> <button type="button" data-a="del">지우기</button></td></tr>`;
-  }).join("") : '<tr><td colspan="4" class="empty">저장된 목소리 기준이 없습니다. Plaud 녹음 작업을 처리하거나, 화자 나누기 검수에서 「목소리 기준 저장」을 누르면 쌓입니다.</td></tr>';
+  }).join("") : '<tr><td colspan="4" class="empty">저장된 목소리 기준이 없습니다. Plaud 녹음 작업을 처리하거나, 화자 분리 검수에서 「목소리 기준 저장」을 누르면 쌓입니다.</td></tr>';
 }
 $("#vpBody").addEventListener("click", async (ev) => {
   const b = ev.target.closest("button");
@@ -1733,7 +1741,7 @@ function renderBench(r, gpu) {
     row("목소리 특징", `3초 창 하나에 ${sec(r.emb)}`),
     row("전사 30초 창", `${enc}` + (r.decStep[0] ? ` · 글자 조각 하나 ${sec(r.decStep.reduce((a, b) => a + b, 0) / r.decStep.length)}` : "")),
     row("느려짐", r.slow > 1.3 ? `<span class="err">세 번째가 첫 번째보다 ${r.slow.toFixed(1)}배 느림 — 발열로 속도가 떨어지는 기기입니다</span>` : `없음(${r.slow.toFixed(2)}배)`),
-    row("1시간 회의 어림", `화자 나누기 약 ${sec(r.estDiar)} · 전사 약 ${sec(r.estTr)}`),
+    row("1시간 회의 어림", `화자 분리 약 ${sec(r.estDiar)} · 전사 약 ${sec(r.estTr)}`),
   ].join("");
 }
 function onBench(m) {
@@ -1830,7 +1838,7 @@ $("#restoreFile").addEventListener("change", async (ev) => {
 
 /* ================================================================== 구간 손보기(이름 대기 중)
  * 1 구간 정하기(파형 끌기·손잡이·⏱ 지금·±0.2초) → 2 누구 말인지(기존 묶음·새 사람·빼기) → 3 비슷한 곳(들어 보고 고른 것만 옮김).
- * 규칙은 diar.js(relabelRange·similarRegions·mixSuspects). 되돌리기는 손보기 전 화자 나누기 결과를 다시 저장한다. */
+ * 규칙은 diar.js(relabelRange·similarRegions·mixSuspects). 되돌리기는 손보기 전 화자 분리 결과를 다시 저장한다. */
 const RG = { open: false };
 const fmt1 = (t) => { const d = Math.max(0, Math.floor((t || 0) * 10 + 1e-6)) / 10, h = Math.floor(d / 3600), m = Math.floor((d % 3600) / 60), s = d - h * 3600 - m * 60; return `${h ? h + ":" + String(m).padStart(2, "0") : m}:${s < 10 ? "0" : ""}${s.toFixed(1)}`; }; // 0.1초 내림
 const rgNameOf = (i) => { const c = clustersOf()[i]; return c ? (REVIEW.names[c.id] ? `${REVIEW.names[c.id]}(${c.label.replace("Speaker ", "S")})` : c.label) : "빼기"; };

@@ -97,7 +97,7 @@ const goReview = async (title) => {
   assert.ok(await page.locator("#fsTask").isHidden()); // 출처를 고르기 전에는 할 일이 안 보임
   await page.check("input[name='source'][value='plaud']");
   assert.ok(await page.locator("input[name='mode'][value='gap']").isChecked());
-  assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible()); // Plaud에도 화자 나누기·전사
+  assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible()); // Plaud에도 화자 분리·전사
   await page.setInputFiles("#audioFiles", asFile(audioPath, "audio/wav"));
   await page.setInputFiles("#trFile", asFile(trPath, "text/plain"));
   await page.waitForSelector("#trInfo:has-text('7개 발언')");
@@ -163,7 +163,7 @@ const goReview = async (title) => {
   assert.match(txt, /진짜 전사/); // 사전 적용
   console.log("✓ 통합본 TXT(Plaud 합치기·검수·사전)");
 
-  // ---- 소니 녹음: 화자 먼저 묶기 → 이름 붙이기 → 전사 → 발언별 수정·되돌리기 → 목소리 기준 저장
+  // ---- 소니 녹음: 화자 먼저 묶기 → 이름 지정 → 전사 → 발언별 수정·되돌리기 → 목소리 기준 저장
   page.on("dialog", (d) => d.accept());
   // 검수에서 재생하던 중에 작업 탭으로 가도 재생은 멈추고 새 작업을 만들 수 있다
   await page.click("#tlPlay");
@@ -172,7 +172,7 @@ const goReview = async (title) => {
   assert.ok(await page.evaluate(() => document.getElementById("player").paused), "작업 탭으로 갔는데 재생이 계속됨");
   await page.click("#btnNew");
   assert.ok(await page.locator("#newJob").isVisible());
-  // Plaud 출처에도 화자 나누기·전사가 있고, 고르면 Plaud 전사 파일 칸은 숨는다
+  // Plaud 출처에도 화자 분리·전사가 있고, 고르면 Plaud 전사 파일 칸은 숨는다
   await page.check("input[name='source'][value='plaud']");
   assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible());
   await page.check("input[name='mode'][value='diar']");
@@ -319,7 +319,7 @@ const goReview = async (title) => {
   await page.click("#exTxt");
   const t4 = fs.readFileSync(await (await d4).path(), "utf8");
   assert.match(t4, /■ 251009_1430\.wav \(2025-10-09 14:30 녹음\)/);
-  assert.match(t4, /녹음 출처: 소니 녹음기 · 할 일: 화자 나누기·전사/);
+  assert.match(t4, /녹음 출처: 소니 녹음기 · 할 일: 화자 분리·전사/);
   assert.match(t4, /녹음 고지: 참석자에게 녹음 사실을 알림/);
   assert.match(t4, /\] 정: /);
   assert.match(t4, new RegExp(`: 앞사람 말입니다\\n.*\\] ${other}: 뒷사람 대답입니다`)); // 나눈 발언은 조각마다 한 줄
@@ -378,7 +378,7 @@ const goReview = async (title) => {
     await page.click("#btnNew");
     await page.check("input[name='source'][value='phone']");
     await page.check("input[name='mode'][value='diar']");
-    assert.ok(await page.locator("#callWrap").isVisible()); // 휴대폰 + 화자 나누기면 「통화 녹음」 선택
+    assert.ok(await page.locator("#callWrap").isVisible()); // 휴대폰 + 화자 분리면 「통화 녹음」 선택
     await page.check("#isCall");
     assert.equal(await page.inputValue("#attendees"), "2");
     await page.check("input[name='mode'][value='fragment']");

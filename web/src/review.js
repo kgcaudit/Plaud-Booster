@@ -73,31 +73,33 @@ export const partEnd = (g, parts, k) => (k + 1 < parts.length ? parts[k + 1].sta
 
 /**
  * 녹음 한 건의 진행 단계와 「지금 할 일」(녹음 목록 카드·작업 화면 머리 공용).
- * 화자 나누기: 등록 → 화자 나누기(자동) → 이름 정하기 → 전사(자동) → 검수 → 내보내기
+ * 화자 분리: 등록 → 화자 분리(자동) → 이름 지정 → 전사(자동) → 검수 → 내보내기
  * 그 밖(누락 보충·구간 재전사·바로 맞히기): 등록 → 전사(자동) → 검수 → 내보내기 · 목소리 기준만: 등록 → 목소리 기준(자동)
  * rv = 검수 진행 {ok, all, exportedAt}(kv 「rv:작업id」 — 없으면 모름)
  * 반환 { steps:[{label, auto, state: done|cur|proc|stop|todo}], badge, action:{a, label, primary}|null, busy }
  */
 export function jobFlow(job, rv = null) {
   const diar = job.mode === "diar" || job.mode === "sony";
-  const labels = diar ? [["등록"], ["화자 나누기", 1], ["이름 정하기"], ["전사", 1], ["검수"], ["내보내기"]]
-    : job.mode === "enroll" ? [["등록"], ["목소리 기준", 1]] : [["등록"], ["전사", 1], ["검수"], ["내보내기"]];
+  // [이름, 단계 열쇠(색), 앱이 하는 단계?]
+  const labels = diar ? [["등록", "reg"], ["화자 분리", "diar", 1], ["이름 지정", "name"], ["전사", "tr", 1], ["검수", "rv"], ["내보내기", "ex"]]
+    : job.mode === "enroll" ? [["등록", "reg"], ["목소리 기준", "vp", 1]] : [["등록", "reg"], ["전사", "tr", 1], ["검수", "rv"], ["내보내기", "ex"]];
   const st = job.status, run = st === "대기" || st === "처리중", halted = st === "중지" || st === "오류";
   const autoAt = diar ? (job.stage === "transcribe" ? 3 : 1) : 1; // 지금 돌거나 멈춘 자동 단계
-  let at, state, badge, action = null;
-  if (st === "준비") { at = 0; state = "proc"; badge = "등록 중"; }
-  else if (run || halted) {
-    at = autoAt; state = run ? "proc" : "stop";
-    badge = st === "대기" ? "대기" : st === "처리중" ? labels[at][0] + " 중" : st;
-    if (halted) action = { a: "resume", label: st === "오류" ? "다시 시도 →" : "이어서 처리 →", primary: true };
-  } else if (st === "이름 대기") { at = 2; state = "cur"; badge = "이름 정하기"; action = { a: "review", label: "화자 이름 정하기 →", primary: true }; }
-  else if (job.mode === "enroll") { at = labels.length; state = "done"; badge = "완료"; action = { a: "voices", label: "목소리 기준 보기 →", primary: false }; }
+  let at, state, badge, action = null, group;
+  if (st === "준비") { at = 0; state = "proc"; badge = "등록 중"; group = "run"; }
+  else if (run) { at = autoAt; state = "proc"; badge = st === "대기" ? labels[at][0] + " 대기" : labels[at][0] + " 중"; group = "run"; }
+  else if (halted) {
+    at = autoAt; state = "stop"; badge = labels[at][0] + " " + st; group = "todo";
+    action = { a: "resume", label: st === "오류" ? "다시 시도 →" : "이어서 처리 →", primary: true };
+  } else if (st === "이름 대기") { at = 2; state = "cur"; badge = "이름 지정"; group = "todo"; action = { a: "review", label: "화자 이름 지정 →", primary: true }; }
+  else if (job.mode === "enroll") { at = labels.length; state = "done"; badge = "완료"; group = "done"; action = { a: "voices", label: "목소리 기준 보기 →", primary: false }; }
   else { // 완료 — 검수·내보내기는 사람이 하는 일
     const n = labels.length, left = rv && rv.all ? rv.all - rv.ok : null;
-    if (rv && rv.exportedAt) { at = n; state = "done"; badge = "완료"; action = { a: "review", label: "결과 열기 →", primary: false }; }
-    else if (left === 0) { at = n - 1; state = "cur"; badge = "검수 끝"; action = { a: "review", label: "내보내기 →", primary: true }; }
-    else { at = n - 2; state = "cur"; badge = left == null ? "검수" : "검수 중"; action = { a: "review", label: left == null ? "검수하기 →" : `검수 이어하기 · 남음 ${left} →`, primary: true }; }
+    if (rv && rv.exportedAt) { at = n; state = "done"; badge = "완료"; group = "done"; action = { a: "review", label: "결과 열기 →", primary: false }; }
+    else if (left === 0) { at = n - 1; state = "cur"; badge = "내보내기"; group = "todo"; action = { a: "review", label: "내보내기 →", primary: true }; }
+    else { at = n - 2; state = "cur"; badge = "검수"; group = "todo"; action = { a: "review", label: left == null ? "검수하기 →" : `검수 이어하기 · 남음 ${left} →`, primary: true }; }
   }
-  const steps = labels.map(([label, auto], i) => ({ label, auto: !!auto, state: i < at ? "done" : i === at ? state : "todo" }));
-  return { steps, badge, action, busy: run || st === "준비" };
+  const steps = labels.map(([label, key, auto], i) => ({ label, key, auto: !!auto, state: i < at ? "done" : i === at ? state : "todo" }));
+  const stage = at < labels.length ? labels[at][1] : "done"; // 지금 단계 열쇠(카드 색)
+  return { steps, badge, action, busy: run || st === "준비", group, stage };
 }

@@ -538,7 +538,7 @@ const relabelDiar = (diar, turns, extraCl, touched, known, o) => {
   });
   return pruneEmpty({ ...diar, turns, clusters: cl, units: units.map((u) => ({ f: u.f, s: u.s, e: u.e, c: u.c, sim: u.sim, margin: u.margin, n: u.nwin, v: q(u.v) })) });
 };
-/** 차례가 하나도 남지 않은 묶음은 지우고 번호를 당긴다(이름 정하기 「n묶음 중 k개」가 빈 묶음 때문에 끝나지 않던 문제). id는 그대로라 붙인 이름은 유지 */
+/** 차례가 하나도 남지 않은 묶음은 지우고 번호를 당긴다(이름 지정 「n묶음 중 k개」가 빈 묶음 때문에 끝나지 않던 문제). id는 그대로라 붙인 이름은 유지 */
 function pruneEmpty(d) {
   d = { ...d, lastId: maxId(d) }; // 지우기 전 번호까지 기억
   const used = new Set(d.turns.map((t) => t.c).filter((c) => c >= 0));

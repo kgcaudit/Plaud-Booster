@@ -1,7 +1,7 @@
 // 통합본 만들기(Plaud 전사 + 보충 결과 + 검수 수정 + 사전)와 백업 합치기 — 순수 함수(시험 가능)
 
-/** 할 일 이름 — 「sony」는 예전 작업(지금은 「diar」)과 같은 화자 나누기 */
-export const MODE_LABEL = { diar: "화자 나누기·전사", sony: "화자 나누기·전사", gap: "빠진 구간 채우기", range: "잘못된 구간 다시 전사", fragment: "저장된 목소리로 바로 맞히기", enroll: "목소리 기준만 등록" };
+/** 할 일 이름 — 「sony」는 예전 작업(지금은 「diar」)과 같은 화자 분리 */
+export const MODE_LABEL = { diar: "화자 분리·전사", sony: "화자 분리·전사", gap: "빠진 구간 채우기", range: "잘못된 구간 다시 전사", fragment: "저장된 목소리로 바로 맞히기", enroll: "목소리 기준만 등록" };
 export const SOURCE_LABEL = { plaud: "Plaud 녹음", sony: "소니 녹음기", phone: "휴대폰·기타 기기", etc: "기타 녹음" };
 export const isDiar = (m) => m === "diar" || m === "sony";
 /** 녹음 출처(예전 작업은 할 일로 짐작) */
@@ -103,7 +103,7 @@ export function mergeBackup(cur, bk) {
   for (const [id, j] of Object.entries(bk.jobs || {})) {
     if (cur.jobIds.has(id)) continue; // 백업 형식 1·2 모두 같은 자리(2는 edits에 묶음 이름 names가 더 있음)
     const job = { ...j.job, audioDeleted: true };
-    // 음원·화자 나누기 중간 결과는 백업에 없으므로 이어서 할 수 없는 상태는 「중지」로(이름 대기 작업은 이름을 붙일 묶음이 없음)
+    // 음원·화자 분리 중간 결과는 백업에 없으므로 이어서 할 수 없는 상태는 「중지」로(이름 대기 작업은 이름을 붙일 묶음이 없음)
     if (job.status === "대기" || job.status === "처리중" || job.status === "이름 대기") job.status = "중지";
     jobs[id] = { ...j, job };
     added.jobs++;

@@ -3,12 +3,15 @@
   --accent: #1f5f8b; --accent-ink: #fff; --warn: #a15c00; --warn-bg: #fff4e0;
   --bad: #a3271d; --bad-bg: #fde9e7; --ok: #24723c; --ok-bg: #e5f4ea; --plaud: #8a8f98;
   --mark: #fff7c2;
+  /* 단계 색: 등록 · 앱이 하는 단계(화자 분리·전사) · 이름 지정 · 검수 · 내보내기 · 완료 */
+  --s-reg: #6b7078; --s-auto: #6d4fc2; --s-name: #b4570a; --s-rv: #1f5f8b; --s-ex: #0f766e; --s-done: #24723c;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #17191c; --panel: #1f2226; --ink: #e6e6e3; --mute: #9aa0a8; --line: #33373d;
     --accent: #6aa9d8; --accent-ink: #0d1114; --warn: #e2a24a; --warn-bg: #3a2c15;
     --bad: #f08b80; --bad-bg: #3d1f1c; --ok: #7cc58e; --ok-bg: #1b3122; --plaud: #7d838b; --mark: #3b3618;
+    --s-reg: #9aa0a8; --s-auto: #a993f0; --s-name: #f0a35a; --s-rv: #6aa9d8; --s-ex: #4fc4b5; --s-done: #7cc58e;
   }
 }
 * { box-sizing: border-box; }
@@ -36,7 +39,7 @@ input.wide { width: 100%; margin-bottom: 6px; }
 /* 위 한 줄 바: [HAUD AI] (이름) [녹음 목록 › 제목] … [상태 칩] [＋ 새 녹음] [☰] */
 nav.bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-height: 56px; padding: 6px 12px 6px 24px; position: sticky; margin: 0; }
 .stat .stxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* 좁으면 경고 글은 줄임표(전체는 메뉴에) */
-.bar .logo { flex: none; height: 32px; padding: 0 8px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
+.bar .logo { flex: none; height: 32px; padding: 0 13px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
   display: grid; place-items: center; font-weight: 800; font-size: 13px; letter-spacing: .2px; white-space: nowrap; }
 .bar .appname { font-size: 15px; white-space: nowrap; margin-right: 6px; }
 .tabs .stat { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 12.5px; color: var(--mute); border-bottom: 0; }
@@ -101,13 +104,31 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 
 .joblist { display: grid; gap: 10px; }
 /* 녹음 카드(2026-10-11): [제목 · 상태 · ⋯] / 정보 한 줄 / 진행 단계 / 「지금 할 일」 단추 하나(처리 중이면 진행 막대·중지) */
-.job { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.job { --sc: var(--s-reg); background: var(--panel); border: 1px solid var(--line); border-left: 5px solid var(--sc); border-radius: 12px; padding: 12px 14px 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* 지금 단계마다 색(카드 왼쪽 띠·상태 표·지금 단계 점·단추) — 한눈에 어느 단계인지 */
+[data-stage="diar"], [data-stage="tr"], [data-stage="vp"] { --sc: var(--s-auto); }
+[data-stage="name"] { --sc: var(--s-name); } [data-stage="rv"] { --sc: var(--s-rv); }
+[data-stage="ex"] { --sc: var(--s-ex); } [data-stage="done"] { --sc: var(--s-done); }
+.jhead .trk li.cur, .jhead .trk li.proc { color: var(--sc); }
+.job .badge.stg { flex: none; white-space: nowrap; margin-left: 0; padding: 1px 8px; border-radius: 6px; font-weight: 700; font-size: 12px;
+  color: var(--sc); background: color-mix(in srgb, var(--sc) 14%, transparent); }
+.job .go.primary { background: var(--sc); border-color: var(--sc); color: #fff; }
+.job .trk li.cur i, .jhead .trk li.cur i { background: var(--sc, var(--accent)); border-color: var(--sc, var(--accent)); }
+.job .trk li.cur, .job .trk li.proc { color: var(--sc); }
+.job .trk li.proc i { border-color: var(--sc); }
+.job .prog .pbar i { background: var(--sc); }
+/* 녹음 목록 묶음: 지금 할 일 → 처리 중 → 끝난 녹음 */
+.jgroup { display: grid; gap: 10px; }
+.jgroup + .jgroup { margin-top: 14px; }
+.jgroup > h3 { margin: 2px 2px 0; font-size: 14px; color: var(--mute); display: flex; align-items: center; gap: 6px; }
+.jgroup > h3 b { min-width: 22px; text-align: center; border-radius: 999px; padding: 0 7px; font-size: 12.5px; background: var(--line); color: var(--ink); }
+.jgroup.todo > h3 { color: var(--ink); } .jgroup.todo > h3 b { background: var(--accent); color: var(--accent-ink); }
 .job.flash { outline: 3px solid var(--accent); outline-offset: 2px; }
 .job .hd { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.job .t { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; min-width: 0; }
+.job .t { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; min-width: 0; flex: 1 1 auto; }
 .job .meta { font-size: 12.5px; color: var(--mute); overflow-wrap: anywhere; }
 .job .go { width: 100%; min-height: 44px; font-size: 15px; font-weight: 700; border-radius: 10px; }
-.job .go:not(.primary) { border: 1px solid var(--accent); color: var(--accent); background: var(--panel); }
+.job .go:not(.primary) { border: 1px solid var(--sc); color: var(--sc); background: var(--panel); }
 .job .row.end { display: flex; justify-content: flex-end; }
 .job .info { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 2px 10px; margin: 0 0 6px; font-size: 12.5px; }
 .job .info dt { color: var(--mute); }
@@ -137,7 +158,7 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 .trk li.proc { color: var(--accent); font-weight: 700; } .trk li.proc i { border-color: var(--accent); }
 .trk li.stop { color: var(--warn); font-weight: 700; } .trk li.stop i { border: 2px solid var(--warn); color: var(--warn); }
 /* 작업 화면 머리 */
-.jhead { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+.jhead { background: var(--panel); border: 1px solid var(--line); border-left: 5px solid var(--sc, var(--s-reg)); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
 .jhead .t { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
 .jhead .meta { font-size: 12.5px; color: var(--mute); overflow-wrap: anywhere; }
 .jhead:empty { display: none; }
@@ -320,7 +341,7 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
 
 @media (max-width: 720px) {
   nav.bar { padding: 4px 6px 4px 8px; gap: 5px; min-height: 52px; }
-  .bar .logo { padding: 0 6px; font-size: 12px; }
+  .bar .logo { padding: 0 10px; font-size: 12px; }
   .tabs .stat { padding: 4px 2px; gap: 4px; }
   .bar .appname { display: none; }
   .tabs .lg { display: none; } .tabs .sm { display: inline; }

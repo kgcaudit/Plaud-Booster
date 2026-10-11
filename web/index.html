@@ -78,9 +78,9 @@
       <label class="mode" data-src="plaud"><input type="radio" name="mode" value="enroll">
         <b>목소리 기준만 등록</b><span>Plaud에 이름이 붙은 사람의 목소리를 저장해, 다른 녹음에서 이름을 추천·판정하는 데 씁니다.</span></label>
       <label class="mode" data-src="plaud dev"><input type="radio" name="mode" value="diar">
-        <b>화자 나누기 · 전사 <em>권장</em></b><span>비슷한 목소리를 먼저 묶고(Speaker 1, 2…), 대표 구간을 들어 이름을 붙인 뒤 전사합니다.</span></label>
+        <b>화자 분리 · 전사 <em>권장</em></b><span>비슷한 목소리를 먼저 묶고(Speaker 1, 2…), 대표 구간을 들어 이름을 붙인 뒤 전사합니다.</span></label>
       <label class="mode" data-src="plaud dev"><input type="radio" name="mode" value="fragment">
-        <b>저장된 목소리로 바로 맞히기</b><span>이름 붙이기 없이, 저장된 목소리 기준 중 가장 닮은 사람으로 바로 판정합니다(아는 사람만 있을 때).</span></label>
+        <b>저장된 목소리로 바로 맞히기</b><span>이름 지정 없이, 저장된 목소리 기준 중 가장 닮은 사람으로 바로 판정합니다(아는 사람만 있을 때).</span></label>
       <label class="chk span hidden" id="callWrap"><input type="checkbox" id="isCall"> 통화 녹음(두 사람) — 인원을 2명으로 두고 묶습니다</label>
     </fieldset>
 
@@ -134,9 +134,9 @@
     <p>열 녹음이 없습니다.<br>녹음 목록에서 카드의 단추를 눌러 들어오세요.</p>
     <button type="button" id="rvGoJobs" class="primary">녹음 목록으로</button>
   </div>
-  <!-- 검수는 할 일 순서대로: ① 화자 이름 정하기(화자 나누기 작업만) → ② 발언 검수 → ③ 내보내기 -->
+  <!-- 검수는 할 일 순서대로: ① 화자 이름 지정(화자 분리 작업만) → ② 발언 검수 → ③ 내보내기 -->
   <section class="step" id="stNames">
-    <div class="sh"><span class="no" data-no></span><h3>화자 이름 정하기</h3><span class="prog" id="stNamesProg"></span><span class="spacer"></span>
+    <div class="sh"><span class="no" data-no></span><h3>화자 이름 지정</h3><span class="prog" id="stNamesProg"></span><span class="spacer"></span>
       <button type="button" class="fold" data-fold="stNames" aria-expanded="true">접기 ▴</button></div>
     <div class="sfold"><div id="spkPanel" class="spkpanel"></div></div>
     <div class="mini" id="stNamesMini"></div>
