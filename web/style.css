@@ -39,11 +39,12 @@ input.wide { width: 100%; margin-bottom: 6px; }
 /* 위 한 줄 바: [HAUD AI] (이름) [녹음 목록 › 제목] … [상태 칩] [＋ 새 녹음] [☰] */
 nav.bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-height: 56px; padding: 6px 12px 6px 24px; position: sticky; margin: 0; }
 .stat .stxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* 좁으면 경고 글은 줄임표(전체는 메뉴에) */
-.bar .logo { flex: none; height: 32px; padding: 0 13px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
+.bar .logo { flex: none; height: 32px; padding: 0 13px; border-radius: 8px; color: #fff; /* 브랜드 카드와 같은 OLO 클레이 */
+  background: linear-gradient(135deg, #C5613F 0%, #B95B3B 50%, #A64D30 100%);
   display: grid; place-items: center; font-weight: 800; font-size: 13px; letter-spacing: .2px; white-space: nowrap;
   border: 0; margin: 0; font-family: inherit; cursor: pointer; } /* 로고 = 홈 단추 */
 .bar .logo:hover { filter: brightness(1.08); }
-.bar .logo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bar .logo:focus-visible { outline: 2px solid #B95B3B; outline-offset: 2px; }
 .bar .appname { font-size: 15px; white-space: nowrap; margin-right: 6px; }
 .tabs .stat { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 12.5px; color: var(--mute); border-bottom: 0; }
 .stat .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); flex: none; }
