@@ -229,3 +229,28 @@ test("Whisper 되풀이 멈춤: 끝의 겹친 벌을 한 벌만 남기고, 닫�
   assert.equal(lastClosed([TS0, 10, 11, TS0 + 50, TS0 + 60, 12], TS0), 1);
   assert.equal(lastClosed([TS0, 10, 11], TS0), 0);
 });
+
+test("이어하기: 말소리 구간·대역 비는 10분 묶음마다 저장해 두고, 다시 열 때 Silero를 처음부터 돌리지 않는다", async () => {
+  const x = audio(1300); // 10분 묶음 3개
+  const files = [{ name: "a.wav", dur: 1300 }];
+  const job = { mode: "diar" };
+  // 처음: 목소리 특징을 계산하기 시작하면 멈춘다(탭이 꺼진 셈)
+  let embeds = 0, vad = 0;
+  const ctx = makeCtx(x, { shouldStop: () => embeds > 0 });
+  const e0 = ctx.embed; ctx.embed = async (a) => { embeds++; return e0(a); };
+  ctx.vadProbs = async (a) => { vad++; return new Float32Array(Math.floor(a.length / 512)).fill(0.9); };
+  const r1 = await runJob(job, files, ctx);
+  assert.equal(r1.result, null);
+  assert.equal(vad, 3);
+  assert.ok(ctx.store.partial["v0:0:600"] && ctx.store.partial["b0"]);
+  // 다시 열기: 말소리 찾기는 저장된 것을 쓰고, 끝까지 간다
+  embeds = 0; vad = 0; ctx.shouldStop = () => false;
+  await runJob(job, files, ctx);
+  assert.equal(vad, 0);
+  const resumed = ctx.store.chunks;
+  // 처음부터 한 번에 한 것과 같은 결과
+  const ctx2 = makeCtx(x); ctx2.vadProbs = async (a) => new Float32Array(Math.floor(a.length / 512)).fill(0.9);
+  await runJob(job, files, ctx2);
+  assert.equal(resumed.nwin, ctx2.store.chunks.nwin);
+  assert.deepEqual(resumed.units.map((u) => [u.s, u.e, u.c]), ctx2.store.chunks.units.map((u) => [u.s, u.e, u.c]));
+});

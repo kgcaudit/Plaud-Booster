@@ -217,18 +217,27 @@ export function winSig(wins, a, b) {
  * 8kHz 전화·통화 녹음을 16kHz로 올린 소리를 말소리로 보지 못한다(10-08 회의를 8kHz로 낮추면 69% → 2%).
  * 반환 배열의 fallback = 대체한 10분 묶음 수
  */
-export async function regionsOf(ctx, fi, a, b, onStep = () => {}) {
+export const REG_VER = 1; // 말소리 찾기 규칙을 바꾸면 올린다(저장해 둔 10분 묶음 결과를 다시 계산)
+export async function regionsOf(ctx, fi, a, b, onStep = () => {}, cache = null) {
   const out = [];
   out.fallback = 0;
   for (let t = a; t < b; t += 600) {
     if (ctx.shouldStop && ctx.shouldStop()) { out.stopped = true; break; } // 긴 녹음에서 중지가 몇 분씩 늦던 것
     const e = Math.min(b, t + 600);
-    const x = await ctx.readAudio(fi, t, e);
-    let rs = vadChunks(x, t);
-    if (ctx.vadProbs) {
-      const sil = speechRegions(await ctx.vadProbs(x), t);
-      if (sumSec(sil) >= 0.4 * sumSec(rs)) rs = sil; else out.fallback++;
+    // 이어하기: 이 10분 묶음의 말소리 구간을 저장해 두었으면 그대로 쓴다(2시간 녹음에서 다시 열 때마다 Silero를 처음부터 돌리던 것)
+    const key = `v${fi}:${t}:${e}`, hit = cache && cache[key];
+    let rs, fb = 0;
+    if (hit && hit.ver === REG_VER && Array.isArray(hit.rs)) { rs = hit.rs; fb = hit.fb ? 1 : 0; }
+    else {
+      const x = await ctx.readAudio(fi, t, e);
+      rs = vadChunks(x, t);
+      if (ctx.vadProbs) {
+        const sil = speechRegions(await ctx.vadProbs(x), t);
+        if (sumSec(sil) >= 0.4 * sumSec(rs)) rs = sil; else fb = 1;
+      }
+      if (cache && ctx.savePartial) await ctx.savePartial({ k: key, rs, fb, ver: REG_VER });
     }
+    out.fallback += fb;
     for (const r of rs) {
       const last = out[out.length - 1];
       if (last && r[0] - last[1] < 0.05) last[1] = r[1]; else out.push([...r]); // 10분 경계에서 이어진 구간은 붙인다
@@ -269,11 +278,16 @@ export async function runSony(job, files, ctx) {
   if (!diar || diar.kind !== "diar") {
     const wins = [];
     let r0 = 0, fallback = 0, band = 0, bandSec = 0;
+    const done = await ctx.loadPartial(); // 이어하기: 말소리 구간(v…)·대역 비(b…)·목소리 특징(e…)
     for (let fi = 0; fi < files.length; fi++) {
-      const regs = await regionsOf(ctx, fi, 0, files[fi].dur, (p) => ctx.progress(1 + Math.floor(((fi + p) / files.length) * 14), `말소리 찾는 중 ${fi + 1}/${files.length}번 파일`));
+      const regs = await regionsOf(ctx, fi, 0, files[fi].dur, (p) => ctx.progress(1 + Math.floor(((fi + p) / files.length) * 14), `말소리 찾는 중 ${fi + 1}/${files.length}번 파일`), done);
       if (regs.stopped) return { result: null, fresh: {} };
       fallback += regs.fallback || 0;
-      band += (await bandOf(ctx, fi, files[fi].dur)) * files[fi].dur; bandSec += files[fi].dur;
+      const bk = "b" + fi, bh = done[bk];
+      let db;
+      if (bh && bh.ver === REG_VER && bh.dur === files[fi].dur && Number.isFinite(bh.db)) db = bh.db;
+      else { db = await bandOf(ctx, fi, files[fi].dur); await ctx.savePartial({ k: bk, db, dur: files[fi].dur, ver: REG_VER }); }
+      band += db * files[fi].dur; bandSec += files[fi].dur;
       for (const w of windowsOf(regs)) wins.push({ ...w, f: fi, r: w.r + r0 });
       r0 += regs.length;
     }
@@ -281,7 +295,6 @@ export async function runSony(job, files, ctx) {
     const narrow = band < DEFAULTS.narrowDb;
     if (!wins.length) throw new Error("말소리를 찾지 못했습니다. 음원이 비어 있거나 소리가 매우 작습니다.");
     // 창 특징(100개씩 저장해 두어 멈춰도 이어서)
-    const done = await ctx.loadPartial();
     const B = 100, vecs = new Array(wins.length);
     const tic = Date.now();
     let fresh = 0;
