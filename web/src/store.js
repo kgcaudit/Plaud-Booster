@@ -154,6 +154,7 @@ export async function deleteJob(id) {
   // 작업 기록은 맨 나중에 지운다 — 중간에 탭이 닫혀도 「작업 없는 결과·음원」이 보이지 않게 남지 않도록(작업이 남아 다시 지울 수 있음)
   for (const s of ["plaud", "results", "edits", "enroll", "chunks"]) await del(s, id);
   await clearPartials(id);
+  await del("kv", "rv:" + id); // 검수 진행 표시
   await deleteAudio(id);
   await del("jobs", id);
 }
@@ -162,4 +163,5 @@ export async function deleteJob(id) {
 export async function resetJob(id) {
   for (const s of ["results", "enroll", "chunks"]) await del(s, id);
   await clearPartials(id);
+  await del("kv", "rv:" + id);
 }

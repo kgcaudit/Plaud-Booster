@@ -361,14 +361,55 @@ export function printsFromReview(segs, units, nameOf, isGeneric, minSec = 30) {
   return out;
 }
 
-/** 파일 이름에서 녹음 시각 읽기(소니 ICD: 251009_1430.mp3, 251009_1430_01.mp3, 20251009_143000 …) */
+/**
+ * 파일 이름 속 녹음 시각 읽기(2026-10-11 고도화). 흔한 녹음 기기·앱의 이름 짓기:
+ *   갤럭시 음성 녹음 「음성 261011_104940」 · 갤럭시 통화 녹음 「통화 녹음 홍길동_260914_075100」
+ *   소니 IC 녹음기 「251009_1430」「251009_1430_01」(같은 분 둘째 파일) · 구간 잘라 내기 「260911_082625-084031_Audio」(시작~끝)
+ *   「20251008_093015」「2025-10-08 14-30-12」「2025.10.08 14.30」 · 카카오톡 「KakaoTalk_Audio_20251008_143012345」(뒤 3자리는 1/1000초)
+ *   줌 「GMT20251008-053012_Recording」(세계 표준시 → 이 기기 시간대로 바꿈) · 날짜만 「20261008」
+ * 반환 { y, mo, d, time:{h,mi,s,sec}|null, end:{h,mi,s,sec}|null, seq, utc, raw } 또는 null
+ */
+export function nameTime(name) {
+  const str = String(name);
+  const p2 = (x) => +x;
+  const okD = (y, mo, d) => mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 1990 && y <= 2099;
+  const okT = (h, mi, s) => h <= 23 && mi <= 59 && s <= 59;
+  // ① 붙여 쓴 꼴: [GMT]YYMMDD|YYYYMMDD [_- T] HHMM[SS][mmm] [-~ HHMM[SS]] [_seq]
+  const A = /(GMT)?(?<!\d)(\d{4}|\d{2})(\d{2})(\d{2})(?:[_\- T]?(\d{2})(\d{2})(\d{2})?(\d{3})?(?:[-~](\d{2})(\d{2})(\d{2})?)?)?(?:[_\- ](\d{1,3}))?(?!\d)/g;
+  for (const m of str.matchAll(A)) {
+    const y = m[2].length === 2 ? 2000 + p2(m[2]) : p2(m[2]), mo = p2(m[3]), d = p2(m[4]);
+    if (!okD(y, mo, d)) continue;
+    let time = null, end = null;
+    if (m[5] != null) {
+      const h = p2(m[5]), mi = p2(m[6]), s = p2(m[7] || 0);
+      if (!okT(h, mi, s)) continue;
+      time = { h, mi, s, sec: m[7] != null };
+      if (m[9] != null) { const eh = p2(m[9]), em = p2(m[10]), es = p2(m[11] || 0); if (okT(eh, em, es)) end = { h: eh, mi: em, s: es, sec: m[11] != null }; }
+    } else if (m[2].length === 2) continue; // 6자리만 있는 것은 날짜로 보지 않음(번호와 헷갈림)
+    const r = { y, mo, d, time, end, seq: m[12] ? +m[12] : 0, utc: !!m[1], raw: m[0] };
+    return m[1] && time ? toLocal(r) : r;
+  }
+  // ② 구분자 꼴: YYYY-MM-DD[ HH-MM[-SS]] (- . / _ :)
+  const B = /(?<!\d)(\d{4})[-./](\d{1,2})[-./](\d{1,2})(?:[ _T]+(\d{1,2})[:.\-_](\d{2})(?:[:.\-_](\d{2}))?)?(?!\d)/;
+  const b = str.match(B);
+  if (b && okD(+b[1], +b[2], +b[3])) {
+    const time = b[4] != null && okT(+b[4], +b[5], +(b[6] || 0)) ? { h: +b[4], mi: +b[5], s: +(b[6] || 0), sec: b[6] != null } : null;
+    return { y: +b[1], mo: +b[2], d: +b[3], time, end: null, seq: 0, utc: false, raw: time ? b[0] : b[0].replace(/[ _T]+\d.*$/, "") };
+  }
+  return null;
+}
+// 세계 표준시(줌) → 이 기기 시간대
+function toLocal(r) {
+  const t = new Date(Date.UTC(r.y, r.mo - 1, r.d, r.time.h, r.time.mi, r.time.s));
+  return { ...r, y: t.getFullYear(), mo: t.getMonth() + 1, d: t.getDate(), time: { h: t.getHours(), mi: t.getMinutes(), s: t.getSeconds(), sec: r.time.sec } };
+}
+const pad2 = (x) => String(x).padStart(2, "0");
+
+/** 파일 이름 속 녹음 시각 → { at: "YYYY-MM-DDTHH:MM:SS", seq } (시각이 없으면 null) — 여러 파일을 녹음 순으로 놓을 때 */
 export function recordedAt(name) {
-  const m = String(name).match(/(?:^|[^\d])(\d{2}|\d{4})(\d{2})(\d{2})[_\- ]?(\d{2})(\d{2})(\d{2})?(?:[_\- ](\d{1,3}))?(?=[^\d]|$)/);
-  if (!m) return null;
-  const y = m[1].length === 2 ? 2000 + +m[1] : +m[1];
-  const [mo, d, h, mi, s] = [+m[2], +m[3], +m[4], +m[5], +(m[6] || 0)];
-  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) return null;
-  return { at: `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}T${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}:${String(s).padStart(2, "0")}`, seq: m[7] ? +m[7] : 0 };
+  const r = nameTime(name);
+  if (!r || !r.time) return null;
+  return { at: `${r.y}-${pad2(r.mo)}-${pad2(r.d)}T${pad2(r.time.h)}:${pad2(r.time.mi)}:${pad2(r.time.s)}`, seq: r.seq };
 }
 
 /** 소니 파일 여러 개를 녹음 시각 순으로(시각을 못 읽으면 이름 순) */
@@ -381,38 +422,47 @@ export function orderFiles(list) {
 }
 
 /**
- * 파일 이름 → 작업 이름(새 작업에서 자동 기입). 확장자·밑줄을 걷고, 이름 속 날짜·시각은 「26년 9월 14일 오전 7시 51분」처럼 풀어 앞에 둔다.
- * 「음성」「녹음」「Recording」처럼 기기가 붙인 말만 남으면 뺀다. 파일이 여럿이면 「… 외 n개」.
- *   "통화 녹음 홍길동_260914_075100.m4a" → "26년 9월 14일 오전 7시 51분 · 통화 녹음 홍길동"
- *   "251009_1430.MP3" → "25년 10월 9일 오후 2시 30분"
+ * 파일 이름 → 작업 이름(새 작업에서 자동 기입). 이름 속 녹음 시각을 「26년 9월 11일 오전 08시 26분 25초」처럼 풀어 맨 앞에,
+ * 시작~끝이 있으면 「~ 오전 08시 40분 31초」, 기기가 붙인 말은 종류로 바꿔 뒤에(Audio·Voice·Recording·음성·녹음 → 「음성」,
+ * 통화·Call → 「통화 녹음」, KakaoTalk → 「카카오톡 음성」), 나머지 말(사람 이름·장소 등)은 그대로. 파일이 여럿이면 「… 외 n개」.
+ *   "260911_082625-084031_Audio.m4a" → "26년 9월 11일 오전 08시 26분 25초 ~ 오전 08시 40분 31초 · 음성"
+ *   "통화 녹음 홍길동_260914_075100.m4a" → "26년 9월 14일 오전 07시 51분 00초 · 통화 녹음 홍길동"
  */
+const DEV_WORDS = /^(음성|녹음|음성녹음|새녹음|audio|voice|voices|recording|recordings|record|rec|memo|sound|녹음파일)$/i;
+const CALL_WORDS = /^(통화|통화녹음|call|callrecording|phonecall)$/i;
+export function fmtClock(t) {
+  return `${t.h < 12 ? "오전" : "오후"} ${pad2(t.h % 12 || 12)}시 ${pad2(t.mi)}분${t.sec ? ` ${pad2(t.s)}초` : ""}`;
+}
 export function titleFromFiles(names) {
   const list = (names || []).filter(Boolean);
   if (!list.length) return "";
-  let base = String(list[0]).replace(/\.[A-Za-z0-9]{1,5}$/, "");
-  let when = null;
-  const m1 = base.match(/(?:^|[^\d])((\d{2}|\d{4})(\d{2})(\d{2})[_\- ]?(\d{2})(\d{2})(\d{2})?(?:[_\- ]\d{1,3})?)(?=[^\d]|$)/);
-  const m2 = base.match(/((\d{4})[-.](\d{1,2})[-.](\d{1,2})(?:[ _T]+(\d{1,2})[:.\-](\d{2})(?:[:.\-]\d{2})?)?)/);
-  const r = m1 && recordedAt(m1[1]);
-  if (r) { when = r.at; base = base.replace(m1[1], " "); }
-  else if (m2 && +m2[3] >= 1 && +m2[3] <= 12 && +m2[4] >= 1 && +m2[4] <= 31) {
-    const p = (x) => String(x).padStart(2, "0");
-    when = `${m2[2]}-${p(m2[3])}-${p(m2[4])}` + (m2[5] != null && +m2[5] < 24 ? `T${p(m2[5])}:${m2[6]}:00` : "");
-    base = base.replace(m2[1], " ");
+  const file = String(list[0]).replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  const r = nameTime(file);
+  let rest = r ? file.replace(r.raw, " ") : file;
+  rest = rest.replace(/\bGMT\b/g, " ");
+  // 기기가 붙인 말: 두 낱말 묶음(통화 녹음·음성 녹음·Call recording·새 녹음)도 한 낱말로 보고 가른다
+  const toks = rest.replace(/[_]+/g, " ").replace(/(통화|음성|새)\s+녹음/g, "$1녹음").replace(/call\s+recording/gi, "callrecording").split(/\s+/).filter(Boolean);
+  let call = false, dev = false, kakao = false;
+  const keep = [];
+  for (const t of toks) {
+    const w = t.replace(/^[-·~]+|[-·~]+$/g, "");
+    if (!w) continue;
+    if (CALL_WORDS.test(w)) call = true;
+    else if (/^kakaotalk$/i.test(w)) kakao = true;
+    else if (DEV_WORDS.test(w)) dev = true;
+    else if (/^\d{1,3}$/.test(w) && r) continue; // 날짜 옆 순번(001 등)
+    else keep.push(w);
   }
-  let rest = base.replace(/[_]+/g, " ").replace(/\s*[-·]+\s*$/g, "").replace(/^\s*[-·]+\s*/g, "").replace(/\s+/g, " ").trim();
-  if (/^(음성|녹음|새 녹음|음성 녹음|통화|recording|record|rec|voice|audio|memo|new recording)?\s*\d{0,3}$/i.test(rest)) rest = "";
+  const words = keep.join(" ");
   let date = "";
-  if (when) {
-    const [d, t] = when.split("T");
-    const [y, mo, da] = d.split("-").map(Number);
-    date = `${String(y).slice(2)}년 ${mo}월 ${da}일`;
-    if (t) {
-      const [h, mi] = t.split(":").map(Number);
-      date += ` ${h < 12 ? "오전" : "오후"} ${h % 12 || 12}시${mi ? ` ${mi}분` : ""}`;
-    }
+  if (r) {
+    date = `${String(r.y).slice(2)}년 ${r.mo}월 ${r.d}일`;
+    if (r.time) date += " " + fmtClock(r.time) + (r.end ? " ~ " + fmtClock(r.end) : "");
   }
-  let title = [date, rest].filter(Boolean).join(" · ") || String(list[0]).replace(/\.[^.]+$/, "");
+  const label = call ? ["통화 녹음", words].filter(Boolean).join(" ") : words;
+  const kind = call ? "" : kakao ? "카카오톡 음성" : dev && r ? "음성" : "";
+  // 이름에 시각이 없으면 낱말을 걷지 않고 이름 그대로(밑줄만 띄어쓰기로) — 「새로운 녹음 3」「Voice 001」
+  let title = r ? [date, label, kind].filter(Boolean).join(" · ") : file.replace(/_+/g, " ").replace(/\s+/g, " ").trim();
   if (list.length > 1) title += ` 외 ${list.length - 1}개`;
   return title;
 }

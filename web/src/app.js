@@ -5,7 +5,7 @@ import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
 import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, LANG_LABEL, sourceOf, isDiar } from "./export.js";
 import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster, relabelRange, similarRegions, mixSuspects } from "./diar.js";
 import { isGeneric, knownPrints } from "./engine.js";
-import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd } from "./review.js";
+import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd, jobFlow } from "./review.js";
 import { describeDevice, LEVELS, levelLabel, lowerLevel } from "./devices.js";
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -61,7 +61,7 @@ function startWorker() {
     }
     if (m.type === "job") {
       wakeLock(true);
-      WSTATE.job = m.done || m.naming ? null : { pct: m.pct ?? (WSTATE.job ? WSTATE.job.pct : 0) }; renderSys();
+      WSTATE.job = m.done || m.naming ? null : { id: m.id, pct: m.pct ?? (WSTATE.job ? WSTATE.job.pct : 0) }; renderSys();
       // 진행률만 바뀐 알림은 그 작업 카드의 진행 막대만 고친다(목록 전체를 다시 그리지 않음)
       const card = m.pct != null && !m.done && !m.naming ? document.querySelector(`.job[data-id="${CSS.escape(m.id)}"] .prog`) : null;
       if (card) { const i = card.querySelector(".pbar i"); if (i) { i.dataset.w = m.pct; applyGeom(card); } const t = card.querySelector("span:last-child"); if (t) t.textContent = `${m.pct}% · ${m.msg || ""}`; }
@@ -167,7 +167,7 @@ function renderSys() {
   else eng = `<span class="bad">모델 없음</span> (받은 양 ${Math.round((m.cachedBytes / Math.max(1, m.totalBytes)) * 100)}%)`;
   const th = (WSTATE.threads ? ` · 스레드 ${WSTATE.threads}` : "") + (WSTATE.device === "gpu" ? ` · 그래픽 칩 ${LEVELS.some((l) => l.v === WSTATE.gpuParts) ? levelLabel(WSTATE.gpuParts) : "사용"}` : "") + (lock ? ' · <span class="ok">화면 켜 둠</span>' : "");
   $("#sysline").innerHTML = `${eng}${th}` + (WSTATE.coi ? "" : ' · <span class="bad">스레드 꺼짐(느림)</span>') + (WSTATE.owner ? "" : ' · <span class="bad">다른 탭에서 처리 중</span>');
-  // 위 바의 상태 칸: 평소엔 초록 점만(넓은 화면은 짧은 글도), 처리 중·모델 받기·경고는 글로 바로 보인다. 누르면 메뉴에서 전체 상태
+  // 위 바의 상태 칩: 할 말이 있을 때만 보인다(평소 준비됨이면 숨김). 누르면 그 일로 — 처리 중 → 그 녹음 카드, 모델 → 설정 엔진 칸, 경고 → 메뉴의 전체 상태
   let st = "ok", txt = "엔진 준비됨" + (WSTATE.device === "gpu" ? " · 그래픽 칩 " + (LEVELS.some((l) => l.v === WSTATE.gpuParts) ? levelLabel(WSTATE.gpuParts).replace("사용 - ", "") : "사용") : "");
   if (!WSTATE.owner) { st = "bad"; txt = "다른 탭"; }
   else if (WSTATE.fake) { st = "bad"; txt = "가짜 엔진"; }
@@ -179,6 +179,8 @@ function renderSys() {
   else if (!WSTATE.coi) { st = "warn"; txt = "느림"; }
   const sb = $("#statBtn");
   sb.dataset.st = st; $("#statTxt").textContent = txt; sb.title = $("#sysline").textContent;
+  sb.classList.toggle("hidden", st === "ok");
+  sb.dataset.go = WSTATE.job && !WSTATE.dl && WSTATE.owner && !WSTATE.fake ? "job" : WSTATE.dl || (m && !m.ready && st === "warn") ? "settings" : WSTATE.job ? "job" : "menu";
   $("#engState").innerHTML = eng + (m && !m.ready && !WSTATE.fake ? "<br><small>모델을 받아 두면 대기 중인 작업이 바로 시작됩니다. 작업을 등록하면 자동으로 받습니다.</small>" : "");
   const pct = WSTATE.dl && WSTATE.dl.total ? (WSTATE.dl.got / WSTATE.dl.total) * 100 : m ? (m.cachedBytes / Math.max(1, m.totalBytes)) * 100 : 0;
   $("#dlBar").style.width = (WSTATE.fake ? 100 : pct) + "%";
@@ -186,17 +188,24 @@ function renderSys() {
 }
 
 /* ================================================================== 탭 */
-$$(".tabs button[data-tab], .tabs button[data-sub]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab || b.dataset.sub)));
-const SECONDARY = { voices: "목소리 기준", glossary: "인명·용어 사전", settings: "설정·백업" };
+$$(".tabs button[data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+const SECONDARY = { new: "새 녹음", voices: "목소리 기준", glossary: "인명·용어 사전", settings: "설정·백업" };
+let TAB = "jobs";
+/** 빵부스러기: 녹음 목록 › (녹음 제목 | 새 녹음 | 메뉴 화면 이름). 목록에서는 「녹음 목록」만 */
+function setCrumb() {
+  const name = TAB === "review" ? (REVIEW.data && REVIEW.data.job.title) || "전사 결과" : SECONDARY[TAB] || "";
+  $("#crumbHome").classList.toggle("on", TAB === "jobs");
+  $("#crumbSep").classList.toggle("hidden", !name); $("#crumbName").classList.toggle("hidden", !name);
+  $("#crumbName").textContent = name;
+}
 function showTab(name) {
-  // 위 한 줄: 작업 단계(원본 음성 › 전사 결과). 메뉴 화면(목소리·사전·설정)에서는 그 자리에 「‹ 원본 음성 │ 화면 이름」
+  // 녹음 목록이 중심: 카드의 「지금 할 일」 → 작업 화면(review), 위 바 ＋ → 새 녹음(new), ☰ → 목소리·사전·설정
   closeMenu();
-  const work = name === "jobs" || name === "review";
-  $$("#subTabs button").forEach((x) => { x.classList.toggle("on", x.dataset.tab === name); x.setAttribute("aria-selected", String(x.dataset.tab === name)); });
-  $("#subTabs").classList.toggle("hidden", !work);
-  $("#crumb").classList.toggle("hidden", work);
-  $("#crumbName").textContent = SECONDARY[name] || "";
+  const was = TAB; TAB = name;
+  setCrumb();
+  $("#btnNew").classList.toggle("hidden", name === "new");
   $$("#menuPanel button[data-tab]").forEach((x) => x.classList.toggle("on", x.dataset.tab === name));
+  if (name === "new" && was !== "new") enterNew();
   // 검수를 떠나면 재생을 멈춘다(재생 막대는 검수 화면에만 있어 다른 화면에서는 멈출 방법이 없음)
   if (name !== "review" && !player.paused) player.pause();
   $$(".tab").forEach((x) => x.classList.toggle("on", x.id === "tab-" + name));
@@ -227,7 +236,21 @@ async function menuCounts() {
   } catch { /* 표시만 */ }
 }
 menuBtn.addEventListener("click", () => (menuPanel.classList.contains("hidden") ? openMenu() : closeMenu()));
-$("#statBtn").addEventListener("click", openMenu);
+$("#statBtn").addEventListener("click", () => {
+  const go = $("#statBtn").dataset.go;
+  if (go === "settings") { showTab("settings"); return; }
+  if (go === "job" && WSTATE.job) { showTab("jobs"); flashJob(WSTATE.job.id); return; }
+  openMenu();
+});
+/** 녹음 목록에서 그 카드로 스크롤해 잠깐 강조 */
+function flashJob(id) {
+  setTimeout(() => {
+    const c = id && document.querySelector(`.job[data-id="${CSS.escape(id)}"]`);
+    if (!c) return;
+    c.scrollIntoView({ block: "center", behavior: REDUCE_MOTION ? "auto" : "smooth" });
+    c.classList.add("flash"); setTimeout(() => c.classList.remove("flash"), 1600);
+  }, 120);
+}
 document.addEventListener("click", (ev) => { if (!ev.target.closest(".bar")) closeMenu(); });
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !menuPanel.classList.contains("hidden")) { closeMenu(); menuBtn.focus(); } });
 
@@ -260,15 +283,14 @@ const source = () => ($('input[name="source"]:checked') || {}).value || "";
 const mode = () => ($('input[name="mode"]:checked') || {}).value || "";
 const DEFAULT_TASK = { plaud: "gap", sony: "diar", phone: "diar" };
 
-$("#btnNew").addEventListener("click", async () => {
-  if (!player.paused) player.pause();
+// 새 녹음은 전용 화면(위 바 ＋). 들어올 때마다 양식을 비운다 — 파일부터 고르면 작업 이름·녹음 시각이 채워진다
+async function enterNew() {
   resetForm();
-  $("#newJob").classList.remove("hidden");
-  $("#btnNew").classList.add("hidden");
+  window.scrollTo(0, 0);
   F.voices = (await S.all("voiceprints")).map(([name]) => name);
   renderChips();
-});
-$("#btnCancel").addEventListener("click", () => { $("#newJob").classList.add("hidden"); $("#btnNew").classList.remove("hidden"); });
+}
+$("#btnCancel").addEventListener("click", () => showTab("jobs"));
 function resetForm() {
   $("#newJob").reset();
   $("#jobTitle").dataset.auto = "1";
@@ -307,11 +329,13 @@ function applyMode() {
   $("#fsTask").classList.toggle("hidden", !src);
   $$("#fsTask .mode").forEach((l) => l.classList.toggle("hidden", !src || !srcOk(l, src)));
   $$("#newJob .after-src").forEach((f) => f.classList.toggle("hidden", !src));
+  $("#audioFiles").multiple = !src || MULTI(m); // 출처를 고르기 전에는 여러 개 허용(파일부터 고를 수 있게)
+  if (src && !MULTI(m) && F.audio.length > 1) setMsg("이 할 일은 음원 1개만 받습니다 — 파일을 다시 골라 주세요.", true);
+  else if ($("#formMsg").classList.contains("err") && /음원 1개/.test($("#formMsg").textContent)) setMsg("");
   $("#callWrap").classList.toggle("hidden", !(src === "phone" && isDiar(m)));
   $("#srcTip").classList.toggle("hidden", !src);
   if (src) $("#srcTip").innerHTML = `<summary>녹음 요령 — ${SOURCE_LABEL[src]} (전사·화자 정확도 높이기)</summary><ul class="tips">${SRC_TIPS[src].map((t) => `<li>${t}</li>`).join("")}</ul>`;
-  if (!src) return;
-  $("#audioFiles").multiple = MULTI(m);
+  if (!src) { $("#audioHint").textContent = "m4a·mp3·wav 등 — 여러 개면 녹음 시각 순으로 자동 정렬"; return; }
   $("#audioHint").textContent = src === "sony" ? "MP3·WAV 여러 개 가능 — 파일 이름의 녹음 시각 순으로 자동 정렬"
     : src === "phone" ? "m4a·mp3·wav 등 여러 개 가능 — 녹음 시각(파일 이름 → 파일 정보 → 저장 시각) 순으로 자동 정렬"
       : MULTI(m) ? "Plaud에서 내려받은 음원(MP3·WAV) — 여러 개 가능, 녹음 시각 순으로 자동 정렬" : "Plaud에서 내려받은 음원(MP3) 1개";
@@ -474,8 +498,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
     }
     if (!(await S.saveJob(id, { audioFiles: job.audioFiles, status: "대기", progress: { pct: 0, msg: "대기" } }))) throw new Error("음원을 준비하는 동안 작업이 지워졌습니다");
     toast("작업을 등록했습니다");
-    $("#newJob").classList.add("hidden"); $("#btnNew").classList.remove("hidden");
-    kick(); loadJobs();
+    kick(); showTab("jobs"); flashJob(id);
   } catch (e) {
     setMsg(e.message, true);
     await S.deleteJob(id);
@@ -503,54 +526,77 @@ async function jobsList() {
   const res = new Set(await S.keys("results"));
   return rows.map(([id, j]) => ({ ...j, id, hasResult: res.has(id) })).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
+/** 진행 단계 표시(녹음 카드·작업 화면 머리 공용) — 끝난 단계 ✓, 지금 단계 강조, 앱이 하는 단계는 점선 */
+function trackHtml(f) {
+  const ico = (x) => (x.state === "done" ? "✓" : x.state === "proc" ? "⏳" : x.state === "stop" ? "!" : "");
+  return `<ol class="trk" aria-label="진행 단계">${f.steps.map((x) => `<li class="${x.state}${x.auto ? " auto" : ""}"${x.state === "cur" || x.state === "proc" ? ' aria-current="step"' : ""}><i>${ico(x)}</i><span>${esc(x.label)}</span></li>`).join("")}</ol>`;
+}
+async function rvMap() { // 검수 진행(kv 「rv:작업id」) — 카드의 「남음 n」·내보내기 끝 표시용
+  const m = {};
+  try { for (const [k, v] of await S.all("kv")) if (String(k).startsWith("rv:")) m[k.slice(3)] = v; } catch { /* 없음 */ }
+  return m;
+}
 async function loadJobs() {
   JOBS = await jobsList();
   const el = $("#jobList");
-  if (!JOBS.length) { el.dataset.last = ""; el.innerHTML = '<p class="empty">아직 작업이 없습니다. 「새 작업」으로 시작하세요.</p>'; return; }
+  if (!JOBS.length) {
+    el.dataset.last = "";
+    el.innerHTML = '<div class="empty"><p>아직 녹음이 없습니다.<br>위 바의 「＋」로 새 녹음을 등록하세요.</p><button type="button" class="primary" data-a="new">＋ 새 녹음 등록</button></div>';
+    return;
+  }
+  const RV = await rvMap();
   const html = JOBS.map((j) => {
-    const p = j.progress || {}, s = j.stats || {};
-    const busy = j.status === "처리중" || j.status === "대기" || j.status === "준비";
-    const naming = j.status === "이름 대기";
-    const result = isDiar(j.mode) ? (s.clusters ? `화자 묶음 ${s.clusters}개` + (s.segments != null ? ` · 발언 ${s.segments} · 확인 필요 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : ` · 전사할 발언 ${s.units ?? "-"}`) : "")
-      : j.hasResult && j.mode !== "enroll" ? `발언 ${s.segments ?? "-"} · 혼재 ${s.mixed ?? 0} · 미상 ${s.unknown ?? 0} · 저신뢰 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : "";
+    const p = j.progress || {}, s = j.stats || {}, f = jobFlow(j, RV[j.id]);
+    const dur = (j.audioFiles || []).reduce((m, x) => m + (x.dur || 0), 0);
+    const result = isDiar(j.mode) ? (s.segments != null ? `발언 ${s.segments}` : s.clusters ? `화자 ${s.clusters}묶음` : "")
+      : j.hasResult && j.mode !== "enroll" ? `발언 ${s.segments ?? "-"}` : "";
+    const meta = [jobKind(j), dur ? hms(dur, false) : "", result, j.audioDeleted ? "음원 지움" : ""].filter(Boolean).join(" · ");
     const enrolled = !!(s.enrolled && Object.keys(s.enrolled).length);
-    const files = (j.audioFiles || []).map((f) => f.name + (f.dur ? ` (${hms(f.dur)})` : "")).join(", ");
-    // 카드 구성: [제목·상태 | 버튼] 위 한 줄, 아래는 전체 폭 정보표(항목명 열 + 내용 열), 맨 아래 진행 막대
+    const files = (j.audioFiles || []).map((x) => x.name + (x.dur ? ` (${hms(x.dur)})` : "")).join(", ");
     const info = [
-      ["유형", esc(jobKind(j))],
-      ["음원", esc(files) + (j.range ? ` · 구간 ${hms(j.range.from)}~${hms(j.range.to)}` : "") + (j.audioDeleted ? " · 음원 지움" : "")],
+      ["음원", esc(files || "-") + (j.range ? ` · 구간 ${hms(j.range.from)}~${hms(j.range.to)}` : "")],
       ["등록", esc((j.createdAt || "").replace("T", " ").slice(0, 16))],
-      ...(result ? [["결과", result]] : []),
+      ...(isDiar(j.mode) && s.clusters ? [["결과", `화자 묶음 ${s.clusters}개` + (s.segments != null ? ` · 발언 ${s.segments} · 확인 필요 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}` : ` · 전사할 발언 ${s.units ?? "-"}`)]] : []),
+      ...(!isDiar(j.mode) && j.hasResult && j.mode !== "enroll" ? [["결과", `발언 ${s.segments ?? "-"} · 혼재 ${s.mixed ?? 0} · 미상 ${s.unknown ?? 0} · 저신뢰 ${s.lowConf ?? 0} · 환각 제거 ${s.droppedHallucination ?? 0}`]] : []),
       ...(enrolled ? [["목소리 기준", esc(Object.keys(s.enrolled).join(", ")) + " 등록"]] : []),
-      ...(j.error ? [["오류", `<span class="err">${esc(j.error)}</span>`]] : []),
     ];
+    const prep = j.status === "준비";
+    // 덜 쓰는 일은 ⋯ 안에: 녹음 정보 · 처음부터 다시 · 음원만 지우기 · 작업 삭제
+    const more = `<details class="kebab"><summary aria-label="더 보기 — 녹음 정보·처음부터 다시·음원 지우기·삭제">⋯</summary><div class="kmenu">
+        <dl class="info">${info.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
+        ${!f.busy && !j.audioDeleted ? '<button type="button" data-a="fresh">↺ 처음부터 다시</button>' : ""}
+        ${!f.busy && !j.audioDeleted ? '<button type="button" data-a="delaudio">🗑 음원만 지우기</button>' : ""}
+        ${!f.busy || prep ? '<button type="button" data-a="del" class="danger">✕ 작업 삭제</button>' : ""}
+      </div></details>`;
+    const act = f.busy
+      ? `<div class="prog"><span class="pbar"><i data-w="${p.pct || 0}"></i></span><span>${p.pct || 0}% · ${esc(p.msg || "")}</span></div>
+         ${prep ? "" : '<div class="row end"><button type="button" data-a="stop">중지</button></div>'}`
+      : f.action ? `<button type="button" class="go${f.action.primary ? " primary" : ""}" data-a="${f.action.a}">${esc(f.action.label)}</button>` : "";
     return `<div class="job" data-id="${esc(j.id)}">
-      <div class="hd"><span class="t">${esc(j.title)}</span><span class="badge st-${esc(String(j.status).replace(/\s/g, ""))}">${esc(j.status)}</span></div>
-      <dl class="info">${info.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
-      <div class="acts">
-        ${naming ? '<button type="button" data-a="review" class="primary">화자 이름 붙이기</button>' : ""}
-        ${j.hasResult && j.mode !== "enroll" ? '<button type="button" data-a="review" class="primary">검수</button>' : ""}
-        ${busy && j.status !== "준비" ? '<button type="button" data-a="stop">중지</button>' : ""}
-        ${!busy && !naming && j.status !== "완료" && !j.audioDeleted ? '<button type="button" data-a="resume">이어서 처리</button>' : ""}
-        ${!busy && !j.audioDeleted ? '<button type="button" data-a="fresh">처음부터 다시</button>' : ""}
-        ${!busy && !j.audioDeleted ? '<button type="button" data-a="delaudio">음원 지우기</button>' : ""}
-        ${!busy || j.status === "준비" ? '<button type="button" data-a="del">삭제</button>' : ""}
-      </div>
-      ${busy && j.status === "처리중" && BATT.warn ? `<p class="note batt">${BATT.warn}</p>` : ""}
-      ${busy ? `<div class="prog"><span class="pbar"><i data-w="${p.pct || 0}"></i></span><span>${p.pct || 0}% · ${esc(p.msg || "")}</span></div>` : ""}
+      <div class="hd"><span class="t">${esc(j.title)}</span><span class="badge st-${esc(String(j.status).replace(/\s/g, ""))}">${esc(f.badge)}</span>${more}</div>
+      <div class="meta">${esc(meta)}</div>
+      ${trackHtml(f)}
+      ${j.error ? `<p class="msg err">${esc(j.error)}</p>` : ""}
+      ${f.busy && j.status === "처리중" && BATT.warn ? `<p class="note batt">${BATT.warn}</p>` : ""}
+      ${act}
     </div>`;
   }).join("");
   if (html === el.dataset.last) return; // 바뀐 게 없으면 다시 그리지 않는다
   el.dataset.last = html.length > 200000 ? "" : html;
+  // 열려 있던 ⋯는 다시 그린 뒤에도 열어 둔다
+  const open = new Set($$("#jobList details.kebab[open]").map((d) => d.closest(".job").dataset.id));
   el.innerHTML = html;
+  for (const id of open) { const d = el.querySelector(`.job[data-id="${CSS.escape(id)}"] details.kebab`); if (d) d.open = true; }
   applyGeom(el);
 }
 $("#jobList").addEventListener("click", async (ev) => {
   const b = ev.target.closest("button[data-a]");
   if (!b) return;
+  if (b.dataset.a === "new") { showTab("new"); return; }
   const id = b.closest(".job").dataset.id, a = b.dataset.a;
   try {
     if (a === "review") { REVIEW.want = id; showTab("review"); return; }
+    if (a === "voices") { showTab("voices"); return; }
     if (a === "stop") {
       const j = await S.get("jobs", id);
       if (j && j.status === "대기") await S.saveJob(id, { status: "중지" });
@@ -591,10 +637,10 @@ async function loadReviewJobs() {
   // 결과가 하나도 없으면 빈 선택 칸·단계 상자 대신 안내와 「작업 목록으로」만 보인다
   const none = !done.length;
   $("#rvNone").classList.toggle("hidden", !none);
-  for (const q of ["#rvBar", "#stNames", "#rvMain", "#stExport"]) $(q).classList.toggle("hidden", none);
+  for (const q of ["#rvHead", "#stNames", "#rvMain", "#stExport"]) $(q).classList.toggle("hidden", none);
   if (id) { sel.value = id; await openReview(id); }
   else {
-    REVIEW.id = null; REVIEW.data = null;
+    REVIEW.id = null; REVIEW.data = null; setCrumb();
     if (!player.paused) player.pause();
     $("#rvBody").innerHTML = ""; $("#rvStats").innerHTML = ""; $("#tl").classList.add("hidden");
   }
@@ -638,6 +684,8 @@ async function openReview(id) {
   REVIEW.id = id;
   REVIEW.data = data;
   REVIEW.only = null;
+  REVIEW.rv = { id, v: (await S.get("kv", "rv:" + id)) || null };
+  if (tok !== REVIEW.tok) return;
   REVIEW.diar = diar;
   REVIEW.vpNames = vpNames;
   REVIEW.edits = REVIEW.data.edits.e || {};
@@ -655,6 +703,16 @@ async function openReview(id) {
   applyStepFold();
   updUndo();
   renderReview();
+  setCrumb();
+}
+/** 작업 화면 머리: 녹음 제목 · 정보 · 진행 단계(녹음 목록 카드와 같은 모양) */
+function renderHead() {
+  const d = REVIEW.data, el = $("#rvHead");
+  if (!d) { el.innerHTML = ""; return; }
+  const j = { ...d.job, id: REVIEW.id }, s = (d.result && d.result.stats) || j.stats || {};
+  const dur = (j.audioFiles || []).reduce((m, x) => m + (x.dur || 0), 0);
+  const meta = [jobKind(j), dur ? hms(dur) : "", d.result ? `발언 ${d.result.segs.length}` : s.clusters ? `화자 ${s.clusters}묶음` : ""].filter(Boolean).join(" · ");
+  el.innerHTML = `<div class="t">${esc(j.title)}</div><div class="meta">${esc(meta)}</div>${trackHtml(jobFlow(j, REVIEW.rv && REVIEW.rv.v))}`;
 }
 const gloss = (t) => { for (const p of REVIEW.gl || []) if (p.from) t = t.split(p.from).join(p.to); return t; };
 const isNeed = (g) => {
@@ -689,8 +747,12 @@ function renderScope() {
   const d = REVIEW.data;
   if (!d || !d.result) return;
   const c = scopeCounts(d.result.segs, REVIEW.edits, isNeed);
+  // 0건인 보기 칸은 누를 수 없고, 보고 있던 칸이 0건이 되면(남음을 다 확인 등) 「전체」로 넘어간다
+  if (REVIEW.filter !== "all" && !c[REVIEW.filter] && c.all) { REVIEW.filter = "all"; REVIEW.split = null; renderReview(); return; }
   for (const f of SCOPES) $(`.scope b[data-n='${f}']`).textContent = c[f];
-  $$(".scope button[data-f]").forEach((b) => b.classList.toggle("on", !REVIEW.only && b.dataset.f === REVIEW.filter));
+  $$(".scope button[data-f]").forEach((b) => { b.classList.toggle("on", !REVIEW.only && b.dataset.f === REVIEW.filter); b.disabled = !c[b.dataset.f]; });
+  saveRv({ ok: c.ok, all: c.all });
+  renderHead();
   $("#rvProg").textContent = `${c.ok} / ${c.all} 확인`;
   $("#rvPbar").dataset.w = c.all ? (100 * c.ok) / c.all : 0;
   $("#rvEditedN").textContent = `(${c.edited})`;
@@ -706,6 +768,7 @@ function renderScope() {
 function renderReview() {
   const d = REVIEW.data;
   if (!d) return;
+  renderHead();
   renderPanel();
   tlOpen();
   const sony = isDiar(d.job.mode);
@@ -1288,8 +1351,19 @@ document.addEventListener("keydown", (ev) => {
   if (ev.code === "Space") { ev.preventDefault(); const b = SEG.key && $$("#rvBody button.play").find((y) => segKey(y) === SEG.key); if (b) segToggle(b); else $("#tlPlay").click(); }
   else if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && !ev.target.closest("input, textarea")) { ev.preventDefault(); const d = ev.key === "ArrowLeft" ? -5 : 5; if (SEG.key) segSeek(d); else $(`#tl button[data-j='${d}']`).click(); }
 });
+/** 검수 진행을 kv 「rv:작업id」에 적어 둔다 — 녹음 목록 카드의 「남음 n」·내보내기 끝 표시용(바뀔 때만 씀) */
+function saveRv(patch) {
+  const id = REVIEW.id;
+  if (!id) return;
+  const cur = REVIEW.rv && REVIEW.rv.id === id ? REVIEW.rv.v : null;
+  const v = { ...(cur || {}), ...patch };
+  if (cur && JSON.stringify(cur) === JSON.stringify(v)) return;
+  REVIEW.rv = { id, v };
+  S.update("kv", "rv:" + id, (o) => ({ ...(o || {}), ...patch })).catch(() => {});
+}
 async function doExport(fmt) {
   if (!REVIEW.id) return;
+  saveRv({ exportedAt: S.now() }); renderHead();
   await flushEdits(); // 방금 고친 글이 빠지지 않게
   const data = await reviewData(REVIEW.id);
   const opts = { usePlaud: $("#exPlaud").checked, useGlossary: $("#exGl").checked };
@@ -1423,7 +1497,7 @@ $("#spkPanel").addEventListener("change", async (ev) => {
     if (t.checked) skip.delete(id); else skip.add(id);
     await S.saveJob(REVIEW.id, { skip: [...skip] });
     REVIEW.data.job.skip = [...skip];
-    if (REVIEW.data.result && t.checked) toast("작업 목록에서 「이어서 처리」를 누르면 이 묶음 발언을 전사해 더합니다");
+    if (REVIEW.data.result && t.checked) toast("녹음 목록 카드의 「이어서 처리」를 누르면 이 묶음 발언을 전사해 더합니다");
     if (REVIEW.data.result && !t.checked) toast("내보내기에서 빠지려면 「이어서 처리」로 결과를 다시 만드세요");
     if (REVIEW.data.result && job.status === "완료" && t.checked) await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: "더할 발언이 있습니다 — 이어서 처리" } });
     if (REVIEW.data.result && job.status === "완료" && !t.checked) await S.saveJob(REVIEW.id, { status: "중지", progress: { pct: 0, msg: "뺀 묶음이 있습니다 — 이어서 처리" } });
@@ -1460,7 +1534,7 @@ $("#spkPanel").addEventListener("click", async (ev) => {
     if (unnamed && !confirm(`이름 없는 묶음이 ${unnamed}개 있습니다. 그대로 전사할까요? (이름은 전사 뒤에도 붙일 수 있습니다)`)) return;
     saveEdits(); await flushEdits();
     await S.saveJob(REVIEW.id, { stage: "transcribe", status: "대기", progress: { pct: 0, msg: "전사 대기" } });
-    kick(); toast("전사를 시작합니다 — 작업 탭에서 진행을 볼 수 있습니다"); showTab("jobs");
+    kick(); toast("전사를 시작합니다 — 녹음 목록에서 진행을 볼 수 있습니다"); const gid = REVIEW.id; showTab("jobs"); flashJob(gid);
     return;
   }
   if (a === "vp") return saveSonyPrints();

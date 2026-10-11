@@ -54,14 +54,24 @@ test("통합본: 나눈 발언은 조각마다 한 줄, 조각 화자 > 묶음 �
   assert.deepEqual(lines.map((l) => [l.t, l.spk, l.text]), [[5, "갑", "앞 말"], [7, "을", "뒤 말"], [10, "을", "다음"]]);
 });
 
-test("작업 이름: 파일 이름을 다듬어 날짜·시각을 우리말로", () => {
-  assert.equal(titleFromFiles(["통화 녹음 홍길동_260914_075100.m4a"]), "26년 9월 14일 오전 7시 51분 · 통화 녹음 홍길동");
-  assert.equal(titleFromFiles(["251009_1430.MP3"]), "25년 10월 9일 오후 2시 30분");
-  assert.equal(titleFromFiles(["음성 260914_075100.m4a"]), "26년 9월 14일 오전 7시 51분"); // 기기가 붙인 말은 뺌
-  assert.equal(titleFromFiles(["2025-10-08 14-30-12 현장 면담.mp3"]), "25년 10월 8일 오후 2시 30분 · 현장 면담");
-  assert.equal(titleFromFiles(["Recording_20251008_120000.wav"]), "25년 10월 8일 오후 12시");
-  assert.equal(titleFromFiles(["10-09 현장_면담.m4a"]), "10-09 현장 면담");
-  assert.equal(titleFromFiles(["251009_1430.wav", "251009_1520.wav"]), "25년 10월 9일 오후 2시 30분 외 1개");
+test("작업 이름: 파일 이름 속 녹음 시각(시작~끝)·기기 종류를 우리말로", () => {
+  process.env.TZ = "Asia/Seoul"; // 줌(세계 표준시) 변환 확인용
+  const T = (n) => titleFromFiles([n]);
+  assert.equal(T("260911_082625-084031_Audio.m4a"), "26년 9월 11일 오전 08시 26분 25초 ~ 오전 08시 40분 31초 · 음성");
+  assert.equal(T("음성 261011_104940.m4a"), "26년 10월 11일 오전 10시 49분 40초 · 음성"); // 갤럭시 음성 녹음
+  assert.equal(T("통화 녹음 홍길동_260914_075100.m4a"), "26년 9월 14일 오전 07시 51분 00초 · 통화 녹음 홍길동");
+  assert.equal(T("통화 녹음 010-1234-5678_260914_075100.m4a"), "26년 9월 14일 오전 07시 51분 00초 · 통화 녹음 010-1234-5678");
+  assert.equal(T("251009_1430.MP3"), "25년 10월 9일 오후 02시 30분"); // 소니(초 없음)
+  assert.equal(T("251009_1430_01.MP3"), "25년 10월 9일 오후 02시 30분");
+  assert.equal(T("2025-10-08 14-30-12 현장 면담.mp3"), "25년 10월 8일 오후 02시 30분 12초 · 현장 면담");
+  assert.equal(T("Recording_20251008_120000.wav"), "25년 10월 8일 오후 12시 00분 00초 · 음성");
+  assert.equal(T("GMT20251008-053012_Recording.m4a"), "25년 10월 8일 오후 02시 30분 12초 · 음성"); // 줌: 세계 표준시 → 한국 시각
+  assert.equal(T("KakaoTalk_Audio_20251008_143012345.m4a"), "25년 10월 8일 오후 02시 30분 12초 · 카카오톡 음성");
+  assert.equal(T("20261008.m4a"), "26년 10월 8일");
+  assert.equal(T("2025.10.08 회의.mp3"), "25년 10월 8일 · 회의");
+  assert.equal(T("10-09 현장_면담.m4a"), "10-09 현장 면담"); // 연도 없는 날짜는 그대로
+  assert.equal(T("새로운 녹음 3.m4a"), "새로운 녹음 3"); // 시각이 없으면 이름 그대로
+  assert.equal(titleFromFiles(["251009_1430.wav", "251009_1520.wav"]), "25년 10월 9일 오후 02시 30분 외 1개");
   assert.equal(titleFromFiles([]), "");
 });
 
@@ -162,4 +172,23 @@ test("묶음 번호는 다시 쓰지 않음·비슷한 곳 옮기기는 원래 �
   assert.equal(b.diar.clusters[b.to].id, "S4"); // 지워진 S3를 다시 쓰지 않음(옛 이름·빼기가 붙지 않게)
   const c = relabelRange(diar, 0, 6, 12, 1, {}, { only: 0 });
   assert.ok(c.diar.turns.some((t) => t.s === 9.2 && c.diar.clusters[t.c].id === "S3")); // 사이에 낀 S3 차례는 그대로
+});
+
+import { jobFlow } from "../../web/src/review.js";
+test("녹음 카드: 진행 단계와 지금 할 일", () => {
+  const S = (f) => f.steps.map((s) => s.state[0]).join("");
+  let f = jobFlow({ mode: "diar", status: "처리중", stage: "diar" });
+  assert.equal(S(f), "dpttt" + "t"); assert.equal(f.badge, "화자 나누기 중"); assert.equal(f.action, null); assert.ok(f.busy);
+  f = jobFlow({ mode: "diar", status: "이름 대기" });
+  assert.equal(S(f), "ddcttt"); assert.equal(f.action.label, "화자 이름 정하기 →");
+  f = jobFlow({ mode: "diar", status: "중지", stage: "transcribe" });
+  assert.equal(S(f), "dddstt"); assert.equal(f.action.a, "resume");
+  f = jobFlow({ mode: "diar", status: "완료" }, { ok: 2, all: 10 });
+  assert.equal(S(f), "ddddct"); assert.equal(f.action.label, "검수 이어하기 · 남음 8 →");
+  assert.equal(jobFlow({ mode: "diar", status: "완료" }, { ok: 10, all: 10 }).action.label, "내보내기 →");
+  f = jobFlow({ mode: "gap", status: "완료" }, { ok: 10, all: 10, exportedAt: "x" });
+  assert.equal(S(f), "dddd"); assert.equal(f.badge, "완료");
+  assert.equal(jobFlow({ mode: "gap", status: "완료" }).action.label, "검수하기 →");
+  assert.equal(jobFlow({ mode: "enroll", status: "완료" }).action.a, "voices");
+  assert.equal(jobFlow({ mode: "fragment", status: "준비" }).badge, "등록 중");
 });

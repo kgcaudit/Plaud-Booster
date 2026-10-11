@@ -59,13 +59,18 @@ try {
   const ctx = await browser.newContext({ acceptDownloads: true });
   const page = await ctx.newPage();
 // 검수는 작업에 딸린 단계: 위 탭 「작업」 → 아래 단계 줄 「검수·내보내기」
-// 위 바: 작업 단계는 바에, 목소리·사전·설정은 ☰ 메뉴 안
+// 위 바(2026-10-11): [HAUD AI] 녹음 목록 › 제목 … [＋ 새 녹음][☰]. 목소리·사전·설정은 ☰ 안, 작업 화면은 녹음 카드의 단추로
 const nav = async (p, tab) => {
   if (["voices", "glossary", "settings"].includes(tab)) { await p.click("#menuBtn"); await p.click(`#menuPanel button[data-tab='${tab}']`); }
-  else if (await p.locator("#crumb").isVisible()) { await p.click("#crumb button.bk"); if (tab === "review") await p.click("#subTabs button[data-tab='review']"); }
-  else await p.click(`#subTabs button[data-tab='${tab}']`);
+  else if (tab === "new") await p.click("#btnNew");
+  else await p.click("#crumbHome");
 };
-const goReview = async () => { await nav(page, "jobs"); await nav(page, "review"); };
+const goReview = async (title) => {
+  await nav(page, "jobs");
+  const card = title ? page.locator(".job", { hasText: title }) : page.locator(".job").first();
+  await card.locator("button[data-a='review']").click();
+  await page.waitForSelector("#rvHead .t");
+};
   errors.length = 0; foreign.length = 0;
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
@@ -76,14 +81,16 @@ const goReview = async () => { await nav(page, "jobs"); await nav(page, "review"
   await page.waitForSelector("#sysline:has-text(\'가짜 엔진\')", { state: "attached" });
   console.log("✓ 서비스 워커로 교차 출처 격리(스레드 사용 가능)");
 
-  // 결과가 없을 때 검수: 빈 선택 칸·보기 단추·내보내기 대신 안내와 「작업 목록으로」
-  await goReview();
-  await page.waitForSelector("#rvNone:not(.hidden)");
-  assert.ok(await page.locator("#rvBar").isHidden());
-  assert.ok(await page.locator("#rvMain").isHidden());
-  await page.click("#rvGoJobs");
-  await page.waitForSelector("#btnNew", { state: "visible" });
-  console.log("✓ 검수할 결과가 없으면 안내와 작업 목록 단추만");
+  // 녹음이 없을 때: 녹음 목록에 안내와 「＋ 새 녹음 등록」, 위 바는 「녹음 목록」만
+  await page.waitForSelector("#jobList .empty button[data-a='new']");
+  assert.ok(await page.locator("#crumbName").isHidden());
+  await page.click("#jobList .empty button[data-a='new']");
+  await page.waitForSelector("#newJob", { state: "visible" });
+  assert.equal(await page.locator("#crumbName").textContent(), "새 녹음");
+  assert.ok(await page.locator("#btnNew").isHidden()); // 새 녹음 화면에서는 ＋ 숨김
+  await page.click("#btnCancel");
+  await page.waitForSelector("#jobList .empty");
+  console.log("✓ 녹음이 없으면 안내와 새 녹음 단추 · 새 녹음은 전용 화면");
 
   // ---- 누락 구간 보충(출처 Plaud → 할 일 기본값 「빠진 구간 채우기」)
   await page.click("#btnNew");
@@ -184,12 +191,12 @@ const goReview = async () => { await nav(page, "jobs"); await nav(page, "review"
   await page.waitForSelector("#audioList li:first-child:has-text('251009_1430.wav')"); // 녹음 시각 순
   await page.waitForSelector("#audioList li:nth-child(2):has-text('앞 파일과')");
   // 작업 이름은 고른 파일 이름(녹음 시각)을 다듬어 저절로 채워짐
-  assert.equal(await page.locator("#jobTitle").inputValue(), "25년 10월 9일 오후 2시 30분 외 1개");
+  assert.equal(await page.locator("#jobTitle").inputValue(), "25년 10월 9일 오후 02시 30분 외 1개");
   await page.fill("#attendees", "2");
   await page.fill("#jobTitle", "소니 시험");
   await page.check("#notice");
   await page.click("#btnSubmit");
-  await page.waitForSelector(".job:has-text('소니 시험') .badge:has-text('이름 대기')", { timeout: 60000 });
+  await page.waitForSelector(".job:has-text('소니 시험') .badge.st-이름대기", { timeout: 60000 });
   await page.click(".job:has-text('소니 시험') button[data-a='review']");
   await page.waitForSelector("#spkPanel .cl");
   assert.equal(await page.locator("#spkPanel .cl").count(), 2);
@@ -269,6 +276,11 @@ const goReview = async () => { await nav(page, "jobs"); await nav(page, "review"
   await page.click("#rvAllOk");
   assert.equal(await cnt("todo"), 0);
   assert.ok(await page.locator("#exWarn").isHidden());
+  // 남음이 0이 되면 「전체」로 넘어가고, 0건 칸(남음·불확실·확실)은 누를 수 없다
+  await page.waitForSelector(".scope button[data-f='all'].on");
+  for (const f of ["todo", "need", "sure"]) assert.ok(await page.locator(`.scope button[data-f='${f}']`).isDisabled(), f + " 칸이 눌림");
+  // 작업 화면 머리의 진행 단계: 검수 끝 → 「내보내기」가 지금 단계
+  await page.waitForSelector("#rvHead .trk li.cur:has-text('내보내기')");
   await page.click("#rvUndo");
   assert.ok((await cnt("todo")) > 0);
   // 한 발언에 두 사람: 커서 위치에서 나누고 뒤 조각 화자를 바꿈 → 통합본에 두 줄
@@ -326,7 +338,7 @@ const goReview = async () => { await nav(page, "jobs"); await nav(page, "review"
     // 위 고정 영역은 한 줄(2026-10-11: 탭 줄을 ☰ 메뉴로 — 95px → 52px 안팎)
     const barH = await page.evaluate(() => document.querySelector("nav.bar").getBoundingClientRect().height);
     assert.ok(barH <= 60, `${tab}: 위 바 높이 ${barH}px`);
-    if (!["review", "jobs"].includes(tab)) assert.ok(await page.locator("#crumb").isVisible() && (await page.locator("#crumbName").textContent()).length > 1);
+    if (tab !== "jobs") assert.ok(await page.locator("#crumbName").isVisible() && (await page.locator("#crumbName").textContent()).length > 1); // 빵부스러기: 녹음 목록 › 이 화면
     // 낱말이 줄 끝에서 쪼개지지 않는다(「고태\n준」·「합치\n기」 같은 꼴), 버튼 글은 한 줄
     const broken = await page.evaluate(() => {
       const bad = [], rng = document.createRange();
@@ -378,7 +390,8 @@ const goReview = async () => { await nav(page, "jobs"); await nav(page, "review"
     await page.waitForSelector(".job:has-text('조각 시험') .badge.st-완료", { timeout: 90000 });
     const meta = await page.locator(".job:has-text('조각 시험') .info").first().textContent();
     assert.match(meta, /조각\.mp3 \(2:30\)/, meta);
-    assert.match(meta, /휴대폰·기타 기기 · 저장된 목소리로 바로 맞히기/, meta);
+    const head = await page.locator(".job:has-text('조각 시험') .meta").first().textContent(); // 카드 둘째 줄: 출처 · 할 일 · 언어 · 길이 · 발언 수
+    assert.match(head, /휴대폰·기타 기기 · 저장된 목소리로 바로 맞히기 · 영어 · 4:00/, head);
     const d2 = page.waitForEvent("download");
     await page.click(".job:has-text('조각 시험') button[data-a='review']");
     await page.click("#exTxt");
@@ -483,6 +496,7 @@ const goReview = async () => { await nav(page, "jobs"); await nav(page, "review"
   await page2.goto(`${BASE}/?fake=1`);
   await page2.waitForSelector("#sysline:has-text('다른 탭')", { state: "attached", timeout: 20000 });
   await nav(page2, "jobs");
+  await page2.click(".job:has-text('시험 회의') details.kebab summary"); // 덜 쓰는 일은 카드의 ⋯ 안
   await page2.click(".job:has-text('시험 회의') button[data-a='fresh']");
   await nav(page, "jobs");
   await page2.waitForSelector(".job:has-text('시험 회의') .badge.st-완료", { timeout: 60000 });

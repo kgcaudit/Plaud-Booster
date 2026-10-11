@@ -31,22 +31,14 @@ input.wide { width: 100%; margin-bottom: 6px; }
 .sysline .bad { color: var(--bad); } .sysline .ok { color: var(--ok); }
 
 .tabs .trow { display: flex; gap: 2px; overflow-x: auto; }
-/* 작업 단계 줄: 위 탭보다 한 단계 낮게(작게·옅은 바탕) — 작업 목록 › 검수·내보내기 */
-.tabs .trow.sub { gap: 4px; align-items: center; flex: 1 1 auto; min-width: 0; overflow: visible; }
-.tabs .trow.sub button { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--mute); background: var(--bg); }
-.tabs .trow.sub button.on { border-color: var(--accent); color: var(--accent); background: var(--panel); font-weight: 600; }
-.tabs .trow.sub .arrow { color: var(--mute); }
 .tabs { padding: 0 24px; background: var(--panel); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 6px rgba(0, 0, 0, .05); }
-/* 위 한 줄 바: [녹취] (이름) [1 작업 › 2 검수] … [상태] [☰] */
+/* 위 한 줄 바: [HAUD AI] (이름) [녹음 목록 › 제목] … [상태 칩] [＋ 새 녹음] [☰] */
 nav.bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-height: 56px; padding: 6px 12px 6px 24px; position: sticky; margin: 0; }
 .stat .stxt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* 좁으면 경고 글은 줄임표(전체는 메뉴에) */
 .bar .logo { flex: none; height: 32px; padding: 0 8px; border-radius: 8px; background: var(--accent); color: var(--accent-ink);
   display: grid; place-items: center; font-weight: 800; font-size: 13px; letter-spacing: .2px; white-space: nowrap; }
 .bar .appname { font-size: 15px; white-space: nowrap; margin-right: 6px; }
-.bar .crumb { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; }
-.bar .crumb b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
-.tabs .crumb .bk { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--accent); background: var(--bg); }
 .tabs .stat { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 12.5px; color: var(--mute); border-bottom: 0; }
 .stat .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); flex: none; }
 .stat[data-st="busy"] .dot { background: var(--accent); animation: pbpulse 1.2s ease-in-out infinite; }
@@ -108,25 +100,65 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 .chk { display: inline-flex; gap: 5px; align-items: center; font-size: 13px; }
 
 .joblist { display: grid; gap: 10px; }
-/* 작업 카드: 위 [제목·상태 | 버튼], 아래 정보표는 카드 전체 폭(버튼 열에 눌려 왼쪽에 몰리지 않게) */
-.job { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; display: grid;
-  grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "hd acts" "info info" "batt batt" "prog prog"; gap: 8px 16px; }
-.job .hd { grid-area: hd; align-self: center; min-width: 0; }
-.job .t { font-weight: 600; overflow-wrap: break-word; }
-.job .acts { grid-area: acts; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: start; }
-.job .acts button { font-size: 12.5px; padding: 3px 9px; white-space: nowrap; }
-.job .info { grid-area: info; display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 2px 10px; margin: 0;
-  font-size: 12.5px; border-top: 1px dashed var(--line); padding-top: 8px; }
+/* 녹음 카드(2026-10-11): [제목 · 상태 · ⋯] / 정보 한 줄 / 진행 단계 / 「지금 할 일」 단추 하나(처리 중이면 진행 막대·중지) */
+.job { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.job.flash { outline: 3px solid var(--accent); outline-offset: 2px; }
+.job .hd { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.job .t { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; min-width: 0; }
+.job .meta { font-size: 12.5px; color: var(--mute); overflow-wrap: anywhere; }
+.job .go { width: 100%; min-height: 44px; font-size: 15px; font-weight: 700; border-radius: 10px; }
+.job .go:not(.primary) { border: 1px solid var(--accent); color: var(--accent); background: var(--panel); }
+.job .row.end { display: flex; justify-content: flex-end; }
+.job .info { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 2px 10px; margin: 0 0 6px; font-size: 12.5px; }
 .job .info dt { color: var(--mute); }
-.job .info dd { margin: 0; overflow-wrap: break-word; }
-.job .prog { grid-area: prog; display: flex; gap: 10px; align-items: center; font-size: 12.5px; color: var(--mute); }
-@media (max-width: 720px) {
-  .job { grid-template-columns: minmax(0, 1fr); grid-template-areas: "hd" "acts" "info" "batt" "prog"; }
-  .job .acts { justify-content: flex-start; }
-}
-.job .prog .pbar { flex: 1; max-width: 420px; }
+.job .info dd { margin: 0; overflow-wrap: anywhere; }
+.job .prog { display: flex; gap: 10px; align-items: center; font-size: 12.5px; color: var(--mute); }
+.kebab { margin-left: auto; position: relative; flex: none; }
+.kebab > summary { list-style: none; cursor: pointer; width: 40px; height: 36px; display: grid; place-items: center; border-radius: 8px; font-size: 20px; color: var(--mute); }
+.kebab > summary::-webkit-details-marker { display: none; }
+.kebab[open] > summary { background: var(--bg); color: var(--accent); }
+.kmenu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 8; width: min(300px, calc(100vw - 40px)); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.kmenu button { text-align: left; border: 0; background: none; min-height: 44px; padding: 0 8px; border-radius: 8px; font-size: 14.5px; }
+.kmenu button:hover { background: var(--bg); }
+.kmenu button.danger { color: var(--bad); border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
+/* 진행 단계: 끝남 ✓(초록) · 지금(파랑) · 앱이 하는 단계는 점선 동그라미 */
+.trk { list-style: none; margin: 0; padding: 0; display: flex; }
+.trk li { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; position: relative; font-size: 11px; color: var(--mute); text-align: center; line-height: 1.2; }
+.trk li::before { content: ""; position: absolute; top: 9px; left: -50%; right: 50%; height: 2px; background: var(--line); }
+.trk li:first-child::before { display: none; }
+.trk li i { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); background: var(--panel); display: grid; place-items: center;
+  font-style: normal; font-size: 10.5px; font-weight: 700; z-index: 1; }
+.trk li.auto i { border-style: dashed; }
+.trk li span { display: block; max-width: 100%; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; padding: 0 1px; }
+.trk li.done i { background: var(--ok); border: 2px solid var(--ok); color: #fff; }
+.trk li.done::before, .trk li.cur::before, .trk li.proc::before, .trk li.stop::before { background: var(--ok); }
+.trk li.cur { color: var(--ink); font-weight: 700; } .trk li.cur i { background: var(--accent); border: 2px solid var(--accent); }
+.trk li.proc { color: var(--accent); font-weight: 700; } .trk li.proc i { border-color: var(--accent); }
+.trk li.stop { color: var(--warn); font-weight: 700; } .trk li.stop i { border: 2px solid var(--warn); color: var(--warn); }
+/* 작업 화면 머리 */
+.jhead { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+.jhead .t { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
+.jhead .meta { font-size: 12.5px; color: var(--mute); overflow-wrap: anywhere; }
+.jhead:empty { display: none; }
+/* 새 녹음 화면: 등록 단추 줄은 화면 아래에 붙여 둔다 */
+#tab-new #newJob { margin-bottom: 0; }
+#newJob .formfoot { position: sticky; bottom: 0; z-index: 5; background: var(--panel); border-top: 1px solid var(--line); margin: 12px -16px -16px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+#newJob .formfoot #btnSubmit { flex: 1 1 auto; min-height: 44px; font-weight: 700; }
+/* 빵부스러기·새 녹음 단추 */
+.bar .crumb { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
+.tabs .crumb .home { border: 0; padding: 4px 2px; font-size: 14.5px; color: var(--accent); background: none; }
+.tabs .crumb .home.on { color: var(--ink); font-weight: 700; cursor: default; }
+.bar .crumb .sep { color: var(--mute); }
+.bar .crumb .cur { overflow: hidden; text-overflow: ellipsis; font-size: 14.5px; min-width: 0; }
+.tabs .newbtn { flex: none; height: 44px; min-width: 44px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent); color: var(--accent-ink);
+  font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.tabs .newbtn span[aria-hidden] { font-size: 20px; line-height: 1; }
+.scope button:disabled { opacity: .38; cursor: not-allowed; }
+.job .prog .pbar { flex: 1; }
 .badge { display: inline-block; font-size: 12px; border-radius: 4px; padding: 0 6px; margin-left: 6px; font-weight: 500; }
 .st-대기, .st-중지 { background: var(--line); }
+.st-이름대기 { background: var(--warn-bg); color: var(--warn); }
 .st-처리중 { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
 .st-완료 { background: var(--ok-bg); color: var(--ok); }
 .st-오류 { background: var(--bad-bg); color: var(--bad); }
@@ -292,9 +324,6 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
   .tabs .stat { padding: 4px 2px; gap: 4px; }
   .bar .appname { display: none; }
   .tabs .lg { display: none; } .tabs .sm { display: inline; }
-  .tabs .trow.sub { gap: 3px; }
-  .tabs .trow.sub button { padding: 4px 8px; white-space: nowrap; }
-  .tabs .trow.sub { flex: 0 0 auto; }
   .stat[data-st="ok"] .stxt { display: none; } /* 좁은 화면은 평소 초록 점만 */
   #rvBar { gap: 6px; }
   #rvBar #rvJob { flex: 1 1 100%; }
@@ -315,7 +344,6 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
   .chk { gap: 8px; min-height: 36px; }
   .play { width: 44px; height: 44px; font-size: 13px; }
   .chip { padding: 8px 12px; }
-  .job .acts button { font-size: 14px; padding: 6px 12px; }
   .rv .spkbtn { min-height: 40px; }
   .tl-ctl button { padding: 6px 12px; }
   .tl .tl-all { height: 28px; }
@@ -332,7 +360,7 @@ html { scroll-padding-top: calc(var(--tabs-h) + var(--rvbar-h) + 8px); scroll-pa
 .srctip summary { cursor: pointer; font-weight: 600; overflow-wrap: break-word; }
 .srctip .tips { margin-top: 8px; }
 .srctip li { overflow-wrap: break-word; }
-.job .note.batt { grid-area: batt; margin: 0; color: var(--warn, #b45309); overflow-wrap: break-word; }
+.job .note.batt { margin: 0; color: var(--warn, #b45309); overflow-wrap: break-word; }
 @media (pointer: coarse) { .srctip summary { min-height: 44px; display: flex; align-items: center; } }
 
 /* 기기 성능 시험 결과 */
@@ -341,7 +369,6 @@ dl.bench:empty { display: none; }
 dl.bench dt { color: var(--mute); }
 dl.bench dd { margin: 0; min-width: 0; overflow-wrap: break-word; }
 
-@media (pointer: coarse) { .tabs .trow.sub button { min-height: 44px; } }
 
 /* 그래픽 칩 가속 계속 여부 묻기 */
 .ask { background: var(--warn-bg); border: 1px solid var(--warn); border-radius: 10px; padding: 12px 16px; margin-bottom: 14px; }

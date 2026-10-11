@@ -147,6 +147,9 @@ test("소니 파일 이름의 녹음 시각으로 정렬", () => {
   assert.deepEqual(recordedAt("251009_1430_02.mp3"), { at: "2025-10-09T14:30:00", seq: 2 });
   assert.equal(recordedAt("20251009_093015.wav").at, "2025-10-09T09:30:15");
   assert.equal(recordedAt("회의.mp3"), null);
+  assert.equal(recordedAt("260911_082625-084031_Audio.m4a").at, "2026-09-11T08:26:25"); // 시작~끝이면 시작 시각
+  assert.equal(recordedAt("KakaoTalk_Audio_20251008_143012345.m4a").at, "2025-10-08T14:30:12");
+  assert.equal(recordedAt("20261008.m4a"), null); // 날짜만 있으면 시각은 모름
   const o = orderFiles([{ name: "251009_1500.mp3" }, { name: "메모.mp3" }, { name: "251009_1430_02.mp3" }, { name: "251009_1430.mp3" }]);
   assert.deepEqual(o.map((x) => x.name), ["251009_1430.mp3", "251009_1430_02.mp3", "251009_1500.mp3", "메모.mp3"]);
   assert.equal(o[0].recordedAt, "2025-10-09T14:30:00");

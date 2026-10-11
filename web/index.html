@@ -11,18 +11,15 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- 위 한 줄(2026-10-11): [HAUD AI] [원본 음성 › 전사 결과] … [상태] [☰]
+<!-- 위 한 줄(2026-10-11): [HAUD AI] [녹음 목록 › 녹음 제목] … [상태 칩] [＋ 새 녹음] [☰]
      자주 안 쓰는 목소리 기준·사전·설정과 엔진 상태 전체는 ☰ 메뉴로 — 위 고정 영역을 한 줄로 줄임 -->
 <nav class="tabs bar" aria-label="화면">
   <span class="logo" aria-hidden="true">HAUD AI</span>
   <strong class="appname">Diarized Transcription</strong>
-  <div class="trow sub" id="subTabs" role="tablist" aria-label="작업 단계">
-    <button type="button" role="tab" data-tab="jobs" class="on">원본 음성</button>
-    <span class="arrow" aria-hidden="true">›</span>
-    <button type="button" role="tab" data-tab="review">전사 결과</button>
-  </div>
-  <div class="crumb hidden" id="crumb"><button type="button" class="bk" data-sub="jobs">‹ 원본 음성</button><b id="crumbName"></b></div>
+  <!-- 빵부스러기: 녹음 목록 › (녹음 제목 | 새 녹음 | 메뉴 화면) -->
+  <div class="crumb" id="crumb"><button type="button" id="crumbHome" class="home" data-tab="jobs">녹음 목록</button><span class="sep hidden" id="crumbSep" aria-hidden="true">›</span><b id="crumbName" class="cur hidden"></b></div>
   <button type="button" class="stat" id="statBtn" aria-label="엔진 상태 보기"><span class="dot"></span><span class="stxt" id="statTxt"></span></button>
+  <button type="button" class="newbtn" id="btnNew" data-tab="new" aria-label="새 녹음 등록" title="새 녹음 등록"><span aria-hidden="true">＋</span><span class="lg">새 녹음</span></button>
   <button type="button" class="menu" id="menuBtn" aria-label="메뉴" aria-expanded="false" aria-controls="menuPanel">☰</button>
   <div class="menupanel hidden" id="menuPanel" role="menu" aria-label="메뉴">
     <button type="button" role="menuitem" data-tab="voices"><span>🎙 목소리 기준</span><small id="mnVp"></small></button>
@@ -47,16 +44,21 @@
 
 <!-- ======================= 작업 ======================= -->
 <section id="tab-jobs" class="tab on">
-  <div class="bar">
-    <h2>작업 목록</h2>
-    <button type="button" id="btnNew" class="primary">＋ 새 작업</button>
-  </div>
+  <div id="jobList" class="joblist"></div>
+</section>
 
-  <form id="newJob" class="card hidden" autocomplete="off">
-    <h3>새 작업</h3>
+<!-- ======================= 새 녹음(전용 화면) ======================= -->
+<section id="tab-new" class="tab">
+  <form id="newJob" class="card" autocomplete="off">
 
+    <!-- 파일부터 고르면 작업 이름·녹음 시각이 채워진다. 출처·할 일은 그다음(출처가 파일 개수·Plaud 전사 필요 여부를 정함) -->
+    <fieldset id="fsAudio">
+      <legend><span class="num">1.</span> 음원 파일 <small id="audioHint">m4a·mp3·wav 등 — 여러 개면 녹음 시각 순으로 자동 정렬</small></legend>
+      <input type="file" id="audioFiles" accept="audio/*,.mp3,.wav,.m4a,.mp4,.aac,.3gp,.ogg,.opus,.flac,.webm">
+      <ul id="audioList" class="uplist"></ul>
+    </fieldset>
     <fieldset class="modes srcs">
-      <legend><span class="num">1.</span> 녹음 출처 <small>무엇으로 녹음했나요</small></legend>
+      <legend><span class="num">2.</span> 녹음 출처 <small>무엇으로 녹음했나요</small></legend>
       <label class="mode"><input type="radio" name="source" value="plaud">
         <b>Plaud 녹음</b><span>Plaud 앱·웹에서 내보낸 전사(TXT·SRT·DOCX, 시간·화자 포함)와 음원(MP3)</span></label>
       <label class="mode"><input type="radio" name="source" value="sony">
@@ -68,7 +70,7 @@
     </fieldset>
 
     <fieldset id="fsTask" class="modes hidden">
-      <legend><span class="num">2.</span> 할 일</legend>
+      <legend><span class="num">3.</span> 할 일</legend>
       <label class="mode" data-src="plaud"><input type="radio" name="mode" value="gap">
         <b>빠진 구간 채우기</b><span>Plaud 전사가 녹음 중간에 끊겼을 때, 끊긴 뒤부터 녹음 끝까지 전사하고 Plaud 이름으로 화자를 맞힙니다.</span></label>
       <label class="mode" data-src="plaud"><input type="radio" name="mode" value="range">
@@ -82,11 +84,6 @@
       <label class="chk span hidden" id="callWrap"><input type="checkbox" id="isCall"> 통화 녹음(두 사람) — 인원을 2명으로 두고 묶습니다</label>
     </fieldset>
 
-    <fieldset class="after-src hidden">
-      <legend><span class="num">3.</span> 음원 파일 <small id="audioHint">MP3·WAV·M4A 1개</small></legend>
-      <input type="file" id="audioFiles" accept="audio/*,.mp3,.wav,.m4a,.mp4,.aac,.3gp,.ogg,.opus,.flac,.webm">
-      <ul id="audioList" class="uplist"></ul>
-    </fieldset>
 
     <fieldset id="fsTranscript" class="after-src hidden">
       <legend><span class="num">4.</span> Plaud 전사 파일 <small id="trHint">필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(타임스탬프·화자 켜기)</small></legend>
@@ -118,24 +115,24 @@
       <label class="chk notice"><input type="checkbox" id="notice"> 참석자에게 녹음 사실을 알렸음 <small class="msg">(통합본 머리에 적힘 · 동의 없는 녹음·배포는 음성권 침해가 될 수 있어 감사 면담은 고지를 권장)</small></label>
     </fieldset>
 
-    <div class="row end">
+    <div class="row end formfoot">
       <span id="formMsg" class="msg"></span>
       <button type="button" id="btnCancel">취소</button>
-      <button type="submit" class="primary" id="btnSubmit">작업 등록</button>
+      <button type="submit" class="primary" id="btnSubmit">등록하고 시작 →</button>
     </div>
   </form>
-
-  <div id="jobList" class="joblist"></div>
 </section>
 
 <!-- ======================= 검수 ======================= -->
 <section id="tab-review" class="tab">
-  <div class="bar" id="rvBar">
+  <!-- 작업 선택은 녹음 목록의 카드로 한다(이 칸은 숨김 — 같은 목록이 두 곳에 있던 것) -->
+  <div class="bar hidden" id="rvBar">
     <select id="rvJob" aria-label="작업 선택"></select>
   </div>
+  <div class="jhead" id="rvHead"></div>
   <div id="rvNone" class="empty hidden">
-    <p>아직 검수할 결과가 없습니다.<br>전사가 끝난 작업이 여기에 나옵니다.</p>
-    <button type="button" id="rvGoJobs" class="primary">작업 목록으로</button>
+    <p>열 녹음이 없습니다.<br>녹음 목록에서 카드의 단추를 눌러 들어오세요.</p>
+    <button type="button" id="rvGoJobs" class="primary">녹음 목록으로</button>
   </div>
   <!-- 검수는 할 일 순서대로: ① 화자 이름 정하기(화자 나누기 작업만) → ② 발언 검수 → ③ 내보내기 -->
   <section class="step" id="stNames">
