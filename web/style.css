@@ -454,6 +454,12 @@ table.bh th { color: var(--mute); font-weight: 500; }
 .step .mini span { border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; font-size: 13px; background: var(--bg); }
 #rvMain > .sfold > .pbar { margin: 0 14px 12px; }
 #rvMain > .sfold > .pbar > i { background: var(--ok); }
+/* 목소리 기준 화면: 쌓이는 방식 안내 */
+.vprule { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px;
+  padding: 10px 14px; margin: 0 0 14px; font-size: 13.5px; min-width: 0; }
+.vprule > b { display: block; margin-bottom: 4px; }
+.vprule ul { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+.vprule li { color: var(--mute); } .vprule li b { color: var(--ink); }
 .hint, .scopehint { color: var(--mute); font-size: 12.5px; margin: 0 0 8px; }
 
 /* 보기 범위(한 줄): [전체][확인] [남음 | 불확실 | 확실] — 숫자 위, 이름 아래. 남음 묶음은 한 테두리 */

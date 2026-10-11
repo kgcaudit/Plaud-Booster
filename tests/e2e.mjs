@@ -119,7 +119,10 @@ const goReview = async (title) => {
   await nav(page, "voices");
   await page.waitForSelector("#vpBody tr[data-n='김응옥']");
   assert.equal(await page.locator("#vpBody tr[data-n='배소정']").count(), 1);
-  console.log("✓ 목소리 기준 저장(김응옥·배소정)");
+  // 쌓이는 방식 안내(Plaud 자동 · 휴대폰·소니는 「목소리 기준 저장」 · 30초 이상)
+  const rule = await page.locator("#tab-voices .vprule").textContent();
+  assert.ok(rule.includes("목소리 기준 저장") && rule.includes("30초"));
+  console.log("✓ 목소리 기준 저장(김응옥·배소정)·쌓이는 방식 안내");
 
   // 검수: 화자 바꾸고 문장 고치기 → 자동 저장
   await nav(page, "glossary");
