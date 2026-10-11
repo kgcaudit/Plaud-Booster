@@ -59,7 +59,7 @@ try {
   const ctx = await browser.newContext({ acceptDownloads: true });
   const page = await ctx.newPage();
 // 검수는 작업에 딸린 단계: 위 탭 「작업」 → 아래 단계 줄 「검수·내보내기」
-// 위 바(2026-10-11): [HAUD AI] 녹음 목록 › 제목 … [＋ 새 녹음][☰]. 목소리·사전·설정은 ☰ 안, 작업 화면은 녹음 카드의 단추로
+// 위 바(2026-10-11): [HAUD AI = 홈] 홈 › 제목 … [＋ 새 녹음][☰]. 목소리·사전·설정은 ☰ 안, 작업 화면은 녹음 카드의 단추로
 const nav = async (p, tab) => {
   if (["voices", "glossary", "settings"].includes(tab)) { await p.click("#menuBtn"); await p.click(`#menuPanel button[data-tab='${tab}']`); }
   else if (tab === "new") await p.click("#btnNew");
@@ -88,6 +88,13 @@ const goReview = async (title) => {
   await page.waitForSelector("#newJob", { state: "visible" });
   assert.equal(await page.locator("#crumbName").textContent(), "새 녹음");
   assert.ok(await page.locator("#btnNew").isHidden()); // 새 녹음 화면에서는 ＋ 숨김
+  // 로고(HAUD AI)도 홈 단추, 빵부스러기 첫 칸은 「홈」
+  await page.click("#logoHome");
+  await page.waitForSelector("#tab-jobs.on");
+  assert.equal((await page.locator("#crumbHome").textContent()).trim(), "홈");
+  assert.ok(await page.locator("#crumbName").isHidden());
+  await page.click("#btnNew");
+  await page.waitForSelector("#newJob", { state: "visible" });
   await page.click("#btnCancel");
   await page.waitForSelector("#jobList .empty");
   console.log("✓ 녹음이 없으면 안내와 새 녹음 단추 · 새 녹음은 전용 화면");

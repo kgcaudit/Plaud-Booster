@@ -11,13 +11,13 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- 위 한 줄(2026-10-11): [HAUD AI] [녹음 목록 › 녹음 제목] … [상태 칩] [＋ 새 녹음] [☰]
+<!-- 위 한 줄(2026-10-11): [HAUD AI = 홈] [홈 › 녹음 제목] … [상태 칩] [＋ 새 녹음] [☰]
      자주 안 쓰는 목소리 기준·사전·설정과 엔진 상태 전체는 ☰ 메뉴로 — 위 고정 영역을 한 줄로 줄임 -->
 <nav class="tabs bar" aria-label="화면">
-  <span class="logo" aria-hidden="true">HAUD AI</span>
+  <button type="button" class="logo" id="logoHome" data-tab="jobs" aria-label="홈 — 녹음 목록" title="홈 — 녹음 목록">HAUD AI</button>
   <strong class="appname">Diarized Transcription</strong>
-  <!-- 빵부스러기: 녹음 목록 › (녹음 제목 | 새 녹음 | 메뉴 화면) -->
-  <div class="crumb" id="crumb"><button type="button" id="crumbHome" class="home" data-tab="jobs">녹음 목록</button><span class="sep hidden" id="crumbSep" aria-hidden="true">›</span><b id="crumbName" class="cur hidden"></b></div>
+  <!-- 빵부스러기: 홈(녹음 목록) › (녹음 제목 | 새 녹음 | 메뉴 화면) -->
+  <div class="crumb" id="crumb"><button type="button" id="crumbHome" class="home" data-tab="jobs" title="녹음 목록">홈</button><span class="sep hidden" id="crumbSep" aria-hidden="true">›</span><b id="crumbName" class="cur hidden"></b></div>
   <button type="button" class="stat" id="statBtn" aria-label="엔진 상태 보기"><span class="dot"></span><span class="stxt" id="statTxt"></span></button>
   <button type="button" class="newbtn" id="btnNew" data-tab="new" aria-label="새 녹음 등록" title="새 녹음 등록"><span aria-hidden="true">＋</span><span class="lg">새 녹음</span></button>
   <button type="button" class="menu" id="menuBtn" aria-label="메뉴" aria-expanded="false" aria-controls="menuPanel">☰</button>

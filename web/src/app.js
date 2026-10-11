@@ -191,7 +191,7 @@ function renderSys() {
 $$(".tabs button[data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
 const SECONDARY = { new: "새 녹음", voices: "목소리 기준", glossary: "인명·용어 사전", settings: "설정·백업" };
 let TAB = "jobs";
-/** 빵부스러기: 녹음 목록 › (녹음 제목 | 새 녹음 | 메뉴 화면 이름). 목록에서는 「녹음 목록」만 */
+/** 빵부스러기: 홈 › (녹음 제목 | 새 녹음 | 메뉴 화면 이름). 홈(녹음 목록)에서는 「홈」만. 로고(#logoHome)도 홈으로 */
 function setCrumb() {
   const name = TAB === "review" ? (REVIEW.data && REVIEW.data.job.title) || "전사 결과" : SECONDARY[TAB] || "";
   $("#crumbHome").classList.toggle("on", TAB === "jobs");
