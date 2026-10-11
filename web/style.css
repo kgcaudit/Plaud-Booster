@@ -456,6 +456,10 @@ table.bh th { color: var(--mute); font-weight: 500; }
 .step .mini span { border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; font-size: 13px; background: var(--bg); }
 #rvMain > .sfold > .pbar { margin: 0 14px 12px; }
 #rvMain > .sfold > .pbar > i { background: var(--ok); }
+/* 백업 암호 칸 */
+.bkpw { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 8px; margin: 6px 0; min-width: 0; }
+.bkpw input { min-width: 0; width: 100%; }
+.bkplain { margin-top: 10px; } .bkplain summary { cursor: pointer; color: var(--mute); font-size: 13px; }
 /* 목소리 기준 화면: 쌓이는 방식 안내 */
 .vprule { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px;
   padding: 10px 14px; margin: 0 0 14px; font-size: 13.5px; min-width: 0; }

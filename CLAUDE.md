@@ -17,6 +17,7 @@ web/src/audio.js              음원 풀기(MP3·m4a/AAC 프레임 단위 60초 
 web/src/store.js              IndexedDB·OPFS
 web/src/plaud.js, zip.js      Plaud 내보내기 전사(TXT·SRT·DOCX·JSON) 읽기
 web/src/export.js             통합본(TXT·CSV)·백업 합치기 — 순수 함수
+web/src/backup.js             백업 암호화(AES-256-GCM·PBKDF2)·백업 파일 이름 — 순수 함수
 tools/                        prepare_models.py(배포 때 모델 준비) · shrink_decoder.py · ref_*.py(파이썬 기준 구현) · serve.mjs · vendor.mjs
 tests/unit/                   node --test — dsp 수치 대조, 전사 파일 읽기, 엔진 규칙, 화자 묶기(diar), 통합본·백업
 tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합성 음원만)
@@ -106,6 +107,11 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
 - **화자 분리 이어하기**(2026-10-11 사용자 승인): 말소리 구간은 10분 묶음마다 partials에 「v파일:시작:끝」 {rs, fb, ver}로, 대역 비는 「b파일」 {db, dur, ver}로 저장해
   다시 열 때 Silero·대역 재기를 건너뜁니다(regionsOf의 cache 인자, 화자 분리 작업만). 말소리 찾기 규칙을 바꾸면 engine.js REG_VER를 올려 저장분을 버리게 합니다.
   실제 모델(10-08 3분): 특징 100/102에서 멈췄다 다시 열면 Silero 0회·특징 2개만 계산, 결과는 한 번에 한 것과 같음.
+- **백업 암호화**(2026-10-11 사용자 승인 — 백업 파일 겉모양 추가): 백업은 기본으로 암호를 걸어 내려받습니다(backup.js). 속 내용은 예전 그대로
+  {format:"plaud-booster-backup", version:2}이고, gzip → PBKDF2-SHA256(60만 번, 소금 16바이트) 열쇠 → AES-256-GCM(초기값 12바이트)으로
+  {format:"haud-ai-backup-enc", version:1, kdf, cipher, data}에 담습니다. 암호는 8자 이상, 어디에도 저장하지 않음(잊으면 되살릴 수 없음 — 화면에 알림).
+  올리기는 겉모양을 보고 암호 칸(#rsPwRow)을 엶 — 틀린 암호와 망가진 파일은 같은 오류. 예전 평문 백업도 그대로 읽힘.
+  「암호 없이 내려받기」는 접힌 칸(.bkplain) 안에 확인을 거쳐서만. 파일 이름은 영문 HAUD-AI-backup_YYYYMMDD[_plain].json(예전 「plaud-booster-백업_」은 한글이 깨졌음).
 - 새 작업의 작업 이름은 사람이 쓰기 전까지 고른 파일 이름을 다듬어 채웁니다(titleFromFiles: 이름 속 날짜·시각 → 「26년 9월 14일 오전 7시 51분」, 기기가 붙인 「음성」 등은 뺌).
 - **화면 구조(2026-10-11 사용자 결정 — 녹음 목록이 중심)**: 녹음 한 건 = 등록 → 화자 분리(자동) → 이름 지정 → 전사(자동) → 검수 → 내보내기.
   위 한 줄 바(nav.bar): [HAUD AI — 누르면 홈(#logoHome), 누르는 순간 0.7초 「HOME」으로 바뀜(겹친 두 글자, 폭 그대로; 마우스는 올리면)] (넓으면 앱 이름) [이 화면 이름 #crumbName — 홈에서는 비움]

@@ -524,14 +524,28 @@ const goReview = async (title) => {
   await page2.close();
   console.log("✓ 다른 탭에서 넣은 작업도 처리 탭이 받아 처리");
 
-  // ---- 백업 → 모두 지우기 → 복원
+  // ---- 백업(암호) → 모두 지우기 → 복원: 틀린 암호는 거절, 맞는 암호로 합침 / 예전 평문 백업도 그대로 읽힘
   await nav(page, "settings");
+  await page.fill("#bkPw", "시험암호-1234"); await page.fill("#bkPw2", "시험암호-9999");
+  await page.click("#btnBackup"); // 두 칸이 다르면 내려받지 않음
+  await page.fill("#bkPw2", "시험암호-1234");
   const d3 = page.waitForEvent("download");
   await page.click("#btnBackup");
-  const bkPath = await (await d3).path();
-  const bk = JSON.parse(fs.readFileSync(bkPath, "utf8"));
-  assert.equal(bk.format, "plaud-booster-backup");
-  assert.ok(!JSON.stringify(bk).includes("RIFF"));
+  const dl3 = await d3;
+  assert.match(dl3.suggestedFilename(), /^HAUD-AI-backup_\d{8}\.json$/);
+  const bkPath = await dl3.path();
+  const encTxt = fs.readFileSync(bkPath, "utf8"), enc = JSON.parse(encTxt);
+  assert.equal(enc.format, "haud-ai-backup-enc");
+  assert.ok(!encTxt.includes("시험 회의") && !encTxt.includes("김응옥"), "암호 건 백업에 글이 그대로 보임");
+  assert.equal(await page.inputValue("#bkPw"), ""); // 내려받은 뒤 암호 칸은 비움
+  // 평문(예전 형식)도 받아 둔다
+  const dPlain = page.waitForEvent("download");
+  await page.click(".bkplain summary"); await page.click("#btnBackupPlain");
+  const dl4 = await dPlain;
+  assert.match(dl4.suggestedFilename(), /_plain\.json$/);
+  const plain = JSON.parse(fs.readFileSync(await dl4.path(), "utf8"));
+  assert.equal(plain.format, "plaud-booster-backup");
+  assert.ok(!JSON.stringify(plain).includes("RIFF"));
   await page.evaluate(async () => { indexedDB.deleteDatabase("plaud-booster"); });
   await page.reload();
   await page.waitForSelector("#sysline:has-text(\'가짜 엔진\')", { state: "attached" });
@@ -539,10 +553,21 @@ const goReview = async (title) => {
   const bkFile = path.join(tmp, "backup.json");
   fs.copyFileSync(bkPath, bkFile);
   await page.setInputFiles("#restoreFile", asFile(bkFile, "application/json"));
+  await page.waitForSelector("#rsPwRow:not(.hidden)");
+  await page.fill("#rsPw", "틀린암호-1234"); await page.click("#rsGo");
+  await page.waitForSelector("#restoreMsg:has-text('암호가 맞지 않거나')");
+  await page.fill("#rsPw", "시험암호-1234"); await page.click("#rsGo");
   await page.waitForSelector("#restoreMsg:has-text('합쳐 넣음')");
+  assert.ok(await page.locator("#rsPwRow").isHidden());
   await nav(page, "jobs");
   await page.waitForSelector(".job:has-text('시험 회의'):has-text('음원 지움')");
-  console.log("✓ 백업·복원(음원 제외)");
+  // 평문 백업을 다시 올려도(이미 있는 녹음은 건너뜀) 오류 없이 합쳐짐
+  await nav(page, "settings");
+  const plainFile = path.join(tmp, "backup_plain.json");
+  fs.writeFileSync(plainFile, JSON.stringify(plain));
+  await page.setInputFiles("#restoreFile", asFile(plainFile, "application/json"));
+  await page.waitForSelector("#restoreMsg:has-text('녹음 0건')");
+  console.log("✓ 암호 건 백업·복원(틀린 암호 거절)·평문 백업도 읽힘(음원 제외)");
 
   assert.deepEqual(foreign, [], "바깥으로 나간 요청: " + foreign.join(", "));
   assert.deepEqual(errors.filter((e) => !/favicon/.test(e)), []);

@@ -2,6 +2,7 @@
 import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
 import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
+import { encryptBackup, decryptBackup, isEncrypted, backupName, MIN_PW, PLAIN_FORMAT } from "./backup.js";
 import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, LANG_LABEL, sourceOf, isDiar } from "./export.js";
 import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster, relabelRange, similarRegions, mixSuspects } from "./diar.js";
 import { isGeneric, knownPrints } from "./engine.js";
@@ -1864,37 +1865,80 @@ $("#btnThreads").addEventListener("click", async () => {
   await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), threads: Math.max(0, Math.min(32, +$("#threads").value || 0)) });
   toast("페이지를 새로 고친 뒤부터 적용됩니다");
 });
-$("#btnBackup").addEventListener("click", async () => {
+// 백업: 기본은 암호를 걸어(backup.js — AES-256-GCM·PBKDF2) 내려받는다. 속 내용 형식(plaud-booster-backup v2)은 그대로
+async function backupObject() {
   const jobs = {};
   for (const [id, job] of await S.all("jobs")) {
     jobs[id] = { job, result: await S.get("results", id), edits: await S.get("edits", id), plaud: await S.get("plaud", id) };
   }
-  const bk = { format: "plaud-booster-backup", version: 2, exportedAt: S.now(), voiceprints: Object.fromEntries(await S.all("voiceprints")),
+  return { format: PLAIN_FORMAT, version: 2, exportedAt: S.now(), voiceprints: Object.fromEntries(await S.all("voiceprints")),
     glossary: ((await S.get("kv", "glossary")) || {}).pairs || [], jobs };
-  const d = new Date();
-  download(`plaud-booster-백업_${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}.json`, new Blob([JSON.stringify(bk)], { type: "application/json" }));
+}
+let BK_BUSY = false;
+$("#btnBackup").addEventListener("click", async () => {
+  const pw = $("#bkPw").value, pw2 = $("#bkPw2").value;
+  if (pw.length < MIN_PW) { toast(`암호를 ${MIN_PW}자 이상 넣어 주세요`); $("#bkPw").focus(); return; }
+  if (pw !== pw2) { toast("두 칸의 암호가 다릅니다"); $("#bkPw2").focus(); return; }
+  if (BK_BUSY) return;
+  BK_BUSY = true; $("#btnBackup").disabled = true;
+  try {
+    const enc = await encryptBackup(await backupObject(), pw);
+    download(backupName(), new Blob([JSON.stringify(enc)], { type: "application/json" }));
+    $("#bkPw").value = ""; $("#bkPw2").value = "";
+    toast("암호를 걸어 내려받았습니다 — 암호를 잊으면 되살릴 수 없습니다");
+  } catch (e) { toast("백업 실패: " + e.message); }
+  finally { BK_BUSY = false; $("#btnBackup").disabled = false; }
 });
+$("#btnBackupPlain").addEventListener("click", async () => {
+  if (!confirm("암호 없이 내려받으면 파일을 연 사람 누구나 전사 글과 이름을 읽을 수 있습니다. 그래도 내려받을까요?")) return;
+  download(backupName(new Date(), true), new Blob([JSON.stringify(await backupObject())], { type: "application/json" }));
+});
+let RS_PENDING = null; // 암호를 기다리는 올린 백업
+async function restoreBackup(bk) {
+  if (bk.format !== PLAIN_FORMAT) throw new Error("이 앱의 백업 파일이 아닙니다");
+  if (bk.version > 2) throw new Error("이 화면보다 새 판에서 만든 백업입니다. 페이지를 새로 고친 뒤 다시 올려 주세요.");
+  const cur = { voiceprints: Object.fromEntries(await S.all("voiceprints")), glossary: ((await S.get("kv", "glossary")) || {}).pairs || [], jobIds: new Set((await S.all("jobs")).map(([k]) => k)) };
+  const m = mergeBackup(cur, bk);
+  for (const [name, v] of Object.entries(m.voiceprints)) await S.put("voiceprints", name, v);
+  await S.put("kv", "glossary", { pairs: m.glossary, updatedAt: S.now() });
+  for (const [id, j] of Object.entries(m.jobs)) {
+    await S.put("jobs", id, j.job);
+    if (j.result) await S.put("results", id, j.result);
+    if (j.edits) await S.put("edits", id, j.edits);
+    if (j.plaud) await S.put("plaud", id, j.plaud);
+  }
+  $("#restoreMsg").textContent = `합쳐 넣음 — 목소리 기준 ${m.added.voiceprints}건, 교정 사전 ${m.added.glossary}건, 녹음 ${m.added.jobs}건`;
+}
 $("#restoreFile").addEventListener("change", async (ev) => {
   const f = ev.target.files[0];
-  if (!f) return;
-  try {
-    const bk = JSON.parse(await f.text());
-    if (bk.format !== "plaud-booster-backup") throw new Error("이 앱의 백업 파일이 아닙니다");
-    if (bk.version > 2) throw new Error("이 화면보다 새 판에서 만든 백업입니다. 페이지를 새로 고친 뒤 다시 올려 주세요.");
-    const cur = { voiceprints: Object.fromEntries(await S.all("voiceprints")), glossary: ((await S.get("kv", "glossary")) || {}).pairs || [], jobIds: new Set((await S.all("jobs")).map(([k]) => k)) };
-    const m = mergeBackup(cur, bk);
-    for (const [name, v] of Object.entries(m.voiceprints)) await S.put("voiceprints", name, v);
-    await S.put("kv", "glossary", { pairs: m.glossary, updatedAt: S.now() });
-    for (const [id, j] of Object.entries(m.jobs)) {
-      await S.put("jobs", id, j.job);
-      if (j.result) await S.put("results", id, j.result);
-      if (j.edits) await S.put("edits", id, j.edits);
-      if (j.plaud) await S.put("plaud", id, j.plaud);
-    }
-    $("#restoreMsg").textContent = `합쳐 넣음 — 목소리 기준 ${m.added.voiceprints}건, 교정 사전 ${m.added.glossary}건, 녹음 ${m.added.jobs}건`;
-  } catch (e) { $("#restoreMsg").textContent = "실패: " + e.message; }
   ev.target.value = "";
+  if (!f) return;
+  RS_PENDING = null; $("#rsPwRow").classList.add("hidden");
+  try {
+    let bk;
+    try { bk = JSON.parse(await f.text()); } catch { throw new Error("이 앱의 백업 파일이 아닙니다"); }
+    if (isEncrypted(bk)) {
+      RS_PENDING = bk;
+      $("#rsPwRow").classList.remove("hidden"); $("#rsPw").value = ""; $("#rsPw").focus();
+      $("#restoreMsg").textContent = `🔒 암호 걸린 백업입니다(${f.name}) — 암호를 넣고 「풀어서 합치기」를 누르세요`;
+      return;
+    }
+    await restoreBackup(bk);
+  } catch (e) { $("#restoreMsg").textContent = "실패: " + e.message; }
 });
+async function restoreEncrypted() {
+  if (!RS_PENDING || BK_BUSY) return;
+  BK_BUSY = true; $("#rsGo").disabled = true;
+  $("#restoreMsg").textContent = "푸는 중…";
+  try {
+    const bk = await decryptBackup(RS_PENDING, $("#rsPw").value);
+    await restoreBackup(bk);
+    RS_PENDING = null; $("#rsPw").value = ""; $("#rsPwRow").classList.add("hidden");
+  } catch (e) { $("#restoreMsg").textContent = "실패: " + e.message; $("#rsPw").select(); }
+  finally { BK_BUSY = false; $("#rsGo").disabled = false; }
+}
+$("#rsGo").addEventListener("click", restoreEncrypted);
+$("#rsPw").addEventListener("keydown", (e) => { if (e.key === "Enter") restoreEncrypted(); });
 
 /* ================================================================== 시작 */
 (async () => {
