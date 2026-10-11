@@ -47,6 +47,11 @@ nav.bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-h
   display: grid; place-items: center; font-weight: 800; font-size: 13px; letter-spacing: .2px; white-space: nowrap;
   border: 0; margin: 0; font-family: inherit; cursor: pointer; } /* 로고 = 홈 단추 */
 .bar .logo:hover { filter: brightness(1.08); }
+/* 「HAUD AI」와 「HOME」을 한 칸에 겹쳐 두고 바꿔 보인다(폭이 바뀌지 않게) */
+.bar .logo > span { grid-area: 1 / 1; transition: opacity .15s; }
+.bar .logo .lg-h { opacity: 0; letter-spacing: 1px; }
+.bar .logo.home .lg-a { opacity: 0; } .bar .logo.home .lg-h { opacity: 1; }
+@media (hover: hover) { .bar .logo:hover .lg-a { opacity: 0; } .bar .logo:hover .lg-h { opacity: 1; } }
 .bar .logo:focus-visible { outline: 2px solid #B95B3B; outline-offset: 2px; }
 .bar .appname { font-size: 15px; white-space: nowrap; margin-right: 6px; }
 .tabs .stat { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 10px; font-size: 12.5px; color: var(--mute); border-bottom: 0; }
@@ -187,9 +192,6 @@ legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 #newJob .formfoot #btnSubmit { flex: 1 1 auto; min-height: 44px; font-weight: 700; }
 /* 빵부스러기·새 녹음 단추 */
 .bar .crumb { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
-.tabs .crumb .home { border: 0; padding: 4px 2px; font-size: 14.5px; color: var(--accent); background: none; }
-.tabs .crumb .home.on { color: var(--ink); font-weight: 700; cursor: default; }
-.bar .crumb .sep { color: var(--mute); }
 .bar .crumb .cur { overflow: hidden; text-overflow: ellipsis; font-size: 14.5px; min-width: 0; }
 .tabs .newbtn { flex: none; height: 44px; min-width: 44px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent); color: var(--accent-ink);
   font-size: 15px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 4px; }

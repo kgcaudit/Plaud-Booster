@@ -189,13 +189,18 @@ function renderSys() {
 
 /* ================================================================== 탭 */
 $$(".tabs button[data-tab]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+// 로고 = 홈 단추: 누르는 순간 「HOME」으로 잠깐 바뀐다(누를 때 보이도록 pointerdown, 키보드는 click에서)
+{
+  const lg = $("#logoHome"); let lgT = 0;
+  const flash = () => { lg.classList.add("home"); clearTimeout(lgT); lgT = setTimeout(() => lg.classList.remove("home"), 700); };
+  lg.addEventListener("pointerdown", flash); lg.addEventListener("click", flash);
+}
 const SECONDARY = { new: "새 녹음", voices: "목소리 기준", glossary: "교정 사전", settings: "설정·백업" };
 let TAB = "jobs";
-/** 빵부스러기: 홈 › (녹음 제목 | 새 녹음 | 메뉴 화면 이름). 홈(녹음 목록)에서는 「홈」만. 로고(#logoHome)도 홈으로 */
+/** 위 바의 지금 화면 이름(녹음 제목 | 새 녹음 | 메뉴 화면 이름). 홈(녹음 목록)에서는 비움 — 홈으로는 로고(#logoHome) */
 function setCrumb() {
   const name = TAB === "review" ? (REVIEW.data && REVIEW.data.job.title) || "녹음" : SECONDARY[TAB] || "";
-  $("#crumbHome").classList.toggle("on", TAB === "jobs");
-  $("#crumbSep").classList.toggle("hidden", !name); $("#crumbName").classList.toggle("hidden", !name);
+  $("#crumbName").classList.toggle("hidden", !name);
   $("#crumbName").textContent = name;
 }
 function showTab(name) {
