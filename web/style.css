@@ -58,6 +58,14 @@ nav.bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-h
 .tabs .menupanel button small { margin-left: auto; color: var(--mute); font-size: 12px; font-weight: 400; }
 .tabs .menupanel button.on { background: var(--bg); color: var(--accent); font-weight: 600; border: 0; }
 .menupanel hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+/* ☰ 맨 위 브랜드 카드 — HAUD: Hear. Analyze. Understand. Document. */
+.brandcard { background: #101a28; color: #fff; border-radius: 12px; padding: 14px 14px 12px; margin-bottom: 6px; text-align: center; }
+.brandcard .bn { font-size: 26px; font-weight: 800; letter-spacing: 1.5px; line-height: 1.1; }
+.brandcard .bt { margin-top: 4px; font-size: 12.5px; color: #a9b8cc; letter-spacing: .2px; }
+.brandcard .bt b { color: #fff; font-weight: 800; }
+.brandcard hr { border: 0; border-top: 1px solid #3a4658; margin: 10px 6px; }
+.brandcard .bk { font-size: 14px; font-weight: 700; }
+.brandcard .bs { margin-top: 2px; font-size: 11.5px; color: #93a3b8; }
 .menupanel .sysline { padding: 6px 12px; line-height: 1.6; white-space: normal; }
 .menupanel .about { padding: 4px 12px 8px; color: var(--mute); font-size: 12px; line-height: 1.5; white-space: normal; }
 .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 14px; background: none; white-space: nowrap; }
