@@ -8,6 +8,7 @@ import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster,
 import { isGeneric, knownPrints } from "./engine.js";
 import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd, jobFlow, josa } from "./review.js";
 import { describeDevice, LEVELS, levelLabel, lowerLevel } from "./devices.js";
+import { applyLexicon, activeRules, diffPairs, harvest, dropJob, fromGlossary, toPairs, judge, conflicts, setVar, addManual, totals, whenOf, REC_MIN } from "./lexicon.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -219,6 +220,7 @@ function navRecord(name) {
 addEventListener("popstate", (e) => {
   if (NAV.skip) { NAV.skip--; return; }
   if (RG.open) closeRange(); // 구간 손보기 시트가 열려 있으면 닫고 화면을 옮긴다
+  if (LX.open) closeLex();
   const st = e.state || {}, h = location.hash.slice(1);
   showTab(st.sub && TABS.includes(h) && h !== "jobs" ? h : "jobs", true);
 });
@@ -254,9 +256,10 @@ function closeMenu() {
 }
 async function menuCounts() {
   try {
-    const vp = (await S.keys("voiceprints")).length, g = (await S.get("kv", "glossary")) || {};
-    const ng = (g.pairs || []).filter((x) => x.from).length;
-    $("#mnVp").textContent = vp ? `저장 ${vp}명` : ""; $("#mnGl").textContent = ng ? `${ng}쌍` : "";
+    const vp = (await S.keys("voiceprints")).length, lex = await getLex(), conf = conflicts(lex);
+    let on = 0, rec = 0;
+    for (const t of lex.terms) for (const v of t.vars) { if (v.st === "on") on++; else if (judge(lex, t, v, conf).rec) rec++; }
+    $("#mnVp").textContent = vp ? `저장 ${vp}명` : ""; $("#mnGl").textContent = [on ? `확정 ${on}` : "", rec ? `추천 ${rec}` : ""].filter(Boolean).join(" · ");
   } catch { /* 표시만 */ }
 }
 menuBtn.addEventListener("click", () => (menuPanel.classList.contains("hidden") ? openMenu() : closeMenu()));
@@ -665,13 +668,14 @@ $("#jobList").addEventListener("click", async (ev) => {
       if (isDiar(j.mode)) {
         if (!confirm("화자 분리부터 다시 할까요? 지정한 화자 이름과 검수 수정이 모두 지워집니다.")) return;
         await S.del("edits", id);
+        lexUpdate((l) => dropJob(l, id)).catch(() => {});
       } else if (!confirm("결과를 지우고 처음부터 다시 처리할까요? 검수 수정 내용은 남지만 발언 번호가 바뀔 수 있습니다.")) return;
       await S.resetJob(id);
       await S.saveJob(id, { status: "대기", error: null, stats: null, progress: { pct: 0, msg: "대기" }, ...(isDiar(j.mode) ? { stage: "diar", skip: [] } : {}) });
       await clearRv(id); kick();
     }
     if (a === "delaudio") { if (!confirm("이 녹음의 음원만 지울까요? 결과는 남지만 검수 화면에서 더는 들을 수 없습니다.")) return; await S.deleteAudio(id); await S.saveJob(id, { audioDeleted: true }); }
-    if (a === "del") { if (!confirm("이 녹음과 결과를 모두 지울까요? 목소리 기준은 남습니다.")) return; worker && worker.postMessage({ type: "stop", id }); await S.deleteJob(id); }
+    if (a === "del") { if (!confirm("이 녹음과 결과를 모두 지울까요? 목소리 기준은 남습니다.")) return; worker && worker.postMessage({ type: "stop", id }); await S.deleteJob(id); lexUpdate((l) => dropJob(l, id)).catch(() => {}); }
     loadJobs();
   } catch (e) { toast(e.message); }
 });
@@ -679,7 +683,33 @@ $("#jobList").addEventListener("click", async (ev) => {
 /* ================================================================== 검수 */
 // 할 일 순서대로 세 단계: ① 화자 이름 지정(화자 분리 작업만) → ② 발언 검수 → ③ 내보내기.
 // 보기 범위는 포함 관계(전체 ⊃ 확인함·미검수, 미검수 ⊃ 확인 필요·판정 확실) — 규칙은 review.js.
-const REVIEW = { id: null, want: null, data: null, edits: {}, names: {}, filter: "need", editedOnly: false, saveT: null, gl: [], split: null, visible: [], fold: {}, undo: [], only: null, tok: 0 };
+const REVIEW = { id: null, want: null, data: null, edits: {}, names: {}, filter: "need", editedOnly: false, saveT: null, gl: [], split: null, visible: [], fold: {}, undo: [], only: null, tok: 0,
+  lex: { terms: [] }, rules: [], hint: null, hintNo: new Set(), focusI: null };
+/* ---- 교정 사전(배우는 사전, lexicon.js — 2026-10-12 사용자 승인으로 kv「lexicon」 추가)
+ * 처음 열 때 예전 kv「glossary」 쌍 목록을 확정 항목으로 옮긴다. 예전 키에는 늘 확정 꼴을 펼친 목록을 같이 쓴다(예전 판·백업 호환).
+ * 고치기는 LEXQ로 한 줄로 세워, 앞 쓰기가 끝난 뒤 다음이 읽는다(검수 근거 집계와 사전 화면 수정이 겹쳐도 한쪽이 사라지지 않게). */
+let LEXQ = Promise.resolve();
+async function getLex() {
+  const l = await S.get("kv", "lexicon");
+  if (l && l.terms) return l;
+  const g = await S.get("kv", "glossary");
+  const m = fromGlossary((g && g.pairs) || []);
+  if (m.terms.length) await S.put("kv", "lexicon", { ...m, updatedAt: S.now() });
+  return m;
+}
+function lexUpdate(fn) {
+  const run = LEXQ.then(async () => {
+    const l = await getLex();
+    const r = fn(l) || l;
+    r.updatedAt = S.now();
+    await S.put("kv", "lexicon", r);
+    await S.put("kv", "glossary", { pairs: toPairs(r), updatedAt: S.now() });
+    return r;
+  });
+  LEXQ = run.catch(() => {});
+  return run;
+}
+function setLex(l) { REVIEW.lex = l || { terms: [] }; REVIEW.rules = activeRules(REVIEW.lex); REVIEW.gl = toPairs(REVIEW.lex); }
 async function loadReviewJobs() {
   JOBS = await jobsList();
   const done = JOBS.filter((j) => (j.hasResult && j.mode !== "enroll") || j.status === "이름 대기");
@@ -724,8 +754,8 @@ function numberSteps() {
   for (const st of ["#stNames", "#rvMain", "#stExport"]) { const el = $(st); if (!el.classList.contains("hidden")) $("[data-no]", el).textContent = ++n; }
 }
 async function reviewData(id) {
-  const [job, result, edits, plaud, gl] = await Promise.all([S.get("jobs", id), S.get("results", id), S.get("edits", id), S.get("plaud", id), S.get("kv", "glossary")]);
-  return { job: { ...job, id }, result, edits: { e: {}, ...(edits || {}) }, plaud: plaud || [], glossary: (gl && gl.pairs) || [] };
+  const [job, result, edits, plaud, lex] = await Promise.all([S.get("jobs", id), S.get("results", id), S.get("edits", id), S.get("plaud", id), getLex()]);
+  return { job: { ...job, id }, result, edits: { e: {}, ...(edits || {}) }, plaud: plaud || [], glossary: toPairs(lex), lexicon: lex };
 }
 async function openReview(id) {
   await flushEdits(); // 앞 작업에 쓰지 못한 수정부터
@@ -744,7 +774,8 @@ async function openReview(id) {
   REVIEW.vpNames = vpNames;
   REVIEW.edits = REVIEW.data.edits.e || {};
   REVIEW.names = REVIEW.data.edits.names || {};
-  REVIEW.gl = REVIEW.data.glossary;
+  setLex(REVIEW.data.lexicon);
+  REVIEW.hint = null; REVIEW.hintNo = new Set();
   REVIEW.undo = [];
   REVIEW.split = null;
   const plaudish = REVIEW.data.job.mode === "gap" || REVIEW.data.job.mode === "range";
@@ -758,6 +789,7 @@ async function openReview(id) {
   updUndo();
   renderReview();
   setCrumb();
+  if (data.result) scheduleHarvest(id, REVIEW.edits, REVIEW.names, 300); // 예전 검수 수정도 사전 근거로(열 때 한 번 다시 셈)
 }
 /** 작업 화면 머리: 녹음 제목 · 정보 · 진행 단계(녹음 목록 카드와 같은 모양) */
 function renderHead() {
@@ -770,7 +802,7 @@ function renderHead() {
   el.dataset.stage = f.stage;
   el.innerHTML = `<div class="t">${esc(j.title)}</div><div class="meta">${esc(meta)}</div>${trackHtml(f)}`;
 }
-const gloss = (t) => { for (const p of REVIEW.gl || []) if (p.from) t = t.split(p.from).join(p.to); return t; };
+const gloss = (t) => applyLexicon(t, REVIEW.rules || []).text; // 교정 사전 확정 꼴(어절 경계 안에서만, 한 번에)
 const isNeed = (g) => {
   if (g.cluster) { // 소니 녹음: 이름 없는 묶음 · 묶음과 덜 닮음 · 다른 묶음과 차이 작음 · 2초 미만
     const e = REVIEW.edits[g.i];
@@ -817,7 +849,7 @@ function renderScope() {
   $("#rvAllOk").disabled = !left;
   $("#exWarn").textContent = `아직 확인하지 않은 발언이 ${c.todo}개 있습니다. 그대로 내보내도 됩니다.`;
   $("#exWarn").classList.toggle("hidden", !c.todo);
-  $("#exGlN").textContent = REVIEW.gl.length ? `(용어 ${REVIEW.gl.length}쌍)` : "";
+  $("#exGlN").textContent = REVIEW.gl.length ? `(확정 ${REVIEW.gl.length}개)` : "";
   renderNamesStep();
   applyGeom($("#rvMain"));
 }
@@ -890,7 +922,12 @@ function renderReview() {
           <button type="button" class="act" data-a="split" data-k="${k}" title="이 조각을 다시 나누기">✂</button>
           <textarea class="ptx${on ? " splitta" : ""}" rows="1" aria-label="조각 발언">${esc(p.text)}</textarea>${on ? splitBox() : ""}</div>`;
       }).join("")}</div>`;
-    } else body = `<textarea rows="1" aria-label="발언"${splitting ? ' class="splitta"' : ""}>${esc(e.text ?? gloss(g.text))}</textarea>${splitting ? splitBox() : ""}`;
+    } else {
+      // 사람이 고치지 않은 발언: 사전이 바꾼 곳을 칩으로 보이고, 누르면 그 자리만 원래대로(되돌림은 사전 근거로 셈)
+      const lx = e.text == null ? applyLexicon(g.text, REVIEW.rules) : { text: e.text, hits: [] };
+      const chips = lx.hits.length && !splitting ? `<div class="lexhits"><span>사전</span>${lx.hits.map((h) => `<button type="button" class="lexchip" data-a="lexUndo" data-k="${h.k}" title="교정 사전이 바꾼 곳 — 누르면 여기만 원래 「${esc(h.from)}」로">${esc(h.from)} → ${esc(h.to)} ↺</button>`).join("")}</div>` : "";
+      body = `<textarea rows="1" aria-label="발언"${splitting ? ' class="splitta"' : ""}>${esc(lx.text)}</textarea>${chips}${splitting ? splitBox() : ""}`;
+    }
     let spkCell, judge;
     if (parts) spkCell = `<span class="msg">${parts.length}조각으로 나눔</span>`;
     else if (sony) spkCell = `<button type="button" class="spkbtn cc${clusterIndex(g.cluster) % 8}${e.speaker ? " own" : ""}" title="${esc(clusterLabel(g.cluster))}${e.speaker ? " · 이 발언만 따로 지정" : ""}">${esc(spk)}</button>`;
@@ -927,6 +964,13 @@ function renderReview() {
     if (ta) { ta.focus({ preventScroll: true }); try { ta.setSelectionRange(keep.a, keep.b); } catch { /* 글이 바뀜 */ } }
   }
   TL.cur = null; tlDraw();
+  drawHint();
+  renderLexBox();
+  if (REVIEW.focusI != null) { // 사전 예문에서 들어옴: 그 발언으로
+    const tr = $(`#rvBody tr[data-i="${CSS.escape(String(REVIEW.focusI))}"]`);
+    REVIEW.focusI = null;
+    if (tr) { tr.scrollIntoView({ block: "center" }); tr.classList.add("flash"); setTimeout(() => tr.classList.remove("flash"), 1600); }
+  }
 }
 const editOf = (i) => (REVIEW.edits[i] = REVIEW.edits[i] || {});
 const segOf = (i) => REVIEW.data.result.segs.find((x) => String(x.i) === String(i));
@@ -950,8 +994,10 @@ $("#rvBody").addEventListener("change", (ev) => {
     if (ev.target.matches("textarea.splitta")) return; // 나누는 글 칸은 나눌 때 함께 반영(다른 발언 고치기는 그대로 저장)
     pushUndo();
     const e = editOf(i), v = ev.target.value.trim();
+    const before = part ? e.parts[+part.dataset.k].text : e.text ?? gloss(g.text);
     if (part) e.parts[+part.dataset.k].text = v;
     else if (v === gloss(g.text).trim()) delete e.text; else e.text = v;
+    lexHintFrom(i, before, v);
   }
   tr.classList.toggle("edited", isEdited(REVIEW.edits[i]));
   saveEdits(); renderScope();
@@ -985,6 +1031,12 @@ $("#rvBody").addEventListener("click", (ev) => {
     b.classList.toggle("done", e.ok); b.textContent = e.ok ? "✓ 확인함" : "✓ 확인"; b.setAttribute("aria-pressed", String(e.ok));
     tr.classList.toggle("need", isNeed(g) && !e.ok);
     saveEdits(); renderScope(); return;
+  }
+  if (a === "lexUndo") {
+    pushUndo();
+    editOf(i).text = applyLexicon(g.text, REVIEW.rules, { skip: new Set([+b.dataset.k]) }).text.trim();
+    saveEdits(); renderReview(); toast("여기만 원래대로 두었습니다 — 사전에는 「되돌림」으로 셉니다");
+    return;
   }
   if (a === "split") { REVIEW.split = { i: g.i, k: +b.dataset.k }; renderReview(); return; }
   if (a === "splitCancel") { // 나누려다 그만둬도 글 칸에서 고친 것은 남긴다
@@ -1044,9 +1096,152 @@ async function flushEdits() {
   try {
     await S.put("edits", p.id, { e: p.e, names: p.names, updatedAt: S.now() });
     if (REVIEW.id === p.id) $("#rvSave").textContent = "저장됨 " + new Date().toLocaleTimeString("ko-KR");
+    scheduleHarvest(p.id, p.e, p.names);
   } catch (e) { $("#rvSave").textContent = "저장 실패: " + e.message; }
 }
 addEventListener("pagehide", () => { flushEdits(); });
+/* ---- 교정 사전 배우기: 고친 글 ↔ 원래 전사 비교(근거 집계), 같은 녹음 나머지 바꾸기, 내보내기 앞 후보 상자 */
+function scheduleHarvest(id, e, names, wait = 1500) {
+  clearTimeout(REVIEW.hvT);
+  REVIEW.hvT = setTimeout(() => runHarvest(id, e, names), wait);
+}
+async function runHarvest(id, e, names) {
+  try {
+    const d = REVIEW.data && REVIEW.id === id ? REVIEW.data : await reviewData(id);
+    if (!d || !d.result) return;
+    // 사람 이름(화자 이름·목소리 기준·Plaud 이름)으로 고친 것은 「이름」 — 자동 추천하지 않고 늘 사람이 확인
+    const who = new Set([...(REVIEW.vpNames || []), ...Object.values(names || {}), ...Object.values(d.job.speakerMap || {})]);
+    for (const x of Object.values(e || {})) { if (x.speaker) who.add(x.speaker); for (const q of x.parts || []) if (q.speaker) who.add(q.speaker); }
+    for (const g of d.result.segs) if (g.speaker) who.add(g.speaker);
+    for (const n of [...who]) if (!n || isGeneric(n)) who.delete(n);
+    const segs = d.result.segs.map((g) => ({ i: g.i, text: g.text }));
+    const lex = await lexUpdate((l) => harvest(l, id, segs, e, who));
+    if (REVIEW.id === id) { setLex(lex); renderLexBox(); }
+  } catch (err) { console.warn("교정 사전 근거 집계 실패", err); }
+}
+const ruleOf = (p) => [{ from: p.from, to: p.to, toks: p.from.split(/\s+/), when: null }];
+/** 이 녹음에서 같은 꼴이 남은 곳 [{i, k}] (k: 나눈 조각 번호, 아니면 -1) */
+function lexOccur(p, skipI) {
+  const r = ruleOf(p), out = [];
+  for (const g of REVIEW.data.result.segs) {
+    if (String(g.i) === String(skipI)) continue;
+    const e = REVIEW.edits[g.i] || {};
+    if (e.parts && e.parts.length) e.parts.forEach((q, k) => { if (applyLexicon(q.text, r).hits.length) out.push({ i: g.i, k }); });
+    else if (applyLexicon(e.text ?? gloss(g.text), r).hits.length) out.push({ i: g.i, k: -1 });
+  }
+  return out;
+}
+/** 발언 하나를 고친 직후: 인식 오류로 보이는 바꿈이 있고 같은 말이 이 녹음에 더 있으면 알림 */
+function lexHintFrom(i, before, after) {
+  if (!REVIEW.data || !REVIEW.data.result) return;
+  const ps = diffPairs(before, after).filter((p) => !REVIEW.hintNo.has(p.from + "\u0000" + p.to));
+  for (const p of ps) {
+    const occ = lexOccur(p, i);
+    if (occ.length) { REVIEW.hint = { i: String(i), from: p.from, to: p.to, occ }; drawHint(); return; }
+  }
+}
+function drawHint() {
+  $$("#rvBody .lexhint").forEach((x) => x.remove());
+  const h = REVIEW.hint;
+  if (!h) return;
+  const td = $(`#rvBody tr[data-i="${CSS.escape(h.i)}"] > td:nth-child(4)`);
+  if (!td) return;
+  const d = document.createElement("div");
+  d.className = "lexhint";
+  d.innerHTML = `<span class="grow"><b>${esc(h.from)} → ${esc(h.to)}</b> · 이 녹음에 ${h.occ.length}곳 더 있습니다</span><button type="button" class="primary" data-lx="open">살펴보고 바꾸기</button><button type="button" data-lx="no">이번만</button>`;
+  td.appendChild(d);
+}
+const LX = { open: false, h: null };
+function curText(i, k) { const g = segOf(i), e = REVIEW.edits[g.i] || {}; return k >= 0 ? e.parts[k].text || "" : e.text ?? gloss(g.text); }
+function openLex() {
+  const h = REVIEW.hint;
+  if (!h) return;
+  h.occ = lexOccur(h, h.i); // 그사이 고쳤을 수 있음
+  if (!h.occ.length) { REVIEW.hint = null; drawHint(); toast("더 바꿀 곳이 없습니다"); return; }
+  LX.open = true; LX.h = h;
+  $("#lexTitle").textContent = `「${h.from}」${josa(h.from, "을/를").slice(h.from.length)} 「${h.to}」${josa(h.to, "으로/로").slice(h.to.length)} — ${h.occ.length}곳`;
+  const canPlay = !REVIEW.data.job.audioDeleted;
+  $("#lexList").innerHTML = h.occ.map((o, n) => {
+    const g = segOf(o.i), e = REVIEW.edits[g.i] || {}, t = curText(o.i, o.k);
+    const at = t.indexOf(h.from), a = Math.max(0, at - 16), b = at + h.from.length;
+    const st = o.k >= 0 ? e.parts[o.k].start : g.start, en = o.k >= 0 ? partEnd(g, e.parts, o.k) : g.end;
+    const spk = o.k >= 0 ? e.parts[o.k].speaker || speakerOf(g, { e: REVIEW.edits, names: REVIEW.names }) : speakerOf(g, { e: REVIEW.edits, names: REVIEW.names });
+    return `<div class="lxrow"><label><input type="checkbox" checked data-n="${n}"><span class="ctx"><small>${hms(st)} · ${esc(spk)}</small>${a ? "…" : ""}${esc(t.slice(a, at))}<mark>${esc(h.from)}</mark>${esc(t.slice(b, b + 16))}${b + 16 < t.length ? "…" : ""}</span></label>${canPlay ? `<button type="button" class="play" data-lx="play" data-f="${g.file || 0}" data-s="${st}" data-e="${en}" title="듣기">▶</button>` : ""}</div>`;
+  }).join("");
+  lexCount();
+  $("#lexSheet").classList.remove("hidden");
+  $("#lexSheet .rg-in").focus();
+}
+function lexCount() { const n = $$("#lexList input:checked").length; $("#lexApply").textContent = `고른 ${n}곳 바꾸기`; $("#lexApply").disabled = !n; }
+function closeLex() { LX.open = false; $("#lexSheet").classList.add("hidden"); stopClear(); }
+function applyLex() {
+  const h = LX.h, r = ruleOf(h), pick = $$("#lexList input:checked").map((x) => h.occ[+x.dataset.n]);
+  if (!pick.length) return;
+  pushUndo();
+  for (const o of pick) { // 바꾼 발언은 「확인」을 붙이지 않는다(사람이 들어 보지 않았으므로)
+    const g = segOf(o.i), e = editOf(o.i), v = applyLexicon(curText(o.i, o.k), r).text.trim();
+    if (o.k >= 0) e.parts[o.k].text = v; else if (v === gloss(g.text).trim()) delete e.text; else e.text = v;
+  }
+  REVIEW.hint = null; closeLex();
+  saveEdits(); renderReview();
+  toast(`${pick.length}곳을 바꿨습니다 — ↶ 단추로 되돌릴 수 있습니다`);
+}
+$("#rvBody").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-lx]");
+  if (!b) return;
+  if (b.dataset.lx === "open") openLex();
+  else if (b.dataset.lx === "no") { const h = REVIEW.hint; if (h) REVIEW.hintNo.add(h.from + "\u0000" + h.to); REVIEW.hint = null; drawHint(); }
+});
+$("#lexSheet").addEventListener("click", (ev) => {
+  if (ev.target === $("#lexSheet")) { closeLex(); return; }
+  const b = ev.target.closest("button[data-lx]");
+  if (!b) return;
+  if (b.dataset.lx === "close") closeLex();
+  else if (b.dataset.lx === "apply") applyLex();
+  else if (b.dataset.lx === "play") playRange(+b.dataset.f, +b.dataset.s, +b.dataset.e);
+});
+$("#lexList").addEventListener("change", lexCount);
+/** ③ 내보내기 위: 이번 녹음에서 모은 후보 중 서로 다른 발언 REC_MIN곳 이상인 것 */
+function renderLexBox() {
+  const box = $("#lexBox"), id = REVIEW.id, lex = REVIEW.lex;
+  if (!box || !lex) return;
+  const conf = conflicts(lex), items = [];
+  for (const t of lex.terms) for (const v of t.vars) {
+    if (v.st !== "cand" || !v.by || !v.by[id]) continue;
+    const j = judge(lex, t, v, conf);
+    if (j.s.n < REC_MIN || j.s.undo) continue;
+    items.push({ t, v, j });
+  }
+  box.classList.toggle("hidden", !items.length);
+  if (!items.length) { box.innerHTML = ""; return; }
+  items.sort((x, y) => y.j.s.n - x.j.s.n);
+  box.innerHTML = `<div class="lxh"><b>이번 검수에서 찾은 교정 후보 ${items.length}개</b><span class="msg">사전에 넣으면 이 화면과 다음 녹음부터 바로 쓰입니다</span></div>` + items.map(({ t, v, j }) => {
+    const here = v.by[id].n, other = j.s.jobs - 1, when = j.common ? whenOf(v) : [];
+    const badge = j.conflict ? '<span class="chip warn">고친 말이 둘 이상</span>' : j.name ? '<span class="chip">이름일 수 있음</span>' : j.common ? '<span class="chip">흔한 낱말</span>' : '<span class="chip acc">추천</span>';
+    const ev = [`이번 녹음 ${here}곳`, other > 0 ? `다른 녹음 ${other}건` : "", j.common ? `고치지 않고 확인한 곳 ${j.s.neg}` : ""].filter(Boolean).join(" · ");
+    const note = j.conflict ? "같은 말을 다른 말로도 고친 적이 있습니다 — 맞는 쪽만 넣으세요"
+      : j.name ? "사람·업체 이름은 철자를 확인한 뒤 넣으세요"
+      : j.common && when.length ? `「${esc(v.from)}」${josa(v.from, "은/는").slice(v.from.length)} 실제 낱말일 수 있어 뒤에 「${when.map(esc).join("·")}」${josa(when[when.length - 1], "이/가").slice(when[when.length - 1].length)} 올 때만 바꿉니다` : "";
+    return `<div class="lxc" data-to="${esc(t.to)}" data-from="${esc(v.from)}"><div class="pair">${esc(v.from)} → ${esc(t.to)} ${badge}</div><div class="ev">${ev}</div>${note ? `<div class="ev">${note}</div>` : ""}
+      <div class="acts"><button type="button" class="primary" data-lc="on">${when.length ? "조건 붙여 넣기" : "사전에 넣기"}</button><button type="button" data-lc="off">넣지 않기</button></div></div>`;
+  }).join("");
+}
+$("#lexBox").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button[data-lc]");
+  if (!b) return;
+  const c = b.closest(".lxc"), to = c.dataset.to, from = c.dataset.from, st = b.dataset.lc;
+  b.disabled = true;
+  try {
+    const lex = await lexUpdate((l) => {
+      const t = l.terms.find((x) => x.to === to), v = t && t.vars.find((x) => x.from === from);
+      if (!v) return l;
+      const j = judge(l, t, v);
+      return setVar(l, to, from, st, st === "on" && j.common ? whenOf(v) : undefined);
+    });
+    setLex(lex); renderReview();
+    toast(st === "on" ? `「${from} → ${to}」${josa(to, "을/를").slice(to.length)} 사전에 넣었습니다` : "넣지 않기로 했습니다 — 교정 사전 「꺼짐」에 남습니다");
+  } catch (e) { toast("사전 저장 실패: " + e.message); b.disabled = false; }
+});
 /* ================================================================== 고정 영역(틀 고정) 높이 */
 // 위: 탭 줄(모든 화면) + 검수 화면의 작업 선택·보기 줄, 아래: 전체 재생 막대. 높이가 바뀌면(접힘·화면 회전·폴드 펼침)
 // CSS 변수로 알려 표 머리·스크롤 여백이 가려지지 않게 한다.
@@ -1762,24 +1957,103 @@ $("#vpBody").addEventListener("click", async (ev) => {
   loadVoices();
 });
 
-/* ================================================================== 사전 */
+/* ================================================================== 교정 사전 */
+// 바른 표기별 카드. 꼴마다 상태(확정·추천·후보·꺼짐)와 근거(고친 발언 수·녹음 수·적용·되돌림·고치지 않고 확인)를 보인다.
+const GL = { tab: "on" };
+const GL_TABS = [["on", "확정"], ["rec", "추천"], ["cand", "후보"], ["off", "꺼짐"]];
 async function loadGlossary() {
-  const g = (await S.get("kv", "glossary")) || { pairs: [] };
-  $("#glBody").innerHTML = "";
-  (g.pairs.length ? g.pairs : [{ from: "", to: "" }]).forEach(addGlRow);
+  const lex = await getLex(), conf = conflicts(lex);
+  const groupOf = (t, v) => (v.st === "on" ? "on" : v.st === "off" ? "off" : judge(lex, t, v, conf).rec ? "rec" : "cand");
+  const cnt = { on: 0, rec: 0, cand: 0, off: 0 };
+  for (const t of lex.terms) for (const v of t.vars) cnt[groupOf(t, v)]++;
+  if (!cnt[GL.tab]) GL.tab = cnt.rec ? "rec" : cnt.on ? "on" : cnt.cand ? "cand" : cnt.off ? "off" : "on";
+  $("#glTabs").innerHTML = GL_TABS.map(([k, n]) => `<button type="button" role="tab" data-gt="${k}" aria-selected="${GL.tab === k}" class="${GL.tab === k ? "on" : ""}"${cnt[k] ? "" : " disabled"}>${n} <b>${cnt[k]}</b></button>`).join("");
+  const why = { on: "검수 화면 표시와 내보내기에 적용됩니다.", rec: "서로 다른 발언 2곳 이상에서 같게 고친 말입니다. 확정하면 바로 적용됩니다.",
+    cand: "한 번 고쳤거나 확인이 필요한 말입니다(이름·흔한 낱말·충돌). 자동으로 바꾸지 않습니다.", off: "적용하지 않는 말입니다. 근거는 남아 있어 다시 켤 수 있습니다." }[GL.tab];
+  const cards = [];
+  for (const t of [...lex.terms].sort((a, b) => a.to.localeCompare(b.to, "ko"))) {
+    const vs = t.vars.filter((v) => groupOf(t, v) === GL.tab);
+    if (!vs.length) continue;
+    const rows = vs.map((v) => {
+      const j = judge(lex, t, v, conf), s = j.s;
+      const ev = [s.jobs ? `녹음 ${s.jobs}건` : "", s.n ? `고침 ${s.n}` : "", s.app ? `적용 ${s.app}` : "", s.undo ? `되돌림 ${s.undo}` : "", s.neg ? `고치지 않고 확인 ${s.neg}` : "", v.manual ? "직접 넣음" : ""].filter(Boolean).join(" · ");
+      const tags = [j.conflict ? '<span class="chip warn">충돌</span>' : "", j.common && v.st !== "on" ? '<span class="chip">흔한 낱말</span>' : "", v.when ? `<span class="chip">조건: 뒤에 ${v.when.map(esc).join("·")}</span>` : "", v.why ? `<span class="chip bad">${esc(v.why)}</span>` : ""].join("");
+      const acts = v.st === "on" ? '<button type="button" data-g="when">조건</button><button type="button" data-g="off">끄기</button>'
+        : v.st === "off" ? `<button type="button" data-g="on">다시 켜기</button>${s.n || s.app || s.undo || s.neg ? "" : '<button type="button" data-g="del">지우기</button>'}`
+        : `<button type="button" class="primary" data-g="on">${j.common && whenOf(v).length ? "조건 붙여 확정" : "확정"}</button><button type="button" data-g="off">넣지 않기</button>`;
+      const ex = Object.values(v.by || {}).some((b) => b.ex && b.ex.length) ? '<button type="button" data-g="ex">예문</button>' : "";
+      return `<div class="vrow" data-from="${esc(v.from)}"><div class="vf"><span class="from">${esc(v.from)}</span><span class="to">→ ${esc(t.to)}</span>${tags}</div><div class="vn">${ev || "근거 없음"}</div><div class="vb">${ex}${acts}</div><div class="vex hidden"></div></div>`;
+    }).join("");
+    const hint = GL.tab === "on" ? `<label class="chk ghint" title="설정에서 「전사 힌트」를 켜면 다음 녹음 전사에 이 말을 미리 알려 줍니다"><input type="checkbox" data-g="hint"${t.hint === false ? "" : " checked"}> 전사 힌트</label>` : "";
+    cards.push(`<div class="term" data-to="${esc(t.to)}"><div class="hd"><b>${esc(t.to)}</b>${t.kind === "name" ? '<span class="chip">이름</span>' : ""}<span class="spacer"></span>${hint}</div>${rows}</div>`);
+  }
+  $("#glWhy").textContent = why;
+  $("#glList").innerHTML = cards.length ? cards.join("") : '<p class="empty">아직 없습니다. 발언 검수에서 잘못 들린 말을 고치면 여기에 후보가 모입니다. 「＋ 직접 넣기」로 바로 넣을 수도 있습니다.</p>';
 }
-function addGlRow(p = { from: "", to: "" }) {
-  const tr = document.createElement("tr");
-  tr.innerHTML = `<td><input class="f" value="${esc(p.from)}" aria-label="잘못 적힌 말"></td><td><input class="t" value="${esc(p.to)}" aria-label="바로잡을 말"></td><td><button type="button" title="줄 지우기">✕</button></td>`;
-  tr.querySelector("button").addEventListener("click", () => tr.remove());
-  $("#glBody").appendChild(tr);
+$("#glTabs").addEventListener("click", (ev) => { const b = ev.target.closest("button[data-gt]"); if (!b) return; GL.tab = b.dataset.gt; loadGlossary(); });
+$("#glAdd").addEventListener("click", () => { $("#glNew").classList.toggle("hidden"); if (!$("#glNew").classList.contains("hidden")) $("#glFrom").focus(); });
+$("#glAddGo").addEventListener("click", async () => {
+  const from = $("#glFrom").value.trim(), to = $("#glTo").value.trim();
+  if (!from || !to) { toast("잘못 적힌 말과 바로잡을 말을 모두 넣어 주세요"); return; }
+  if (from === to) { toast("두 말이 같습니다"); return; }
+  const lex = await lexUpdate((l) => addManual(l, from, to));
+  setLex(lex);
+  $("#glFrom").value = ""; $("#glTo").value = ""; $("#glNew").classList.add("hidden");
+  GL.tab = "on"; loadGlossary(); menuCounts();
+  toast(`「${from} → ${to}」${josa(to, "을/를").slice(to.length)} 넣었습니다`);
+});
+$("#glList").addEventListener("change", async (ev) => {
+  if (!ev.target.matches("input[data-g='hint']")) return;
+  const to = ev.target.closest(".term").dataset.to, on = ev.target.checked;
+  await lexUpdate((l) => { const t = l.terms.find((x) => x.to === to); if (t) t.hint = on; return l; });
+});
+$("#glList").addEventListener("click", async (ev) => {
+  const b = ev.target.closest("button[data-g]");
+  if (!b) return;
+  const row = b.closest(".vrow"), to = b.closest(".term").dataset.to, from = row.dataset.from, g = b.dataset.g;
+  if (g === "ex") { await showExamples(row, to, from); return; }
+  if (g === "when") {
+    const cur = await getLex(), v = cur.terms.find((x) => x.to === to)?.vars.find((x) => x.from === from);
+    const ans = prompt(`「${from}」 바로 뒤에 이 말이 올 때만 바꿉니다(쉼표로 여럿, 비우면 늘 바꿈)`, ((v && v.when) || whenOf(v || {})).join(", "));
+    if (ans == null) return;
+    const when = ans.split(/[,，·\s]+/).map((x) => x.trim()).filter(Boolean);
+    setLex(await lexUpdate((l) => setVar(l, to, from, "on", when)));
+    loadGlossary(); return;
+  }
+  const lex = await lexUpdate((l) => {
+    if (g === "del") { const t = l.terms.find((x) => x.to === to); if (t) t.vars = t.vars.filter((x) => x.from !== from); l.terms = l.terms.filter((x) => x.vars.length); return l; }
+    const t = l.terms.find((x) => x.to === to), v = t && t.vars.find((x) => x.from === from);
+    if (!v) return l;
+    return setVar(l, to, from, g, g === "on" && v.st !== "off" && judge(l, t, v).common ? whenOf(v) : undefined);
+  });
+  setLex(lex); loadGlossary(); menuCounts();
+  toast(g === "on" ? "확정했습니다 — 검수 화면과 내보내기에 바로 쓰입니다" : g === "off" ? "껐습니다" : "지웠습니다");
+});
+/** 예문: 고친 발언(녹음별 5곳까지) — 누르면 그 녹음의 그 발언으로 */
+async function showExamples(row, to, from) {
+  const box = $(".vex", row);
+  if (!box.classList.contains("hidden")) { box.classList.add("hidden"); return; }
+  const lex = await getLex(), v = lex.terms.find((x) => x.to === to)?.vars.find((x) => x.from === from);
+  const out = [];
+  for (const [jid, b] of Object.entries((v && v.by) || {})) {
+    if (!b.ex || !b.ex.length) continue;
+    const [job, res] = await Promise.all([S.get("jobs", jid), S.get("results", jid)]);
+    if (!job || !res) continue;
+    for (const i of b.ex) {
+      const g = res.segs.find((x) => String(x.i) === String(i));
+      if (!g) continue;
+      const k = g.text.indexOf(from), a = Math.max(0, k - 20), t = k < 0 ? esc(g.text.slice(0, 60)) : `${a ? "…" : ""}${esc(g.text.slice(a, k))}<mark>${esc(from)}</mark>${esc(g.text.slice(k + from.length, k + from.length + 24))}`;
+      out.push(`<button type="button" class="link exl" data-job="${esc(jid)}" data-i="${esc(i)}"><small>${esc(job.title)} · ${hms(g.start)}</small> ${t}</button>`);
+    }
+  }
+  box.innerHTML = out.length ? out.join("") : '<span class="msg">예문을 찾지 못했습니다(녹음이 지워졌을 수 있음)</span>';
+  box.classList.remove("hidden");
 }
-$("#glAdd").addEventListener("click", () => addGlRow());
-$("#glSave").addEventListener("click", async () => {
-  const pairs = $$("#glBody tr").map((tr) => ({ from: $(".f", tr).value.trim(), to: $(".t", tr).value.trim() })).filter((p) => p.from);
-  await S.put("kv", "glossary", { pairs, updatedAt: S.now() });
-  REVIEW.gl = pairs;
-  toast("교정 사전을 저장했습니다");
+$("#glList").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button.exl");
+  if (!b) return;
+  REVIEW.want = b.dataset.job; REVIEW.focusI = b.dataset.i; REVIEW.filter = "all"; REVIEW.only = null; REVIEW.editedOnly = false;
+  showTab("review");
 });
 
 /* ================================================================== 설정·백업 */
@@ -1896,8 +2170,10 @@ async function backupObject() {
   for (const [id, job] of await S.all("jobs")) {
     jobs[id] = { job, result: await S.get("results", id), edits: await S.get("edits", id), plaud: await S.get("plaud", id) };
   }
+  const lexicon = await getLex();
+  // glossary(확정 꼴을 펼친 쌍 목록)는 예전 판이 읽도록 계속 넣고, 교정 사전 전체(근거 포함)는 lexicon에(2026-10-12~)
   return { format: PLAIN_FORMAT, version: 2, exportedAt: S.now(), voiceprints: Object.fromEntries(await S.all("voiceprints")),
-    glossary: ((await S.get("kv", "glossary")) || {}).pairs || [], jobs };
+    glossary: toPairs(lexicon), lexicon, jobs };
 }
 let BK_BUSY = false;
 $("#btnBackup").addEventListener("click", async () => {
@@ -1922,10 +2198,11 @@ let RS_PENDING = null; // 암호를 기다리는 올린 백업
 async function restoreBackup(bk) {
   if (bk.format !== PLAIN_FORMAT) throw new Error("이 앱의 백업 파일이 아닙니다");
   if (bk.version > 2) throw new Error("이 화면보다 새 판에서 만든 백업입니다. 페이지를 새로 고친 뒤 다시 올려 주세요.");
-  const cur = { voiceprints: Object.fromEntries(await S.all("voiceprints")), glossary: ((await S.get("kv", "glossary")) || {}).pairs || [], jobIds: new Set((await S.all("jobs")).map(([k]) => k)) };
+  const lex = await getLex();
+  const cur = { voiceprints: Object.fromEntries(await S.all("voiceprints")), glossary: toPairs(lex), lexicon: lex, jobIds: new Set((await S.all("jobs")).map(([k]) => k)) };
   const m = mergeBackup(cur, bk);
   for (const [name, v] of Object.entries(m.voiceprints)) await S.put("voiceprints", name, v);
-  await S.put("kv", "glossary", { pairs: m.glossary, updatedAt: S.now() });
+  await lexUpdate(() => m.lexicon);
   for (const [id, j] of Object.entries(m.jobs)) {
     await S.put("jobs", id, j.job);
     if (j.result) await S.put("results", id, j.result);

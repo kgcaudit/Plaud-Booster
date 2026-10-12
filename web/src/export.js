@@ -1,4 +1,5 @@
 // 통합본 만들기(Plaud 전사 + 보충 결과 + 검수 수정 + 사전)와 백업 합치기 — 순수 함수(시험 가능)
+import { applyLexicon, activeRules, fromGlossary, mergeLex, emptyLex } from "./lexicon.js";
 
 /** 할 일 이름 — 「sony」는 예전 작업(지금은 「diar」)과 같은 화자 분리 */
 export const MODE_LABEL = { diar: "화자 분리·전사", sony: "화자 분리·전사", gap: "빠진 구간 채우기", range: "잘못된 구간 다시 전사", fragment: "저장된 목소리로 바로 맞히기", enroll: "목소리 기준만 등록" };
@@ -21,10 +22,12 @@ export function hms(t, long = true) {
 /** 말하는 언어(한국어는 따로 적지 않음) */
 export const LANG_LABEL = { en: "영어" };
 
+/** 예전 사전(쌍 목록)도 받아 교정 사전으로 적용 — 어절 경계 안에서만, 한 번에(lexicon.js applyLexicon) */
 export function applyGlossary(text, pairs) {
-  for (const p of pairs || []) if (p.from) text = text.split(p.from).join(p.to || "");
-  return text;
+  return applyLexicon(text, Array.isArray(pairs) ? fromGlossary(pairs) : pairs).text;
 }
+/** 통합본에 쓸 사전: 새 사전(lexicon)이 있으면 그것, 없으면 예전 쌍 목록 */
+const rulesOf = (lexicon, glossary) => activeRules(lexicon && lexicon.terms ? lexicon : fromGlossary(glossary || []));
 
 /** 발언의 최종 화자: 발언별 수정 > 묶음 이름(소니 녹음) > 처리 결과 */
 export function speakerOf(g, edits) {
@@ -33,9 +36,9 @@ export function speakerOf(g, edits) {
 }
 
 /** 통합본 줄 목록 [{t,file,spk,text,src}] */
-export function mergedLines({ job, result, edits, plaud, glossary }, { usePlaud = true, useGlossary = true } = {}) {
+export function mergedLines({ job, result, edits, plaud, glossary, lexicon }, { usePlaud = true, useGlossary = true } = {}) {
   const e = (edits && edits.e) || {};
-  const pairs = useGlossary ? glossary || [] : [];
+  const rules = useGlossary ? rulesOf(lexicon, glossary) : [];
   const smap = job.speakerMap || {};
   const targets = result.stats.targets || [];
   const lines = [];
@@ -49,15 +52,16 @@ export function mergedLines({ job, result, edits, plaud, glossary }, { usePlaud 
     if (!ed.speaker && g.kind === "혼재") tag = [tag, "화자 혼재"].filter(Boolean).join("·");
     if (ed.parts && ed.parts.length) { // 검수에서 나눈 발언: 조각마다 한 줄(조각 화자 > 발언 화자)
       const base = speakerOf(g, edits);
-      for (const p of ed.parts) if ((p.text || "").trim()) lines.push({ t: p.start, file: g.file || 0, spk: p.speaker || base, text: p.text, src: tag.replace(/·?화자 혼재/, "") });
+      for (const p of ed.parts) if ((p.text || "").trim()) lines.push({ t: p.start, file: g.file || 0, spk: p.speaker || base, text: p.text, src: tag.replace(/·?화자 혼재/, ""), own: true });
       continue;
     }
     const text = ed.text ?? g.text; // 검수에서 글을 다 지웠으면(헛말 지우기) 그 발언은 내보내지 않는다
     if (!(text || "").trim()) continue;
-    lines.push({ t: g.start, file: g.file || 0, spk: speakerOf(g, edits), text, src: tag });
+    lines.push({ t: g.start, file: g.file || 0, spk: speakerOf(g, edits), text, src: tag, own: ed.text != null });
   }
   lines.sort((a, b) => a.file - b.file || a.t - b.t);
-  for (const x of lines) { x.text = applyGlossary(x.text, pairs); x.spk = applyGlossary(x.spk, pairs); }
+  // 사람이 고친 글은 그대로 둔다(검수 화면에서 보고 고친 그 글 — 사전이 바꾼 자리를 일부러 되돌렸을 수 있음). 전사 원문·Plaud 글·화자 이름에만 적용
+  for (const x of lines) { if (!x.own) x.text = applyLexicon(x.text, rules).text; x.spk = applyLexicon(x.spk, rules).text; delete x.own; }
   return lines;
 }
 
@@ -98,7 +102,12 @@ export function mergeBackup(cur, bk) {
   }
   const have = new Set((cur.glossary || []).map((p) => p.from + "\u0000" + p.to));
   const glossary = [...(cur.glossary || [])];
-  for (const p of bk.glossary || []) if (!have.has(p.from + "\u0000" + p.to)) { glossary.push(p); added.glossary++; }
+  for (const p of bk.glossary || []) if (p && p.from && !have.has(p.from + "\u0000" + p.to)) { glossary.push(p); added.glossary++; }
+  // 교정 사전(2026-10-12~): 백업에 lexicon이 있으면 그것을, 없으면(예전 백업) 쌍 목록을 합친다
+  const base = cur.lexicon && cur.lexicon.terms ? cur.lexicon : fromGlossary(cur.glossary || []);
+  const m = mergeLex(base, bk.lexicon && bk.lexicon.terms ? bk.lexicon : fromGlossary((bk.glossary || []).filter((p) => p && p.from)));
+  const lexicon = m.lex;
+  if (bk.lexicon && bk.lexicon.terms) added.glossary = m.added;
   const jobs = {};
   for (const [id, j] of Object.entries(bk.jobs || {})) {
     if (cur.jobIds.has(id)) continue; // 백업 형식 1·2 모두 같은 자리(2는 edits에 묶음 이름 names가 더 있음)
@@ -108,5 +117,5 @@ export function mergeBackup(cur, bk) {
     jobs[id] = { ...j, job };
     added.jobs++;
   }
-  return { voiceprints: vps, glossary, jobs, added };
+  return { voiceprints: vps, glossary, lexicon: lexicon || emptyLex(), jobs, added };
 }

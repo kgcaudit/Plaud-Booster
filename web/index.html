@@ -185,9 +185,10 @@
   <section class="step" id="stExport">
     <div class="sh"><span class="no" data-no></span><h3>내보내기</h3></div>
     <div class="sb exp">
+      <div id="lexBox" class="lexbox hidden" aria-live="polite"></div>
       <div class="warnline hidden" id="exWarn"></div>
       <label class="chk" id="exPlaudWrap"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
-      <label class="chk" title="교정 사전의 「잘못 적힌 말 → 바로잡을 말」을 통합본 TXT·CSV에 적용합니다(원문은 그대로)"><input type="checkbox" id="exGl" checked> 내보낼 때 교정 사전 적용 <span class="msg" id="exGlN"></span></label>
+      <label class="chk" title="교정 사전에서 확정한 말을 통합본 TXT·CSV에 적용합니다(사람이 고친 글과 원래 전사는 그대로)"><input type="checkbox" id="exGl" checked> 내보낼 때 교정 사전 적용 <span class="msg" id="exGlN"></span></label>
       <div class="btns"><button type="button" id="exTxt" class="primary">통합본 TXT</button><button type="button" id="exCsv">CSV</button></div>
       <p class="hint">나눈 발언은 조각마다 한 줄씩, 각자의 화자·시각으로 나갑니다.</p>
     </div>
@@ -227,9 +228,12 @@
 
 <!-- ======================= 사전 ======================= -->
 <section id="tab-glossary" class="tab">
-  <div class="bar"><h2>교정 사전</h2><span class="spacer"></span><button type="button" id="glAdd">＋ 줄 추가</button><button type="button" id="glSave" class="primary">저장</button></div>
-  <p class="note">음성 인식이 잘못 적는 이름·용어를 바로잡습니다. 검수 화면 표시와 내보내기에만 적용되고 원문은 그대로 둡니다.</p>
-  <table class="gl"><thead><tr><th>잘못 적힌 말</th><th>바로잡을 말</th><th></th></tr></thead><tbody id="glBody"></tbody></table>
+  <div class="bar"><h2>교정 사전</h2><span class="spacer"></span><button type="button" id="glAdd">＋ 직접 넣기</button></div>
+  <p class="note">음성 인식이 잘못 적는 말을 바로잡습니다. 발언 검수에서 고친 글을 원래 전사와 견줘 소리가 닮은 바꿈만 후보로 모으고, 서로 다른 발언 2곳 이상에서 같게 고치면 추천합니다. 확정한 말만 검수 화면과 내보내기에 쓰이고 원래 전사는 그대로 둡니다. 사람·업체 이름은 늘 직접 확인한 뒤 넣습니다.</p>
+  <div id="glNew" class="glnew hidden"><input id="glFrom" placeholder="잘못 적힌 말" aria-label="잘못 적힌 말"><span aria-hidden="true">→</span><input id="glTo" placeholder="바로잡을 말" aria-label="바로잡을 말"><button type="button" id="glAddGo" class="primary">넣기</button></div>
+  <div class="gltabs" id="glTabs" role="tablist" aria-label="상태"></div>
+  <p class="hint" id="glWhy"></p>
+  <div id="glList" class="gllist"></div>
 </section>
 
 <!-- ======================= 설정 ======================= -->
@@ -321,6 +325,15 @@
       <div id="rgSimList"></div>
       <div class="act2"><button type="button" data-rg="close">그대로 두기</button><button type="button" class="primary" data-rg="moveSim">옮기기</button></div>
     </div>
+  </div>
+</div>
+<!-- 교정 사전: 고친 말을 이 녹음의 나머지에도(문맥을 보고 고른 곳만) -->
+<div id="lexSheet" class="rgsheet hidden" role="dialog" aria-modal="true" aria-labelledby="lexTitle">
+  <div class="rg-in lx-in" tabindex="-1">
+    <h3 id="lexTitle"></h3>
+    <p class="hint">문맥을 보고 바꿀 곳만 고르세요. 바꾼 발언에는 「확인」 표시를 붙이지 않습니다.</p>
+    <div id="lexList" class="lxlist"></div>
+    <div class="act2"><button type="button" data-lx="close">닫기</button><button type="button" class="primary" data-lx="apply" id="lexApply">바꾸기</button></div>
   </div>
 </div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>

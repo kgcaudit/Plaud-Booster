@@ -141,9 +141,11 @@ const goReview = async (title) => {
 
   // 검수: 화자 바꾸고 문장 고치기 → 자동 저장
   await nav(page, "glossary");
-  await page.fill("#glBody tr:first-child .f", "가짜");
-  await page.fill("#glBody tr:first-child .t", "진짜");
-  await page.click("#glSave");
+  await page.click("#glAdd");
+  await page.fill("#glFrom", "가짜");
+  await page.fill("#glTo", "진짜");
+  await page.click("#glAddGo");
+  await page.waitForSelector("#glList .term[data-to='진짜'] .vrow[data-from='가짜']");
   await goReview();
   await page.click(".scope button[data-f='all']");
   const first = page.locator("#rvBody tr[data-i='1']");
@@ -193,6 +195,43 @@ const goReview = async (title) => {
   assert.match(txt, /김응옥: 발언 0/); // Plaud 전사가 합쳐짐
   assert.match(txt, /진짜 전사/); // 사전 적용
   console.log("✓ 통합본 TXT(Plaud 합치기·검수·사전)");
+
+  // ---- 교정 사전 배우기: 사전이 바꾼 곳 칩 → 여기만 되돌리기, 고친 말을 같은 녹음 나머지에도, 내보내기 앞 후보 → 사전에 넣기
+  const lr2 = page.locator("#rvBody tr[data-i='2']");
+  assert.match(await lr2.locator("textarea").inputValue(), /^진짜 전사/);
+  await lr2.locator(".lexchip").click();
+  assert.match(await lr2.locator("textarea").inputValue(), /^가짜 전사/);
+  assert.equal(await lr2.locator(".lexchip").count(), 0);
+  const lr3 = page.locator("#rvBody tr[data-i='3']");
+  await lr3.locator("textarea").fill((await lr3.locator("textarea").inputValue()).replace("전사", "전서"));
+  await lr3.locator("textarea").dispatchEvent("change");
+  await page.waitForSelector("#rvBody tr[data-i='3'] .lexhint");
+  assert.match(await page.locator(".lexhint").textContent(), /전사 → 전서 · 이 녹음에 \d+곳 더/);
+  if (process.env.SHOTS) { await page.setViewportSize({ width: 412, height: 900 }); await page.locator("#rvBody tr[data-i='3']").scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(process.env.SHOTS, "lex-hint.png") }); }
+  await page.click(".lexhint button[data-lx='open']");
+  await page.waitForSelector("#lexSheet:not(.hidden) .lxrow");
+  if (process.env.SHOTS) { await page.screenshot({ path: path.join(process.env.SHOTS, "lex-sheet.png") }); await page.setViewportSize({ width: 1280, height: 720 }); }
+  const nOcc = await page.locator("#lexList .lxrow").count();
+  assert.ok(nOcc >= 2);
+  await page.locator("#lexList input").first().uncheck(); // 고른 곳만
+  assert.equal(await page.locator("#lexApply").textContent(), `고른 ${nOcc - 1}곳 바꾸기`);
+  await page.click("#lexApply");
+  assert.ok(await page.locator("#lexSheet").isHidden());
+  assert.equal(await page.locator("#rvBody textarea").evaluateAll((ts) => ts.filter((t) => t.value.includes("전서")).length), nOcc);
+  await page.waitForSelector("#lexBox .lxc[data-from='전사'][data-to='전서']", { timeout: 15000 });
+  assert.match(await page.locator("#lexBox .lxc[data-from='전사']").textContent(), /추천/);
+  if (process.env.SHOTS) { await page.setViewportSize({ width: 412, height: 900 }); await page.locator("#stExport").screenshot({ path: path.join(process.env.SHOTS, "lex-box.png") }); await page.setViewportSize({ width: 1280, height: 720 }); }
+  await page.click("#lexBox .lxc[data-from='전사'] button[data-lc='on']");
+  await page.waitForSelector("#lexBox", { state: "hidden" });
+  await nav(page, "glossary");
+  await page.waitForSelector("#glList .term[data-to='전서'] .vrow[data-from='전사']");
+  assert.match(await page.locator("#glList .term[data-to='진짜'] .vrow[data-from='가짜'] .vn").textContent(), /되돌림 1/);
+  await page.click("#glList .term[data-to='전서'] button[data-g='ex']");
+  await page.waitForSelector("#glList .term[data-to='전서'] .vex button.exl");
+  if (process.env.SHOTS) { await page.setViewportSize({ width: 412, height: 900 }); await page.screenshot({ path: path.join(process.env.SHOTS, "lex-dict.png"), fullPage: true }); await page.setViewportSize({ width: 1280, height: 720 }); }
+  await page.click("#glList .term[data-to='전서'] .vex button.exl >> nth=0");
+  await page.waitForSelector("#tab-review.on #rvBody tr.flash", { timeout: 5000 });
+  console.log(`✓ 교정 사전 배우기: 사전 칩 되돌리기·같은 녹음 ${nOcc - 1}곳 바꾸기·내보내기 앞 추천 → 확정·예문으로 이동`);
 
   // ---- 소니 녹음: 화자 먼저 묶기 → 이름 지정 → 전사 → 발언별 수정·되돌리기 → 목소리 기준 저장
   page.on("dialog", (d) => d.accept());
