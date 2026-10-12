@@ -89,6 +89,13 @@
      "manual": true,
      "src": "10-08 회의 Whisper 실측",
      "by": {}
+    },
+    {
+     "from": "표준품",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
     }
    ]
   },
@@ -102,6 +109,13 @@
      "st": "cand",
      "manual": true,
      "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    },
+    {
+     "from": "노무기",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
      "by": {}
     }
    ]
@@ -750,6 +764,496 @@
       "지시",
       "이익"
      ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "환수",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "한소",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "공동소송",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "공공소송",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "공동 원고",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "공동원구",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "정산금",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "중산금",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "시중 단가",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "시중당가",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "추가 공사",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "추가공세",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "마이너스",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "마이어스",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    },
+    {
+     "from": "마이니스",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "배임",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "대임",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "형사적",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "행사적",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "부당이득",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "부당이들",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "압수수색",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "압수색",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "입찰 안내",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "입장안내",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "감정인",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "강중인",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "증액",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "증의액",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "송달료",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "성달류",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "도급업",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "도구법",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "민사재판",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "민다제팡",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "사실관계",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "사실감기",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "가설재",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "가설제",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "시공자",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "치공자",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "입증자료",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "입증자로",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "위임장",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "임장",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "노임",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "노인",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "when": [
+      "과다",
+      "단가",
+      "근거",
+      "공량",
+      "산정",
+      "계산",
+      "지급"
+     ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "안분",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "안부",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "when": [
+      "하",
+      "해",
+      "비율",
+      "방식"
+     ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "상계",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "상기",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "정산",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "정상",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "감정",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "감청",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "공량",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "공략",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "단가",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "단타",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "판사",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "한사",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "소송",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "수송",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "자재",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "자제",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
+     "when": [
+      "납품",
+      "물량",
+      "대금",
+      "비"
+     ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "가담",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "가단",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 HAUD·Plaud 대조",
      "by": {}
     }
    ]
