@@ -1324,7 +1324,7 @@ async function playRange(f, s, e) {
   stopWatch();
 }
 function stopClear() { cancelAnimationFrame(STOP.raf); STOP.at = null; }
-/* ---- 발언 듣기: ▶는 재생·일시정지 겸용, 재생 중인 발언(조각) 아래에만 조작 줄(처음 · −5초 · ❚❚ · +5초 · 다음)
+/* ---- 발언 듣기: ▶는 재생·일시정지 겸용, 재생 중인 발언(조각) 아래에만 조작 줄(처음 · −n초 · ❚❚ · +n초 · 다음, n = segStep)
  * 전사 편집기들의 일반 방식(한 단추로 재생/멈춤, 5초 되감기, 지금 위치 표시)을 휴대폰 크기에 맞춤. 발언 끝에서 멈추고,
  * 멈춘 뒤 다시 누르면 1초 앞부터 이어 듣는다. 녹음 전체를 이어 듣기는 아래 재생 막대. */
 const SEG = { f: 0, s: 0, e: 0, key: null };
@@ -1347,6 +1347,9 @@ function segToggle(b) {
   }
   segPlay(f, s, e, key);
 }
+// 발언 안에서 앞뒤로 옮기는 폭: 발언 길이에 맞춤(짧은 발언에서 5초는 처음·끝으로 튀어 나눌 곳을 찾기 어려움 — 2026-10-12 사용자)
+//   10초 이하 1초 · 30초 이하 2초 · 그보다 길면 5초
+const segStep = () => { const d = SEG.e - SEG.s; return d <= 10 ? 1 : d <= 30 ? 2 : 5; };
 function segSeek(d) {
   if (!SEG.key || TL.loaded !== SEG.f) return;
   const t = Math.max(SEG.s - PRE, Math.min(SEG.e - 0.05, player.currentTime + d));
@@ -1386,8 +1389,8 @@ function segUi(force = false) {
     bar = document.createElement("div"); bar.id = "segCtl"; bar.className = "segctl";
     bar.innerHTML = `<div class="segtt"><span data-x="now"></span><span data-x="span"></span></div>
       <div class="segbar" data-x="bar"><i data-x="fill"></i><b data-x="knob"></b></div>
-      <div class="segbtns"><button type="button" data-x="head">↺ 처음</button><button type="button" data-x="b5">−5초</button>
-      <button type="button" class="primary" data-x="pp">▶</button><button type="button" data-x="f5">+5초</button><button type="button" data-x="next">다음 ▸</button></div>`;
+      <div class="segbtns"><button type="button" data-x="head">↺ 처음</button><button type="button" data-x="b5">−1초</button>
+      <button type="button" class="primary" data-x="pp">▶</button><button type="button" data-x="f5">+1초</button><button type="button" data-x="next">다음 ▸</button></div>`;
   }
   if (bar.parentElement !== host) host.appendChild(bar);
   const t = TL.loaded === SEG.f ? player.currentTime : SEG.s;
@@ -1396,6 +1399,10 @@ function segUi(force = false) {
   $("[data-x='span']", bar).textContent = `${fmt1(SEG.s)} ~ ${fmt1(SEG.e)}`;
   $("[data-x='fill']", bar).dataset.w = pct.toFixed(1); $("[data-x='knob']", bar).dataset.left = pct.toFixed(1);
   $("[data-x='pp']", bar).textContent = playing ? "❚❚" : "▶";
+  const st = segStep();
+  if ($("[data-x='f5']", bar).dataset.st !== String(st)) {
+    $("[data-x='b5']", bar).textContent = `−${st}초`; $("[data-x='f5']", bar).textContent = `+${st}초`; $("[data-x='f5']", bar).dataset.st = String(st);
+  }
   applyGeom(bar);
 }
 $("#rvBody").addEventListener("click", (ev) => {
@@ -1403,7 +1410,7 @@ $("#rvBody").addEventListener("click", (ev) => {
   if (x) {
     const k = x.dataset.x;
     if (k === "pp") { const b = $$("#rvBody button.play").find((y) => segKey(y) === SEG.key); if (b) segToggle(b); }
-    if (k === "b5") segSeek(-5); if (k === "f5") segSeek(5);
+    if (k === "b5") segSeek(-segStep()); if (k === "f5") segSeek(segStep());
     if (k === "head") segPlay(SEG.f, SEG.s, SEG.e, SEG.key, SEG.s);
     if (k === "next") segNext();
     return;
@@ -1420,12 +1427,12 @@ $("#rvBody").addEventListener("pointerdown", (ev) => {
   const up = () => { bar.removeEventListener("pointermove", move); if (!player.paused) { STOP.at = SEG.e; stopWatch(); } };
   bar.addEventListener("pointermove", move); bar.addEventListener("pointerup", up, { once: true });
 });
-// 자판(폴드 펼침·PC): Ctrl+Space 재생/멈춤, Ctrl+←/→ 5초
+// 자판(폴드 펼침·PC): Ctrl+Space 재생/멈춤, Ctrl+←/→ 발언 안에서는 발언 길이에 맞춘 폭(segStep), 그 밖은 5초
 document.addEventListener("keydown", (ev) => {
   if (!$("#tab-review").classList.contains("on") || !(ev.ctrlKey || ev.metaKey)) return;
   if (!REVIEW.data) return;
   if (ev.code === "Space") { ev.preventDefault(); const b = SEG.key && $$("#rvBody button.play").find((y) => segKey(y) === SEG.key); if (b) segToggle(b); else $("#tlPlay").click(); }
-  else if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && !ev.target.closest("input, textarea")) { ev.preventDefault(); const d = ev.key === "ArrowLeft" ? -5 : 5; if (SEG.key) segSeek(d); else $(`#tl button[data-j='${d}']`).click(); }
+  else if ((ev.key === "ArrowLeft" || ev.key === "ArrowRight") && !ev.target.closest("input, textarea")) { ev.preventDefault(); const d = ev.key === "ArrowLeft" ? -5 : 5; if (SEG.key) segSeek(Math.sign(d) * segStep()); else $(`#tl button[data-j='${d}']`).click(); }
 });
 /** 검수 진행을 kv 「rv:작업id」에 적어 둔다 — 녹음 목록 카드의 「남음 n」·내보내기 끝 표시용(바뀔 때만 씀) */
 function saveRv(patch) {

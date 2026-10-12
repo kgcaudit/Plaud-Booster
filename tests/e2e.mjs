@@ -154,14 +154,20 @@ const goReview = async (title) => {
   // 재생(구간 음원 만들기)
   await first.locator("button.play").click();
   await page.waitForFunction(() => document.getElementById("player").currentSrc.startsWith("blob:"));
-  // 발언 ▶는 재생·일시정지 겸용, 재생 중인 발언 아래에 조작 줄(처음·−5초·❚❚·+5초·다음)
+  // 발언 ▶는 재생·일시정지 겸용, 재생 중인 발언 아래에 조작 줄(처음·−n초·❚❚·+n초·다음, n은 발언 길이로)
   await page.waitForFunction(() => { const b = document.querySelector("#rvBody tr[data-i='1'] button.play"); return b && b.textContent === "❚❚"; });
   assert.equal(await first.locator("#segCtl").count(), 1);
   await first.locator("button.play").click();
   await page.waitForFunction(() => document.getElementById("player").paused && document.querySelector("#rvBody tr[data-i='1'] button.play").textContent === "▶");
   const tp0 = await page.evaluate(() => document.getElementById("player").currentTime);
+  // 앞뒤 폭은 발언 길이에 맞춤(10초 이하 1초·30초 이하 2초·그 위 5초)
+  const segLen = await first.locator("button.play").evaluate((b) => +b.dataset.e - +b.dataset.s);
+  const want = segLen <= 10 ? 1 : segLen <= 30 ? 2 : 5;
+  assert.equal((await page.locator("#segCtl [data-x='f5']").textContent()).trim(), `+${want}초`);
+  assert.equal((await page.locator("#segCtl [data-x='b5']").textContent()).trim(), `−${want}초`);
   await page.click("#segCtl [data-x='f5']");
-  assert.ok((await page.evaluate(() => document.getElementById("player").currentTime)) > tp0, "+5초가 움직이지 않음");
+  const tp1 = await page.evaluate(() => document.getElementById("player").currentTime);
+  assert.ok(tp1 > tp0 && tp1 - tp0 <= want + 0.01, `+${want}초가 맞게 움직이지 않음`);
   await first.locator("button.play").click(); // 이어 듣기
   // 전체 녹음 재생 막대: 발언 시각부터 이어 재생, 녹음 전체 길이, ±5초 이동
   assert.ok(await page.locator("#tl").isVisible());
