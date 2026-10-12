@@ -25,6 +25,9 @@ export const GPU_TABLE = [
   { re: /xclipse\D{0,8}930/i, name: "Xclipse 930", soc: "Exynos 2300", score: 2500, est: true },
   { re: /xclipse\D{0,8}920/i, name: "Xclipse 920", soc: "Exynos 2200", score: 1870 },
   { re: /mali-?g78/i, name: "Mali-G78", soc: "Exynos 2100 등", score: 1760 },
+  // PC(노트북 외장 칩) — 3DMark 점수 대신 이 앱 성능 시험 실측으로 단계를 정한다(level·measured)
+  // GeForce MX570 A(2GB): 2026-10-12 사용자 노트북(Edge, Windows 그래픽 설정 「고성능」) 전부 4/4 30초 창 2.7~3.3초 · CPU 12스레드 18초, 꺼짐 없음
+  { re: /geforce\s*mx\s*570/i, name: "GeForce MX570", soc: "노트북 외장(NVIDIA)", level: 4, measured: "30초 창 2.7초(CPU만 18초)" },
 ];
 
 /** 가속 단계: 인코더 4조각 중 그래픽 칩에 올릴 조각 수 */
@@ -88,11 +91,12 @@ export function describeDevice(raw = {}) {
   const name = modelName(raw.model);
   let level, basis;
   if (!raw.webgpu) { level = 0; basis = "이 브라우저는 그래픽 칩 계산(WebGPU)을 지원하지 않음"; }
+  else if (gpu && gpu.level != null) { level = gpu.level; basis = `${gpu.name} 이 앱 성능 시험 실측 — ${gpu.measured}`; }
   else if (gpu) { level = levelForScore(gpu.score); basis = `${gpu.name} 성능 점수 ${gpu.est ? "약 " : ""}${gpu.score.toLocaleString("en-US")}${gpu.est ? "(어림)" : ""}`; }
   else { level = levelForArch(raw.arch); basis = raw.arch ? `칩 이름을 몰라 세대(${raw.arch})로 어림` : "칩을 알 수 없음"; }
   return {
     model: raw.model || "", name, gpu: gpu ? gpu.name : (raw.renderer || "").replace(/^ANGLE \(|\)$/g, "").slice(0, 80),
-    soc: gpu ? gpu.soc : "", score: gpu ? gpu.score : null, est: gpu ? !!gpu.est : false, level, basis,
+    soc: gpu ? gpu.soc : "", score: gpu && gpu.score != null ? gpu.score : null, est: gpu ? !!gpu.est : false, level, basis,
   };
 }
 

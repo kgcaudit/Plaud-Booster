@@ -16,6 +16,10 @@ test("기본 단계: 폴드8(840) 전부 · S23(740) 절반 · 플립3(660) 끄�
   const flip3 = describeDevice({ webgpu: true, renderer: "ANGLE (Qualcomm, Adreno (TM) 660, OpenGL ES 3.2)", model: "SM-F711N" });
   assert.equal(flip3.level, 0); assert.equal(flip3.name, "갤럭시 Z 플립3"); assert.equal(flip3.soc, "Snapdragon 888");
   assert.equal(describeDevice({ webgpu: true, renderer: "?", arch: "adreno-8xx" }).level, 4);
+  // 노트북 외장 칩(실측으로 단계): MX570 A는 전부, 내장 Intel은 모르는 칩이라 끔
+  const mx = describeDevice({ webgpu: true, renderer: "ANGLE (NVIDIA, NVIDIA GeForce MX570 A (0x000025AA) Direct3D11 vs_5_0 ps_5_0, D3D11)", arch: "ampere" });
+  assert.equal(mx.level, 4); assert.equal(mx.gpu, "GeForce MX570"); assert.match(mx.basis, /실측/);
+  assert.equal(describeDevice({ webgpu: true, renderer: "ANGLE (Intel, Intel(R) Graphics (0x0000A7AC) Direct3D11 vs_5_0 ps_5_0, D3D11)", arch: "gen-12lp" }).level, 0);
   assert.equal(describeDevice({ webgpu: true, renderer: "?", arch: "adreno-7xx" }).level, 2);
   assert.equal(describeDevice({ webgpu: false, renderer: "Adreno (TM) 840" }).level, 0); // WebGPU 없으면 끄기
   assert.equal(levelForScore(4190), 4); assert.equal(levelForScore(2550), 2); assert.equal(levelForScore(1870), 0);

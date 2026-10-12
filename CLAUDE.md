@@ -185,7 +185,9 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
   기기 정보는 브라우저 안에서만 씁니다(바깥으로 보내지 않음).
   노트북(내장 + 외장 그래픽 칩)에서는 WebGPU 어댑터를 powerPreference "high-performance"로 청합니다(화면 알아보기·일꾼·ort.env.webgpu 모두).
   다만 Windows 크롬은 이 값을 무시하고 내장 칩을 줄 수 있어(2026-10-12 사용자 PC: Intel(R) Graphics 0xA7AC + GeForce MX570 A → Intel이 잡힘),
-  Windows 설정 › 디스플레이 › 그래픽에서 브라우저를 「고성능」으로 지정해야 외장 칩을 씁니다.
+  Windows 설정 › 디스플레이 › 그래픽에서 브라우저를 「고성능」으로 지정해야 외장 칩을 씁니다(edge://gpu에서 NVIDIA 줄에 ACTIVE면 됨).
+  PC 칩은 3DMark 점수 대신 성능 시험 실측으로 표에 넣습니다(GPU_TABLE의 level·measured). GeForce MX570 A(2GB, 2026-10-12 실측):
+  끔(CPU 11스레드) 30초 창 18초·1시간 회의 전사 약 1시간 23분 → 사용-빠름(4/4) 3.3→2.7초·약 23분 50초(약 5.6배), 꺼짐 없음 → 자동 4.
 - 인코더는 **8비트 블록 양자화(MatMulNBits, 블록 128, 약 700MB)** 입니다(tools/to_nbits.py, 배포 때 int8에서 변환). 그래픽 칩(WebGPU)이 있으면
   인코더만 WebGPU로, 디코더·CAM++·Silero는 wasm으로 돕니다(설정 「그래픽 칩 가속」, settings.gpu). 10-08 두 구간 글자 오류율(묶어 전사):
   int8 30.8%·35.5% → 8비트 28.9%·32.7%. 4비트(444MB)는 반복 헛말이 늘어 40~45분 구간 44.0%로 나빠 쓰지 않았습니다.
