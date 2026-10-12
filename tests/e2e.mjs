@@ -170,7 +170,10 @@ const goReview = async (title) => {
   await page.click("#segCtl [data-x='f5']");
   const tp1 = await page.evaluate(() => document.getElementById("player").currentTime);
   assert.ok(tp1 > tp0 && tp1 - tp0 <= want + 0.01, `+${want}초가 맞게 움직이지 않음`);
-  await first.locator("button.play").click(); // 이어 듣기
+  await first.locator("button.play").click(); // 이어 듣기 — 멈춘 그 자리에서(되돌아가지 않음)
+  await page.waitForFunction(() => !document.getElementById("player").paused);
+  const tp2 = await page.evaluate(() => document.getElementById("player").currentTime);
+  assert.ok(tp2 >= tp1 - 0.05, `이어 듣기가 ${tp1} → ${tp2}로 되돌아감`);
   // 전체 녹음 재생 막대: 발언 시각부터 이어 재생, 녹음 전체 길이, ±5초 이동
   assert.ok(await page.locator("#tl").isVisible());
   await page.waitForFunction(() => document.getElementById("player").duration > 80); // 90초 음원 전체

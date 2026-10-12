@@ -1635,7 +1635,7 @@ async function playRange(f, s, e) {
 function stopClear() { cancelAnimationFrame(STOP.raf); STOP.at = null; }
 /* ---- 발언 듣기: ▶는 재생·일시정지 겸용, 재생 중인 발언(조각) 아래에만 조작 줄(처음 · −n초 · ❚❚ · +n초 · 다음, n = segStep)
  * 전사 편집기들의 일반 방식(한 단추로 재생/멈춤, 5초 되감기, 지금 위치 표시)을 휴대폰 크기에 맞춤. 발언 끝에서 멈추고,
- * 멈춘 뒤 다시 누르면 1초 앞부터 이어 듣는다. 녹음 전체를 이어 듣기는 아래 재생 막대. */
+ * 멈춘 뒤 다시 누르면 멈춘 자리에서 이어 듣는다. 녹음 전체를 이어 듣기는 아래 재생 막대. */
 const SEG = { f: 0, s: 0, e: 0, key: null };
 const segKey = (b) => `${b.dataset.f}|${b.dataset.s}|${b.dataset.e}`;
 async function segPlay(f, s, e, key, from) {
@@ -1651,7 +1651,8 @@ function segToggle(b) {
   if (SEG.key === key && TL.loaded === f) {
     if (!player.paused) { player.pause(); return; }
     const t = player.currentTime;
-    const from = t >= e - 0.1 || t < s - 1 ? Math.max(0, s - PRE) : Math.max(s - PRE, t - 1); // 멈춘 곳 1초 앞부터(끝까지 들었으면 처음부터)
+    // 멈춘 그 자리에서 이어 듣는다(끝까지 들었거나 발언 밖이면 처음부터). 예전엔 1초 앞부터라 되돌아가 들렸음 — 2026-10-12 사용자
+    const from = t >= e - 0.1 || t < s - PRE - 0.05 ? Math.max(0, s - PRE) : t;
     segPlay(f, s, e, key, from); return;
   }
   segPlay(f, s, e, key);
