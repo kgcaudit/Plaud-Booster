@@ -135,3 +135,29 @@ test("이웃한 두 낱말을 함께 고쳐도 쌍이 따로 잡힘", () => {
   harvest(lex, "j", [{ i: 1, text: "가짜 전사" }], { 1: { text: "가짜 전서" } });
   assert.equal(totals(lex.terms[0].vars[0]).undo, 1);
 });
+
+import fs from "node:fs";
+test("기본 사전(web/lexicon-seed.json): 형식·근거, 확정 꼴만 바로 바꾸고 실제 낱말 꼴은 후보로", () => {
+  const seed = JSON.parse(fs.readFileSync(new URL("../../web/lexicon-seed.json", import.meta.url), "utf8"));
+  assert.equal(seed.v, 1);
+  for (const t of seed.terms) for (const v of t.vars) {
+    assert.ok(v.from && t.to && v.from !== t.to && ["on", "cand"].includes(v.st) && v.manual && v.src, JSON.stringify(v));
+  }
+  const m = mergeBackup({ voiceprints: {}, glossary: [], lexicon: emptyLex(), jobIds: new Set() }, { lexicon: seed });
+  assert.equal(m.added.glossary, seed.terms.reduce((n, t) => n + t.vars.length, 0));
+  const r = applyLexicon("발출처랑 도국을 받았고 표정품샘으로 보면 과외성이 나왔다. 기상 상황과 도구 정리", m.lexicon).text;
+  assert.equal(r, "발주처랑 도급을 받았고 표준품셈으로 보면 과기성이 나왔다. 기상 상황과 도구 정리");
+  // 후보 꼴을 확정하면 미리 붙인 뒷말 조건이 걸림
+  setVar(m.lexicon, "기성", "기상", "on");
+  assert.equal(applyLexicon("기상 상황에서 기상 사정을", m.lexicon).text, "기상 상황에서 기성 사정을");
+});
+
+test("확정한 뒤 다시 세어도 사람이 고친 근거는 남음", () => {
+  const segs = [{ i: 1, text: "과외성 나감" }, { i: 2, text: "과외성 금액" }];
+  const ed = { 1: { text: "과기성 나감" }, 2: { text: "과기성 금액" } };
+  const lex = harvest(emptyLex(), "j", segs, ed);
+  setVar(lex, "과기성", "과외성", "on");
+  harvest(lex, "j", segs, ed);
+  const s = totals(lex.terms[0].vars[0]);
+  assert.equal(s.n, 2); assert.equal(s.undo, 0);
+});

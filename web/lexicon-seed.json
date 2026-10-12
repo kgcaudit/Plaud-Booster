@@ -1,0 +1,390 @@
+{
+ "v": 1,
+ "terms": [
+  {
+   "to": "발주처",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "발출처",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    },
+    {
+     "from": "발표처",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    },
+    {
+     "from": "발주차",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "도급",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "도국",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    },
+    {
+     "from": "도구",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "when": [
+      "인정",
+      "받",
+      "과",
+      "계약",
+      "공사"
+     ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "병합",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "병학",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "표준품셈",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "표준품샘",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    },
+    {
+     "from": "표정품샘",
+     "st": "on",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "노무비",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "농업이",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "반소",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "단소",
+     "st": "cand",
+     "manual": true,
+     "src": "10-08 회의 Whisper 실측",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "과기성",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "과외성",
+     "st": "on",
+     "manual": true,
+     "src": "면담 녹취(클로바노트) 정정",
+     "by": {}
+    },
+    {
+     "from": "과기상",
+     "st": "on",
+     "manual": true,
+     "src": "면담 녹취(클로바노트) 정정",
+     "by": {}
+    },
+    {
+     "from": "과계상",
+     "st": "on",
+     "manual": true,
+     "src": "면담 녹취(클로바노트) 정정",
+     "by": {}
+    },
+    {
+     "from": "박기성",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 녹취(클로바노트) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "과대 기성",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "대세기선",
+     "st": "on",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "기성",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "기상",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 녹취(클로바노트) 정정",
+     "when": [
+      "사정",
+      "관리",
+      "청구",
+      "금액",
+      "지급"
+     ],
+     "by": {}
+    },
+    {
+     "from": "기선",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 녹취(클로바노트) 정정",
+     "when": [
+      "사정",
+      "관리",
+      "청구",
+      "금액",
+      "지급"
+     ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "관리 미스",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "갈리미스",
+     "st": "on",
+     "manual": true,
+     "src": "면담 녹취(클로바노트) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "물탱크",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "물테크",
+     "st": "on",
+     "manual": true,
+     "src": "면담 녹취(클로바노트) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "샵 비용",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "찹비용",
+     "st": "on",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "딜리버리",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "딜레마리",
+     "st": "on",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "준공",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "중공업",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "실행",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "시행",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "when": [
+      "예산",
+      "내역",
+      "금액"
+     ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "간선",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "관선",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "발주",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "파주",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "when": [
+      "띄우",
+      "넣",
+      "내"
+     ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "수전",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "발포",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "when": [
+      "받"
+     ],
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "실측",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "스킬",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "트레이",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "트랙",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "폐전선",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "회전선",
+     "st": "cand",
+     "manual": true,
+     "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  }
+ ],
+ "seed": "2026-10-12"
+}

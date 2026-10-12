@@ -226,6 +226,15 @@ const goReview = async (title) => {
   await nav(page, "glossary");
   await page.waitForSelector("#glList .term[data-to='전서'] .vrow[data-from='전사']");
   assert.match(await page.locator("#glList .term[data-to='진짜'] .vrow[data-from='가짜'] .vn").textContent(), /되돌림 1/);
+  // 기본 사전 넣기(실제 녹취에서 확인된 오인식) — 두 번 눌러도 한 번만
+  await page.click("#glSeed");
+  await page.waitForSelector("#glList .term[data-to='발주처'] .vrow[data-from='발출처']");
+  await page.click("#glTabs button[data-gt='cand']");
+  await page.waitForSelector("#glList .term[data-to='기성'] .vrow[data-from='기상']");
+  assert.match(await page.locator("#glList .term[data-to='기성'] .vrow[data-from='기상']").textContent(), /기본 사전\(/);
+  await page.click("#glSeed");
+  await page.waitForSelector("#toast:has-text('이미 모두')");
+  await page.click("#glTabs button[data-gt='on']");
   await page.click("#glList .term[data-to='전서'] button[data-g='ex']");
   await page.waitForSelector("#glList .term[data-to='전서'] .vex button.exl");
   if (process.env.SHOTS) { await page.setViewportSize({ width: 412, height: 900 }); await page.screenshot({ path: path.join(process.env.SHOTS, "lex-dict.png"), fullPage: true }); await page.setViewportSize({ width: 1280, height: 720 }); }
@@ -323,7 +332,8 @@ const goReview = async (title) => {
     const all = await new Promise((r) => { const q = db.transaction("jobs").objectStore("jobs").getAll(); q.onsuccess = () => r(q.result); });
     return all.find((j) => j.title === "소니 시험").hint;
   });
-  assert.deepEqual([...hintJob].sort(), ["전서", "진짜"]);
+  assert.equal(hintJob[0], "전서"); // 고친 횟수가 많은 말부터(기본 사전 말은 그 뒤), 10개까지
+  assert.ok(hintJob.length <= 10 && hintJob.includes("발주처"));
   console.log("✓ 소니 녹음: 파일 순서·화자 묶음 2개·이름 붙이고 전사(전사 힌트: 교정 사전 확정 말)");
 
   await page.click(".job:has-text('소니 시험') button[data-a='review']");

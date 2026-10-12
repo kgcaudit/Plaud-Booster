@@ -251,9 +251,10 @@ export function harvest(lex, jobId, segs, edits, names = new Set()) {
     if (fin == null) continue;
     const shown = applyLexicon(g.text, rules).text; // 사람이 고치기 전에 보던 글
     const seen = new Set(), list = [];
-    // 사전이 바꾼 것(to)을 사람이 원래 꼴(from)로 되돌린 것은 소리 닮음과 상관없이 센다
+    // 사전이 바꾼 것(to)을 사람이 원래 꼴(from)로 되돌린 것은 소리 닮음과 상관없이 센다(사람이 보던 글 기준)
     for (const p of diffPairs(shown, fin, { raw: true })) if (ruleTo.has(p.from + "\u0000" + p.to) && !seen.has("u" + p.from)) { seen.add("u" + p.from); list.push({ ...p, undo: true }); }
-    for (const p of diffPairs(shown, fin)) {
+    // 고친 것은 원래 전사 기준으로 센다 — 사람이 보던 글 기준이면 그 말을 확정한 뒤 다시 셀 때 근거가 0으로 사라졌다
+    for (const p of diffPairs(g.text, fin)) {
       const key = p.from + "\u0000" + p.to;
       if (seen.has(key)) continue;
       seen.add(key); list.push(p);

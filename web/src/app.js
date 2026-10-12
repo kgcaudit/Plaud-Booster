@@ -8,7 +8,7 @@ import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster,
 import { isGeneric, knownPrints } from "./engine.js";
 import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd, jobFlow, josa } from "./review.js";
 import { describeDevice, LEVELS, levelLabel, lowerLevel } from "./devices.js";
-import { applyLexicon, activeRules, diffPairs, harvest, dropJob, fromGlossary, toPairs, judge, conflicts, setVar, addManual, totals, whenOf, REC_MIN } from "./lexicon.js";
+import { applyLexicon, activeRules, diffPairs, harvest, dropJob, fromGlossary, toPairs, judge, conflicts, setVar, addManual, totals, whenOf, REC_MIN, mergeLex } from "./lexicon.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -1977,7 +1977,7 @@ async function loadGlossary() {
     if (!vs.length) continue;
     const rows = vs.map((v) => {
       const j = judge(lex, t, v, conf), s = j.s;
-      const ev = [s.jobs ? `녹음 ${s.jobs}건` : "", s.n ? `고침 ${s.n}` : "", s.app ? `적용 ${s.app}` : "", s.undo ? `되돌림 ${s.undo}` : "", s.neg ? `고치지 않고 확인 ${s.neg}` : "", v.manual ? "직접 넣음" : ""].filter(Boolean).join(" · ");
+      const ev = [s.jobs ? `녹음 ${s.jobs}건` : "", s.n ? `고침 ${s.n}` : "", s.app ? `적용 ${s.app}` : "", s.undo ? `되돌림 ${s.undo}` : "", s.neg ? `고치지 않고 확인 ${s.neg}` : "", v.manual ? (v.src ? `기본 사전(${v.src})` : "직접 넣음") : ""].filter(Boolean).join(" · ");
       const tags = [j.conflict ? '<span class="chip warn">충돌</span>' : "", j.common && v.st !== "on" ? '<span class="chip">흔한 낱말</span>' : "", v.when ? `<span class="chip">조건: 뒤에 ${v.when.map(esc).join("·")}</span>` : "", v.why ? `<span class="chip bad">${esc(v.why)}</span>` : ""].join("");
       const acts = v.st === "on" ? '<button type="button" data-g="when">조건</button><button type="button" data-g="off">끄기</button>'
         : v.st === "off" ? `<button type="button" data-g="on">다시 켜기</button>${s.n || s.app || s.undo || s.neg ? "" : '<button type="button" data-g="del">지우기</button>'}`
@@ -1992,6 +1992,18 @@ async function loadGlossary() {
   $("#glList").innerHTML = cards.length ? cards.join("") : '<p class="empty">아직 없습니다. 발언 검수에서 잘못 들린 말을 고치면 여기에 후보가 모입니다. 「＋ 직접 넣기」로 바로 넣을 수도 있습니다.</p>';
 }
 $("#glTabs").addEventListener("click", (ev) => { const b = ev.target.closest("button[data-gt]"); if (!b) return; GL.tab = b.dataset.gt; loadGlossary(); });
+// 기본 사전(web/lexicon-seed.json — tools/lexicon_seed.mjs): 실제 녹취에서 확인된 오인식. 실제 낱말인 꼴은 「후보」로 들어가 사람이 확정
+$("#glSeed").addEventListener("click", async () => {
+  try {
+    const r = await fetch("lexicon-seed.json", { cache: "no-cache" });
+    if (!r.ok) throw new Error("기본 사전 파일을 읽지 못했습니다");
+    const seed = await r.json();
+    let added = 0;
+    setLex(await lexUpdate((l) => { const m = mergeLex(l, seed); added = m.added; return m.lex; }));
+    GL.tab = "on"; loadGlossary(); menuCounts();
+    toast(added ? `기본 사전 ${added}개를 넣었습니다 — 실제 낱말인 말은 「후보」에서 확정하세요` : "기본 사전은 이미 모두 들어 있습니다");
+  } catch (e) { toast(e.message); }
+});
 $("#glAdd").addEventListener("click", () => { $("#glNew").classList.toggle("hidden"); if (!$("#glNew").classList.contains("hidden")) $("#glFrom").focus(); });
 $("#glAddGo").addEventListener("click", async () => {
   const from = $("#glFrom").value.trim(), to = $("#glTo").value.trim();
