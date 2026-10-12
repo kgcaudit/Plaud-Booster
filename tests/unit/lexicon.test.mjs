@@ -161,3 +161,8 @@ test("확정한 뒤 다시 세어도 사람이 고친 근거는 남음", () => {
   const s = totals(lex.terms[0].vars[0]);
   assert.equal(s.n, 2); assert.equal(s.undo, 0);
 });
+
+test("배포(pages.yml)가 기본 사전 파일을 함께 올린다", () => {
+  const yml = fs.readFileSync(new URL("../../.github/workflows/pages.yml", import.meta.url), "utf8");
+  assert.match(yml, /cp [^\n]*web\/lexicon-seed\.json[^\n]*_site\//);
+});
