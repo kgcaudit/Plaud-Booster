@@ -6,7 +6,7 @@
 //   · 클라이언트 힌트 모델  예: "SM-F711N" → 기기 이름 표시용
 // 삼성 국내판은 같은 S 시리즈라도 해마다 엑시노스·스냅드래곤이 섞이므로, 단계는 모델 번호가 아니라 그래픽 칩 이름으로 정한다.
 //
-// 점수: 3DMark Wild Life Extreme Unlimited(그래픽 칩 연산 성능), Notebookcheck 모음 기준(2026-10 조사).
+// 점수: 휴대폰은 3DMark Wild Life Extreme Unlimited(score), PC는 3DMark Time Spy 그래픽(ts) — Notebookcheck 모음 기준(2026-10 조사).
 //   est: true는 직접 수치가 없어 발표 비율 등으로 어림한 값.
 export const GPU_TABLE = [
   { re: /adreno\D{0,8}840/i, name: "Adreno 840", soc: "Snapdragon 8 Elite Gen 5", score: 7500, est: true },
@@ -25,9 +25,39 @@ export const GPU_TABLE = [
   { re: /xclipse\D{0,8}930/i, name: "Xclipse 930", soc: "Exynos 2300", score: 2500, est: true },
   { re: /xclipse\D{0,8}920/i, name: "Xclipse 920", soc: "Exynos 2200", score: 1870 },
   { re: /mali-?g78/i, name: "Mali-G78", soc: "Exynos 2100 등", score: 1760 },
-  // PC(노트북 외장 칩) — 3DMark 점수 대신 이 앱 성능 시험 실측으로 단계를 정한다(level·measured)
-  // GeForce MX570 A(2GB): 2026-10-12 사용자 노트북(Edge, Windows 그래픽 설정 「고성능」) 전부 4/4 30초 창 2.7~3.3초 · CPU 12스레드 18초, 꺼짐 없음
-  { re: /geforce\s*mx\s*570/i, name: "GeForce MX570", soc: "노트북 외장(NVIDIA)", level: 4, measured: "30초 창 2.7초(CPU만 18초)" },
+  // ───────── PC(Windows) — 휴대폰과 달리 3DMark Time Spy 그래픽 점수(ts)로 단계를 정한다(levelForTs) ─────────
+  // 기준점(실측): GeForce MX570 A(ts 약 3,300) 전부 4/4 30초 창 2.7~3.3초 · CPU 12스레드 18초(약 5.6배), 꺼짐 없음.
+  // 점수: Notebookcheck 평균(노트북)·ComputerBase(데스크톱), 2026-10-12 조사. est는 같은 칩 다른 값·형제 칩으로 어림.
+  { re: /geforce\s*mx\s*570/i, name: "GeForce MX570", soc: "노트북 외장(NVIDIA)", level: 4, measured: "30초 창 2.7초(CPU만 18초)", ts: 3306 },
+  // NVIDIA — 이름이 칩마다 달라 이름으로 가린다(노트북은 「Laptop GPU」, MX·2050은 붙지 않음)
+  { re: /geforce\s*mx\s*550/i, name: "GeForce MX550", soc: "노트북 외장(NVIDIA)", ts: 2472 },
+  { re: /geforce\s*mx\s*450/i, name: "GeForce MX450", soc: "노트북 외장(NVIDIA)", ts: 1796 },
+  { re: /geforce\s*mx\s*[1-3]\d0/i, name: "GeForce MX100~300번대", soc: "노트북 외장(NVIDIA)", ts: 1322 },
+  { re: /geforce\s*rtx\s*2050/i, name: "GeForce RTX 2050", soc: "노트북 외장(NVIDIA)", ts: 3155 },
+  { re: /geforce\s*rtx\s*3050/i, name: "GeForce RTX 3050", soc: "NVIDIA", ts: 4448 },
+  { re: /geforce\s*rtx\s*50[5-9]0/i, name: "GeForce RTX 50번대", soc: "NVIDIA", ts: 8958 },
+  { re: /geforce\s*rtx\s*40[5-9]0/i, name: "GeForce RTX 40번대", soc: "NVIDIA", ts: 7679 },
+  { re: /geforce\s*rtx\s*(?:20[6-9]0|30[6-9]0)/i, name: "GeForce RTX 20·30번대", soc: "NVIDIA", ts: 5000, est: true },
+  { re: /rtx\s*(?:pro\s*)?\d{3,4}\s*(?:ada|blackwell)/i, name: "RTX Ada·Blackwell(업무용)", soc: "NVIDIA", ts: 5449 },
+  { re: /rtx\s*a500\b/i, name: "RTX A500", soc: "노트북 외장(NVIDIA)", ts: 2995 },
+  { re: /rtx\s*a\d{4}/i, name: "RTX A1000 이상(업무용)", soc: "NVIDIA", ts: 4256 },
+  // Intel 이름이 분명한 것(Arc ○○○V·T·B, 외장 Arc)
+  { re: /arc\S*\s*140v/i, name: "Arc 140V", soc: "Core Ultra 200V(Lunar Lake)", ts: 3883 },
+  { re: /arc\S*\s*130v/i, name: "Arc 130V", soc: "Core Ultra 200V(Lunar Lake)", ts: 3381 },
+  { re: /arc\S*\s*140t/i, name: "Arc 140T", soc: "Core Ultra 200H(Arrow Lake)", ts: 3719 },
+  { re: /arc\S*\s*130t/i, name: "Arc 130T", soc: "Core Ultra 200H(Arrow Lake)", ts: 2378 },
+  { re: /arc\S*\s*b3[79]0/i, name: "Arc B390·B370", soc: "Core Ultra 300(Panther Lake)", ts: 6050 },
+  { re: /arc\S*\s*(?:pro\s*)?[ab]\d{3}m?\b/i, name: "Arc 외장(A·B 시리즈)", soc: "Intel 외장", ts: 3269 },
+  // Intel 내장 — 「Intel(R) Graphics」처럼 이름이 여러 칩에 같아, 이름 뒤 장치 번호(0x0000○○○○)로 가린다
+  { re: /\(0x0000(?:B080|B081|B082|B083|B084|B085|B086|B087)\)/i, name: "Arc B390·B370", soc: "Core Ultra 300(Panther Lake)", ts: 6050 },
+  { re: /\(0x0000(?:7D55)\)/i, name: "Arc 내장(7~8 Xe)", soc: "Core Ultra 100H(Meteor Lake)", ts: 2881 },
+  { re: /\(0x0000(?:7D51)\)/i, name: "Arc 140T·130T", soc: "Core Ultra 200H(Arrow Lake)", ts: 2378 },
+  { re: /\(0x0000(?:64A0)\)/i, name: "Arc 140V·130V", soc: "Core Ultra 200V(Lunar Lake)", ts: 3381 },
+  { re: /\(0x0000(?:6420|64B0)\)/i, name: "Intel Graphics(Lunar Lake)", soc: "Core Ultra 200V", ts: 2500, est: true },
+  { re: /\(0x0000(?:B08F|B090|B0A0|B0B0)\)/i, name: "Intel Graphics(Xe3 4코어)", soc: "Core Ultra 300(Panther Lake)", ts: 2854 },
+  { re: /\(0x0000(?:7DD5|7D45|7D40|7DD1|7D41|7D67)\)/i, name: "Intel Graphics(Xe-LPG 4코어)", soc: "Core Ultra 100·200(Meteor·Arrow Lake)", ts: 1855 },
+  { re: /\(0x0000(?:9A49|9A40|46A6|46A8|46AA|A7A0|A7A1|A7AA|A7AB|A7AC)\)/i, name: "Iris Xe·Intel Graphics(Xe-LP)", soc: "11~13세대 Core·Core 100U", ts: 1175 },
+  { re: /\(0x0000(?:9A78|9A60|9A68|9A70|46A3|46B3|46C3|4626|4628|462A|46D0|46D1|46D2|46D3|46D4|A7A8|A7A9|A721|A7AD)\)/i, name: "UHD Graphics(Xe-LP)", soc: "11~13세대 Core(i3 등)", ts: 1067 },
 ];
 
 /** 가속 단계: 인코더 4조각 중 그래픽 칩에 올릴 조각 수 */
@@ -52,17 +82,34 @@ export function levelForScore(score) {
   return 0;
 }
 
+/**
+ * PC 점수(Time Spy 그래픽) → 기본 단계. 기준점: MX570 A(약 3,300)에서 전부 4/4가 CPU 12스레드보다 약 5.6배 빠름.
+ * 3,000 이상 전부 · 1,500 이상 절반 · 그 밑(Iris Xe·UHD 등 Xe-LP 내장)은 실측 전까지 끄기.
+ */
+export function levelForTs(ts) {
+  if (ts >= 3000) return 4;
+  if (ts >= 1500) return 2;
+  return 0;
+}
+
 /** WebGL 그래픽 칩 이름 → 표 항목(없으면 null) */
 export function matchGpu(renderer) {
   const s = String(renderer || "");
   return GPU_TABLE.find((g) => g.re.test(s)) || null;
 }
 
-/** 이름을 모를 때 WebGPU 세대(architecture)로 어림: adreno-8xx 전부, 7xx 절반, 그 밖 끄기 */
+/**
+ * 이름을 모를 때 WebGPU 세대(architecture, Dawn gpu_info.json 이름)로 어림:
+ * adreno-8xx 전부·7xx 절반 · NVIDIA ampere·lovelace·blackwell 전부·turing 절반 ·
+ * Intel 외장(gen-12hp·xe-2hpg) 전부, 내장 xe-lpg·xe-2lpg·xe-3lpg 절반 · 그 밖(gen-12lp 등) 끄기
+ */
 export function levelForArch(arch) {
-  const m = /adreno-(\d)xx/i.exec(String(arch || ""));
-  if (!m) return 0;
-  return +m[1] >= 8 ? 4 : +m[1] === 7 ? 2 : 0;
+  const a = String(arch || "").toLowerCase();
+  const m = /adreno-(\d)xx/.exec(a);
+  if (m) return +m[1] >= 8 ? 4 : +m[1] === 7 ? 2 : 0;
+  if (/^(ampere|lovelace|blackwell|gen-12hp|xe-2hpg)$/.test(a)) return 4;
+  if (/^(turing|xe-lpg|xe-2lpg|xe-3lpg)$/.test(a)) return 2;
+  return 0;
 }
 
 /** 삼성 모델 번호 앞부분 → 기기 이름(표시용). 국내판 N·해외판 B/U 등 끝자리는 무시 */
@@ -92,6 +139,7 @@ export function describeDevice(raw = {}) {
   let level, basis;
   if (!raw.webgpu) { level = 0; basis = "이 브라우저는 그래픽 칩 계산(WebGPU)을 지원하지 않음"; }
   else if (gpu && gpu.level != null) { level = gpu.level; basis = `${gpu.name} 이 앱 성능 시험 실측 — ${gpu.measured}`; }
+  else if (gpu && gpu.ts != null) { level = levelForTs(gpu.ts); basis = `${gpu.name} 3DMark Time Spy 그래픽 ${gpu.est ? "약 " : ""}${gpu.ts.toLocaleString("en-US")}${gpu.est ? "(어림)" : ""}`; }
   else if (gpu) { level = levelForScore(gpu.score); basis = `${gpu.name} 성능 점수 ${gpu.est ? "약 " : ""}${gpu.score.toLocaleString("en-US")}${gpu.est ? "(어림)" : ""}`; }
   else { level = levelForArch(raw.arch); basis = raw.arch ? `칩 이름을 몰라 세대(${raw.arch})로 어림` : "칩을 알 수 없음"; }
   return {

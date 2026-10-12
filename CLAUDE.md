@@ -188,6 +188,10 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
   Windows 설정 › 디스플레이 › 그래픽에서 브라우저를 「고성능」으로 지정해야 외장 칩을 씁니다(edge://gpu에서 NVIDIA 줄에 ACTIVE면 됨).
   PC 칩은 3DMark 점수 대신 성능 시험 실측으로 표에 넣습니다(GPU_TABLE의 level·measured). GeForce MX570 A(2GB, 2026-10-12 실측):
   끔(CPU 11스레드) 30초 창 18초·1시간 회의 전사 약 1시간 23분 → 사용-빠름(4/4) 3.3→2.7초·약 23분 50초(약 5.6배), 꺼짐 없음 → 자동 4.
+  **PC 표(2026-10-12 조사)**: PC 칩은 3DMark Time Spy 그래픽 점수(ts, Notebookcheck 평균·ComputerBase)로 levelForTs — 3,000 이상 전부 · 1,500 이상 절반 · 그 밑 끄기
+  (기준점 MX570 A ts 약 3,300 = 실측 5.6배). NVIDIA는 이름으로(RTX 20~50·3050·2050·업무용 Ada/Blackwell·A1000+ 전부, MX550·A500 절반, MX450 절반, MX350 이하 끄기),
+  Intel 내장은 「Intel(R) Graphics」 이름이 여러 칩에 같아 렌더러의 장치 번호(0x0000○○○○)로(Arc 140V·130V·140T·B390·B370·외장 Arc 전부, Meteor Lake Arc·Arrow Lake·Lunar/Panther 4코어 절반,
+  Iris Xe·UHD(Xe-LP) 끄기 — 실측 전). 이름을 모르면 WebGPU 세대(Dawn 이름 ampere·lovelace·blackwell·gen-12hp·xe-2hpg 전부, turing·xe-lpg·xe-2lpg·xe-3lpg 절반)로 어림.
 - 인코더는 **8비트 블록 양자화(MatMulNBits, 블록 128, 약 700MB)** 입니다(tools/to_nbits.py, 배포 때 int8에서 변환). 그래픽 칩(WebGPU)이 있으면
   인코더만 WebGPU로, 디코더·CAM++·Silero는 wasm으로 돕니다(설정 「그래픽 칩 가속」, settings.gpu). 10-08 두 구간 글자 오류율(묶어 전사):
   int8 30.8%·35.5% → 8비트 28.9%·32.7%. 4비트(444MB)는 반복 헛말이 늘어 40~45분 구간 44.0%로 나빠 쓰지 않았습니다.
