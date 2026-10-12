@@ -256,11 +256,12 @@ const goReview = async (title) => {
   await nav(page, "jobs");
   await page.click("#btnNew");
   assert.ok(await page.locator("#newJob").isVisible());
-  // Plaud 출처에도 화자 분리·전사가 있고, 고르면 Plaud 전사 파일 칸은 숨는다
+  // Plaud 출처에도 화자 분리·전사가 있고, 고르면 Plaud 전사 파일은 「선택」(검수에서 발언마다 견줌)
   await page.check("input[name='source'][value='plaud']");
   assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible());
   await page.check("input[name='mode'][value='diar']");
-  assert.ok(await page.locator("#fsTranscript").isHidden());
+  assert.ok(await page.locator("#fsTranscript").isVisible());
+  assert.match(await page.locator("#trHint").textContent(), /선택/);
   assert.ok(await page.locator("#audioFiles").evaluate((e) => e.multiple));
   await page.check("input[name='mode'][value='gap']");
   assert.ok(await page.locator("#fsTranscript").isVisible());
@@ -428,6 +429,73 @@ const goReview = async (title) => {
   await nav(page, "voices");
   await page.waitForSelector("#vpBody tr[data-n='정']");
   console.log("✓ 통합본(묶음 이름·녹음 시각)·목소리 기준 저장");
+
+  // Plaud 대조(2026-10-12): Plaud 출처 화자 분리 녹음에 검수 화면에서 Plaud 전사를 붙이면
+  // 발언마다 Plaud 글·「Plaud 글로」·많이 다른 발언은 「불확실」·화자 바뀜 「✂ 여기서 나누기」. 시험용으로 이 녹음의 출처를 Plaud로 바꾼다.
+  const plInfo = await page.evaluate(async () => {
+    const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); });
+    const get = (st, k) => new Promise((r) => { const q = db.transaction(st).objectStore(st).get(k); q.onsuccess = () => r(q.result); });
+    const all = await new Promise((r) => { const q = db.transaction("jobs").objectStore("jobs").getAll(); q.onsuccess = () => r(q.result); });
+    const keys = await new Promise((r) => { const q = db.transaction("jobs").objectStore("jobs").getAllKeys(); q.onsuccess = () => r(q.result); });
+    const k = all.findIndex((j) => j.title === "소니 시험"), id = keys[k];
+    await new Promise((r) => { const tx = db.transaction("jobs", "readwrite"); tx.objectStore("jobs").put({ ...all[k], source: "plaud" }, id); tx.oncomplete = r; });
+    const edits = (await get("edits", id)) || { e: {} };
+    const segs = (await get("results", id)).segs.filter((g) => !(edits.e[g.i] && edits.e[g.i].parts) && (g.file || 0) === 0).sort((a, b) => a.start - b.start);
+    const t = (x) => { const ms = Math.round(x * 1000); return `${String(Math.floor(ms / 3600000)).padStart(2, "0")}:${String(Math.floor(ms / 60000) % 60).padStart(2, "0")}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")},${String(ms % 1000).padStart(3, "0")}`; };
+    const out = [], info = { same: null, diff: null, chg: null };
+    const used = []; // 서로 8초 넘게 떨어진 발언만 고른다(이웃 Plaud 줄과 맞춰지지 않게)
+    const far = (g) => used.every((u) => g.start > u.end + 8 || g.end < u.start - 8);
+    for (const g of segs) {
+      const dur = g.end - g.start;
+      if (!far(g)) continue;
+      used.push(g);
+      if (info.chg == null && dur >= 3.5) { // 앞 절반 갑, 뒤 절반 을 — 가운데에서 화자가 바뀜
+        const [a, ...b] = g.text.split(" "), mid = g.start + dur / 2;
+        out.push([g.start, mid, "갑", a], [mid, g.end, "을", b.join(" ")]); info.chg = g.i; continue;
+      }
+      if (info.same == null) { out.push([g.start, g.end, "갑", g.text.replace("가짜 전사", "가짜 정사")]); info.same = g.i; continue; }
+      if (info.diff == null) { out.push([g.start, g.end, "을", "완전히 다른 내용의 문장이 여기 적혀 있습니다"]); info.diff = g.i; continue; }
+    }
+    info.srt = out.map(([a, b, w, x], n) => `${n + 1}\n${t(a)} --> ${t(b)}\n${w}: ${x}\n`).join("\n");
+    return info;
+  });
+  assert.ok(plInfo.same != null && plInfo.diff != null && plInfo.chg != null, JSON.stringify(plInfo));
+  await goReview("소니 시험");
+  await page.waitForSelector("#rvPlBar:not(.hidden) #plFile", { state: "attached" });
+  await page.setInputFiles("#plFile", { name: "plaud-test.srt", mimeType: "text/plain", buffer: Buffer.from(plInfo.srt, "utf8") });
+  await page.waitForSelector("#rvPlBar:has-text('Plaud 대조')");
+  assert.ok(await page.locator("#rvPlCmpWrap").isVisible());
+  await page.click(".scope button[data-f='all']");
+  const sameRow = page.locator(`#rvBody tr[data-i='${plInfo.same}']`), diffRow = page.locator(`#rvBody tr[data-i='${plInfo.diff}']`);
+  assert.match(await sameRow.locator(".pltx").first().textContent(), /정사 \d/); // Plaud 글(교정 사전 적용)
+  assert.match(await diffRow.locator(".votes").textContent(), /Plaud와 많이 다름/);
+  // 많이 다른 발언은 확인 전이면 「불확실」
+  await page.click(".scope button[data-f='need']").catch(() => {});
+  if (await diffRow.locator("button.okbtn:not(.done)").count()) assert.ok(await page.locator(`#rvBody tr[data-i='${plInfo.diff}']`).count(), "많이 다른 발언이 불확실에 없음");
+  await page.click(".scope button[data-f='all']");
+  await sameRow.locator("button[data-a='usePlaud']").click();
+  assert.match(await sameRow.locator("textarea").inputValue(), /정사 \d/);
+  assert.equal(await sameRow.locator(".pltx").count(), 0, "같아졌으면 Plaud 줄은 숨김");
+  if (plInfo.chg != null) {
+    const chgRow = page.locator(`#rvBody tr[data-i='${plInfo.chg}']`);
+    await chgRow.locator("button[data-a='plSplit']").click();
+    await page.waitForSelector(`#rvBody tr[data-i='${plInfo.chg}'] textarea.splitta`);
+    await page.click("#rvBody button[data-a='doSplit']");
+    await page.waitForSelector(`#rvBody tr[data-i='${plInfo.chg}'] .part:nth-child(2)`);
+    assert.equal(await chgRow.locator(".part").nth(1).locator("select.pspk").inputValue(), "을", "뒤 조각은 Plaud 화자");
+  }
+  await page.waitForSelector("#rvSave:has-text('저장됨')");
+  // 내보내기 정리 선택지: 처음엔 이어 붙이기·쉼표 켬, 고른 값은 다시 열어도 그대로
+  assert.ok(await page.locator("#exJoin").isChecked() && await page.locator("#exComma").isChecked() && !(await page.locator("#exShort").isChecked()));
+  await page.check("#exShort");
+  await page.uncheck("#exJoin");
+  await page.waitForTimeout(200);
+  await page.reload();
+  await page.waitForFunction(() => self.crossOriginIsolated === true);
+  await goReview("소니 시험");
+  assert.ok(!(await page.locator("#exJoin").isChecked()) && await page.locator("#exShort").isChecked());
+  await page.check("#exJoin"); await page.uncheck("#exShort");
+  console.log("✓ Plaud 대조: 검수에서 붙이기·발언마다 Plaud 글·많이 다름 → 불확실·Plaud 글로·화자 바뀜 나누기·내보내기 정리 선택 기억");
 
   // 휴대폰 폭(접은 폴드 화면 412px)에서 어느 탭도 가로로 넘치지 않는다(긴 발언·긴 이름 포함)
   await page.setViewportSize({ width: 412, height: 900 });

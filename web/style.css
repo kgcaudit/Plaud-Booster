@@ -637,3 +637,17 @@ button.play.on { background: var(--accent); color: var(--accent-ink); border-col
 .gllist .vf .to { color: var(--mute); font-size: 12.5px; }
 .gllist .vex mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 2px; }
 .hintset { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+
+/* ---- Plaud 대조(2026-10-12): 발언 아래 Plaud 글·화자 바뀜 제안, 검수 위 붙이기 줄, 내보내기 정리 선택지 */
+.pltx { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-top: 4px; font-size: 12.5px; color: var(--mute); min-width: 0; }
+.pltx .grow { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.pltx .plb { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--mute); }
+.pltx .act { font-size: 12px; padding: 2px 8px; }
+.pltx.plchg .plb { border-color: var(--warn); color: var(--warn); }
+.plbar { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; border: 1px dashed var(--line); border-radius: 10px; padding: 6px 10px; margin: 6px 0; font-size: 13px; min-width: 0; }
+.plbar .grow { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.plbar label.button { cursor: pointer; }
+.exopts { display: grid; gap: 2px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 4px; min-width: 0; }
+.exopts .hint { margin: 2px 0 0; }
+.lexbox .pln { font-size: 13px; color: var(--mute); }
+.lexbox .pln .grow { flex: 1 1 160px; min-width: 0; }

@@ -3,12 +3,13 @@ import * as S from "./store.js";
 import { parse as parseTranscript } from "./plaud.js";
 import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
 import { encryptBackup, decryptBackup, isEncrypted, backupName, MIN_PW, PLAIN_FORMAT } from "./backup.js";
-import { exportTxt, exportCsv, mergeBackup, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, LANG_LABEL, sourceOf, isDiar } from "./export.js";
+import { exportTxt, exportCsv, mergeBackup, mergedLines, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, LANG_LABEL, sourceOf, isDiar } from "./export.js";
 import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster, relabelRange, similarRegions, mixSuspects } from "./diar.js";
 import { isGeneric, knownPrints } from "./engine.js";
 import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd, jobFlow, josa } from "./review.js";
 import { describeDevice, LEVELS, levelLabel, lowerLevel } from "./devices.js";
-import { applyLexicon, activeRules, diffPairs, harvest, dropJob, fromGlossary, toPairs, judge, conflicts, setVar, addManual, totals, whenOf, REC_MIN, mergeLex } from "./lexicon.js";
+import { applyLexicon, activeRules, diffPairs, harvest, dropJob, fromGlossary, toPairs, judge, conflicts, setVar, addManual, totals, whenOf, REC_MIN, PL_REC, mergeLex, stripJosa } from "./lexicon.js";
+import { plaudAlign, plaudDiffers, plaudPairs, normText, PL_MIN } from "./compare.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -354,8 +355,10 @@ const SRC_TIPS = {
 // 할 일 카드의 data-src: "plaud"(Plaud만) · "plaud dev"(모든 출처). dev = 소니·휴대폰
 const srcOk = (label, src) => (label.dataset.src || "").split(" ").includes(src === "plaud" ? "plaud" : "dev");
 const NEEDS_TR = (m) => m === "gap" || m === "range" || m === "enroll"; // Plaud 전사 파일을 쓰는 할 일
+// Plaud 출처 화자 분리는 Plaud 전사를 붙일 수 있다(선택 — 검수에서 발언마다 Plaud 글과 견줌, 2026-10-12)
+const TR_OPT = (src, m) => src === "plaud" && isDiar(m);
 function applyMode() {
-  const src = source(), m = mode(), dev = src && !NEEDS_TR(m);
+  const src = source(), m = mode(), dev = src && !NEEDS_TR(m) && !TR_OPT(src, m);
   $("#fsTask").classList.toggle("hidden", !src);
   $$("#fsTask .mode").forEach((l) => l.classList.toggle("hidden", !src || !srcOk(l, src)));
   $$("#newJob .after-src").forEach((f) => f.classList.toggle("hidden", !src));
@@ -382,7 +385,8 @@ function applyMode() {
   nums.forEach((n, i) => { n.textContent = (i < 3 ? i + 1 : dev && i >= 4 ? i : i + 1) + "."; });
   if (MULTI(m) && F.audio.length > 1) { F.audio = orderFiles(F.audio); renderAudioList(); }
   $("#trHint").textContent = m === "gap" || m === "enroll" ? "필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(시간·화자를 켜고 내보내기)"
-    : "권장 — 같은 녹음의 전사가 있으면 그 사람들 목소리로 화자를 맞힙니다";
+    : TR_OPT(src, m) ? "선택 — 같은 녹음의 Plaud 전사가 있으면 검수에서 발언마다 Plaud 글을 함께 보고, 많이 다른 발언을 먼저 확인합니다(나중에 검수 화면에서 붙여도 됨)"
+      : "권장 — 같은 녹음의 전사가 있으면 그 사람들 목소리로 화자를 맞힙니다";
   drawTape();
 }
 
@@ -507,7 +511,9 @@ $("#newJob").addEventListener("submit", async (ev) => {
     range = { from: a, to: b };
   }
   const id = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14) + "-" + Math.random().toString(36).slice(2, 6);
-  const tr = !MULTI(m) ? trIn : null;
+  // Plaud 전사는 음원 1개와 짝 — 화자 분리는 여러 파일을 받으므로 1개일 때만 붙인다
+  if (trIn && TR_OPT(src, m) && files.length !== 1) return setMsg("Plaud 전사는 음원 1개일 때만 붙일 수 있습니다 — 전사 파일을 빼거나 음원을 1개만 고르세요.", true);
+  const tr = !MULTI(m) || TR_OPT(src, m) ? trIn : null;
   const att = Math.max(0, Math.min(30, Math.round(+$("#attendees").value || 0)));
   const job = {
     title: $("#jobTitle").value.trim() || files[0].file.name.replace(/\.[^.]+$/, ""),
@@ -684,7 +690,7 @@ $("#jobList").addEventListener("click", async (ev) => {
 // 할 일 순서대로 세 단계: ① 화자 이름 지정(화자 분리 작업만) → ② 발언 검수 → ③ 내보내기.
 // 보기 범위는 포함 관계(전체 ⊃ 확인함·미검수, 미검수 ⊃ 확인 필요·판정 확실) — 규칙은 review.js.
 const REVIEW = { id: null, want: null, data: null, edits: {}, names: {}, filter: "need", editedOnly: false, saveT: null, gl: [], split: null, visible: [], fold: {}, undo: [], only: null, tok: 0,
-  lex: { terms: [] }, rules: [], hint: null, hintNo: new Set(), focusI: null };
+  lex: { terms: [] }, rules: [], hint: null, hintNo: new Set(), focusI: null, pl: new Map() };
 /* ---- 교정 사전(배우는 사전, lexicon.js — 2026-10-12 사용자 승인으로 kv「lexicon」 추가)
  * 처음 열 때 예전 kv「glossary」 쌍 목록을 확정 항목으로 옮긴다. 예전 키에는 늘 확정 꼴을 펼친 목록을 같이 쓴다(예전 판·백업 호환).
  * 고치기는 LEXQ로 한 줄로 세워, 앞 쓰기가 끝난 뒤 다음이 읽는다(검수 근거 집계와 사전 화면 수정이 겹쳐도 한쪽이 사라지지 않게). */
@@ -757,6 +763,14 @@ async function reviewData(id) {
   const [job, result, edits, plaud, lex] = await Promise.all([S.get("jobs", id), S.get("results", id), S.get("edits", id), S.get("plaud", id), getLex()]);
   return { job: { ...job, id }, result, edits: { e: {}, ...(edits || {}) }, plaud: plaud || [], glossary: toPairs(lex), lexicon: lex };
 }
+/* ---- Plaud 대조(compare.js, 2026-10-12): Plaud 출처 화자 분리 녹음에 같은 녹음의 Plaud 전사가 있으면 발언마다 견준다.
+ * 누락 보충·구간 다시 전사는 Plaud 글이 없는 곳을 전사한 것이라 견주지 않는다. Plaud 화자 이름은 등록 때 바꾼 이름(speakerMap)으로. */
+const plaudCmp = (d) => !!(d && d.result && isDiar(d.job.mode) && d.plaud && d.plaud.length);
+function plaudOf(d) {
+  if (!plaudCmp(d)) return new Map();
+  const smap = d.job.speakerMap || {};
+  return plaudAlign(d.result.segs, d.plaud.map((p) => ({ ...p, speaker: smap[p.speaker] || p.speaker })));
+}
 async function openReview(id) {
   await flushEdits(); // 앞 작업에 쓰지 못한 수정부터
   const tok = (REVIEW.tok = (REVIEW.tok || 0) + 1); // 작업을 빨리 바꿔 늦게 끝난 앞 읽기가 뒤 작업을 덮지 않게
@@ -778,6 +792,7 @@ async function openReview(id) {
   REVIEW.hint = null; REVIEW.hintNo = new Set();
   REVIEW.undo = [];
   REVIEW.split = null;
+  REVIEW.pl = plaudOf(REVIEW.data);
   const plaudish = REVIEW.data.job.mode === "gap" || REVIEW.data.job.mode === "range";
   $("#rvPlaudWrap").classList.toggle("hidden", !plaudish);
   $("#exPlaudWrap").classList.toggle("hidden", !plaudish);
@@ -807,7 +822,7 @@ const isNeed = (g) => {
   if (g.cluster) { // 소니 녹음: 이름 없는 묶음 · 묶음과 덜 닮음 · 다른 묶음과 차이 작음 · 2초 미만
     const e = REVIEW.edits[g.i];
     const named = (e && (e.speaker || (e.parts && e.parts.every((p) => p.speaker)))) || (REVIEW.names[g.cluster] && !isGeneric(REVIEW.names[g.cluster]));
-    return !named || g.conf < 0.5 || g.margin < 0.1 || g.end - g.start < 2;
+    return !named || g.conf < 0.5 || g.margin < 0.1 || g.end - g.start < 2 || plaudDiffers(REVIEW.pl.get(g.i));
   }
   return g.kind !== "단일" || g.conf < 0.6;
 };
@@ -853,6 +868,66 @@ function renderScope() {
   renderNamesStep();
   applyGeom($("#rvMain"));
 }
+/** 발언 아래 Plaud 줄: 같은 자리 Plaud 글(다를 때만)·「Plaud 글로」, Plaud에서 화자가 바뀌면 「✂ 여기서 나누기」 */
+const knownName = (n) => Object.values(REVIEW.names).includes(n) || (REVIEW.vpNames || []).includes(n);
+function plLine(g, shown) {
+  const r = REVIEW.pl.get(g.i);
+  if (!r || !$("#rvPlCmp").checked) return "";
+  const out = [];
+  const pt = r.text ? gloss(r.text) : ""; // Plaud 글에도 교정 사전 확정 꼴을 적용해 보인다(통합본과 같게)
+  if (pt && normText(pt) !== normText(shown)) {
+    out.push(`<div class="pltx"><span class="plb">Plaud</span><span class="grow">${esc(pt)}</span><button type="button" class="act" data-a="usePlaud" title="이 발언 글을 Plaud 글로 바꿉니다(↶로 되돌림)">Plaud 글로</button></div>`);
+  } else if (!r.text && plaudDiffers(r)) out.push('<div class="pltx"><span class="plb">Plaud</span><span class="grow msg">이 자리에 Plaud 글이 없습니다 — 헛말인지 들어 보세요</span></div>');
+  if (r.change) out.push(`<div class="pltx plchg"><span class="plb">Plaud</span><span class="grow">${hms(r.change.t)}부터 ${esc(r.change.to)}의 말로 적혀 있습니다</span><button type="button" class="act" data-a="plSplit" title="Plaud 화자가 바뀌는 자리를 나눌 곳으로 잡습니다">✂ 여기서 나누기</button></div>`);
+  return out.join("");
+}
+/** 검수 위 Plaud 줄: 붙이기(없을 때) · 견준 결과(있을 때) */
+function renderPlBar() {
+  const d = REVIEW.data, bar = $("#rvPlBar");
+  const can = d && d.result && isDiar(d.job.mode) && sourceOf(d.job) === "plaud";
+  bar.classList.toggle("hidden", !can);
+  $("#rvPlCmpWrap").classList.toggle("hidden", !plaudCmp(d));
+  if (!can) { bar.innerHTML = ""; return; }
+  if (!plaudCmp(d)) {
+    bar.innerHTML = `<span class="grow">같은 녹음의 Plaud 전사(TXT·SRT·DOCX)를 붙이면 발언마다 Plaud 글과 견주고, 많이 다른 발언을 「불확실」에 넣습니다.</span>
+      <label class="button">Plaud 전사 붙이기<input type="file" id="plFile" accept=".txt,.srt,.docx,.json" class="hidden"></label>`;
+    return;
+  }
+  let diff = 0, chg = 0;
+  for (const r of REVIEW.pl.values()) { if (plaudDiffers(r)) diff++; if (r.change) chg++; }
+  bar.innerHTML = `<span class="grow"><b>Plaud 대조</b> · ${REVIEW.pl.size}개 발언 견줌 · 많이 다름(겹침 ${Math.round(PL_MIN * 100)}% 미만) ${diff}개 — 「불확실」에 넣음${chg ? ` · 화자 바뀜 ${chg}곳` : ""}</span>
+    <button type="button" class="link" id="plDrop" title="붙인 Plaud 전사를 뗍니다(검수 수정은 그대로)">떼기</button>`;
+}
+$("#rvPlBar").addEventListener("change", async (ev) => {
+  if (!ev.target.matches("#plFile")) return;
+  const f = ev.target.files[0], id = REVIEW.id;
+  if (!f || !id) return;
+  try {
+    const r = await parseTranscript(f.name, new Uint8Array(await f.arrayBuffer()));
+    if (!r.segs.length) throw new Error("발언을 찾지 못했습니다");
+    const dur = (REVIEW.data.job.audioFiles || []).reduce((m, x) => m + (x.dur || 0), 0);
+    if (dur && r.endSec > dur + 60) throw new Error(`전사(${hms(r.endSec)})가 음원(${hms(dur)})보다 깁니다 — 같은 녹음인지 확인하세요`);
+    await S.put("plaud", id, r.segs);
+    await S.saveJob(id, { transcript: { name: f.name, count: r.segs.length, endSec: r.endSec } });
+    if (REVIEW.id !== id) return;
+    REVIEW.data.plaud = r.segs; REVIEW.data.job.transcript = { name: f.name, count: r.segs.length, endSec: r.endSec };
+    REVIEW.pl = plaudOf(REVIEW.data);
+    renderReview();
+    scheduleHarvest(id, REVIEW.edits, REVIEW.names, 300);
+    toast(`Plaud 전사 ${r.segs.length}개 발언을 붙였습니다` + (r.warnings.length ? ` — ${r.warnings[0]}` : ""));
+  } catch (e) { toast("Plaud 전사를 읽지 못했습니다: " + e.message); }
+});
+$("#rvPlBar").addEventListener("click", async (ev) => {
+  if (!ev.target.closest("#plDrop")) return;
+  const id = REVIEW.id;
+  if (!id || !confirm("붙인 Plaud 전사를 뗄까요? 검수 수정은 그대로 남습니다.")) return;
+  await S.del("plaud", id);
+  await S.saveJob(id, { transcript: null });
+  if (REVIEW.id !== id) return;
+  REVIEW.data.plaud = []; REVIEW.data.job.transcript = null; REVIEW.pl = new Map();
+  renderReview(); scheduleHarvest(id, REVIEW.edits, REVIEW.names, 300);
+});
+$("#rvPlCmp").addEventListener("change", renderReview);
 function renderReview() {
   const d = REVIEW.data;
   if (!d) return;
@@ -894,6 +969,7 @@ function renderReview() {
   }
   items.sort((a, b) => a.file - b.file || a.t - b.t);
   $("#rvEmpty").classList.toggle("hidden", items.length > 0);
+  renderPlBar();
   const canPlay = !job.audioDeleted;
   const playBtn = (f, s0, e0) => (canPlay ? `<button type="button" class="play" title="듣기" data-s="${s0}" data-e="${e0}" data-f="${f}">▶</button>` : "");
   const optsFor = (cur) => (nameList.includes(cur) ? nameList : [cur, ...nameList]).map((n) => `<option ${n === cur ? "selected" : ""}>${esc(n)}</option>`).join("") + '<option value="__new">직접 입력…</option>';
@@ -927,7 +1003,7 @@ function renderReview() {
       // 사람이 고치지 않은 발언: 사전이 바꾼 곳을 칩으로 보이고, 누르면 그 자리만 원래대로(되돌림은 사전 근거로 셈)
       const lx = e.text == null ? applyLexicon(g.text, REVIEW.rules) : { text: e.text, hits: [] };
       const chips = lx.hits.length && !splitting ? `<div class="lexhits"><span>사전</span>${lx.hits.map((h) => `<button type="button" class="lexchip" data-a="lexUndo" data-k="${h.k}" title="교정 사전이 바꾼 곳 — 누르면 여기만 원래 「${esc(h.from)}」로">${esc(h.from)} → ${esc(h.to)} ↺</button>`).join("")}</div>` : "";
-      body = `<textarea rows="1" aria-label="발언"${splitting ? ' class="splitta"' : ""}>${esc(lx.text)}</textarea>${chips}${splitting ? splitBox() : ""}`;
+      body = `<textarea rows="1" aria-label="발언"${splitting ? ' class="splitta"' : ""}>${esc(lx.text)}</textarea>${chips}${splitting ? splitBox() : plLine(g, lx.text)}`;
     }
     let spkCell, judge;
     if (parts) spkCell = `<span class="msg">${parts.length}조각으로 나눔</span>`;
@@ -938,6 +1014,8 @@ function renderReview() {
       if (g.conf < 0.5) why.push("묶음과 덜 닮음");
       if (g.margin < 0.1) why.push("다른 묶음과 비슷");
       if (g.end - g.start < 2) why.push("짧음");
+      const pr = REVIEW.pl.get(g.i);
+      if (plaudDiffers(pr)) why.push(pr.text ? `Plaud와 많이 다름(겹침 ${Math.round(pr.sim * 100)}%)` : "Plaud에 없는 말");
       judge = `<span class="kind ${why.length ? "k-저신뢰" : "k-단일"}">${esc(clusterLabel(g.cluster).replace("Speaker ", "S"))} ${Math.round(g.conf * 100)}%</span><span class="votes">${esc(why.join(" · "))}</span>`;
     } else {
       const kl = g.kind === "단일" && g.conf < 0.6 ? "저신뢰" : g.kind;
@@ -958,7 +1036,7 @@ function renderReview() {
   fitAll($$("#rvBody textarea"));
   renderScope();
   if (SEG.key) segUi(true); // 다시 그린 뒤에도 조작 줄을 재생 중인 발언에 붙임
-  if (sp) { const ta = $(`#rvBody tr[data-i="${sp.i}"] textarea.splitta`); if (ta) { ta.focus(); splitPreview(ta); } }
+  if (sp) { const ta = $(`#rvBody tr[data-i="${sp.i}"] textarea.splitta`); if (ta) { ta.focus(); if (sp.pos != null) { try { ta.setSelectionRange(sp.pos, sp.pos); } catch { /* 글이 바뀜 */ } } splitPreview(ta); } }
   else if (keep && keep.i != null) {
     const tr = $(`#rvBody tr[data-i="${CSS.escape(keep.i)}"]`);
     const ta = tr && (keep.k != null ? $(`.part[data-k="${CSS.escape(keep.k)}"] textarea`, tr) : $("td > textarea", tr));
@@ -967,6 +1045,7 @@ function renderReview() {
   TL.cur = null; tlDraw();
   drawHint();
   renderLexBox();
+  renderExOpts();
   if (REVIEW.focusI != null) { // 사전 예문에서 들어옴: 그 발언으로
     const tr = $(`#rvBody tr[data-i="${CSS.escape(String(REVIEW.focusI))}"]`);
     REVIEW.focusI = null;
@@ -1040,6 +1119,25 @@ $("#rvBody").addEventListener("click", (ev) => {
     return;
   }
   if (a === "split") { REVIEW.split = { i: g.i, k: +b.dataset.k }; renderReview(); return; }
+  if (a === "usePlaud") { // Plaud 글로 바꾸기 — 확인 표시는 붙이지 않음(글 고치기와 같음)
+    const r = REVIEW.pl.get(g.i);
+    if (!r || !r.text) return;
+    pushUndo();
+    const e = editOf(i), before = e.text ?? gloss(g.text), v = gloss(r.text).trim();
+    if (v === gloss(g.text).trim()) delete e.text; else e.text = v;
+    saveEdits(); renderReview(); lexHintFrom(i, before, v);
+    toast("Plaud 글로 바꿨습니다 — ↶ 단추로 되돌릴 수 있습니다");
+    return;
+  }
+  if (a === "plSplit") { // Plaud 화자 바뀜 자리를 나눌 곳으로 잡아 둔다(커서를 옮기면 그 자리에서)
+    const r = REVIEW.pl.get(g.i), e = REVIEW.edits[g.i] || {};
+    if (!r || !r.change) return;
+    const shown = e.text ?? gloss(g.text), back = g.text.slice(r.change.pos).trim();
+    let pos = back ? shown.indexOf(back.slice(0, Math.min(8, back.length))) : -1;
+    if (pos <= 0) { pos = Math.round((r.change.pos / Math.max(1, g.text.length)) * shown.length); while (pos > 0 && !/\s/.test(shown[pos - 1])) pos--; }
+    REVIEW.split = { i: g.i, k: 0, pos: pos > 0 ? pos : null, at: r.change.t, spk: r.change.to };
+    renderReview(); return;
+  }
   if (a === "splitCancel") { // 나누려다 그만둬도 글 칸에서 고친 것은 남긴다
     const ta = $("textarea.splitta", tr), e = editOf(i), k = REVIEW.split.k, v = ta ? ta.value.trim() : null;
     if (v != null) {
@@ -1054,10 +1152,12 @@ $("#rvBody").addEventListener("click", (ev) => {
   }
   if (a === "doSplit" || a === "doSplitPlay") {
     const ta = $("textarea.splitta", tr), e = editOf(i), k = REVIEW.split.k;
-    const at = a === "doSplitPlay" ? playPosIn(g.file || 0, +b.dataset.s, +b.dataset.e) : undefined;
+    const sp0 = REVIEW.split, fromPl = sp0.at != null && ta.selectionStart === sp0.pos; // Plaud 제안 자리 그대로면 Plaud 시각·화자로
+    const at = a === "doSplitPlay" ? playPosIn(g.file || 0, +b.dataset.s, +b.dataset.e) : fromPl ? sp0.at : undefined;
     const parts = splitPart(g, e.parts, k, ta.value, ta.selectionStart, at ?? undefined);
     if (!parts) { toast("커서를 글 중간에 두세요"); return; }
     pushUndo();
+    if (fromPl && sp0.spk && parts[k + 1] && sp0.spk !== speakerOf(g, { e: REVIEW.edits, names: REVIEW.names }) && knownName(sp0.spk)) parts[k + 1].speaker = sp0.spk;
     e.parts = parts; delete e.text;
     REVIEW.split = null;
     saveEdits(); renderReview(); toast("나눴습니다 — 조각마다 화자를 고르세요");
@@ -1116,7 +1216,15 @@ async function runHarvest(id, e, names) {
     for (const g of d.result.segs) if (g.speaker) who.add(g.speaker);
     for (const n of [...who]) if (!n || isGeneric(n)) who.delete(n);
     const segs = d.result.segs.map((g) => ({ i: g.i, text: g.text }));
-    const lex = await lexUpdate((l) => harvest(l, id, segs, e, who));
+    // Plaud 대조 쌍(발언마다 같은 쌍 한 번) — 같은 자리 Plaud 글과 소리가 닮게 다른 말
+    const pl = REVIEW.id === id && REVIEW.data === d ? REVIEW.pl : plaudOf(d), plPairs = [];
+    for (const g of d.result.segs) {
+      const r = pl.get(g.i);
+      if (!r || !r.text) continue;
+      const seen = new Set();
+      for (const p of plaudPairs(g.text, r.text, diffPairs, stripJosa)) { const k = p.from + "\u0000" + p.to; if (!seen.has(k)) { seen.add(k); plPairs.push({ i: g.i, ...p }); } }
+    }
+    const lex = await lexUpdate((l) => harvest(l, id, segs, e, who, plPairs));
     if (REVIEW.id === id) { setLex(lex); renderLexBox(); }
   } catch (err) { console.warn("교정 사전 근거 집계 실패", err); }
 }
@@ -1210,16 +1318,19 @@ function renderLexBox() {
   for (const t of lex.terms) for (const v of t.vars) {
     if (v.st !== "cand" || !v.by || !v.by[id]) continue;
     const j = judge(lex, t, v, conf);
-    if (j.s.n < REC_MIN || j.s.undo) continue;
+    if ((j.s.n < REC_MIN && j.s.n + j.s.pl < PL_REC) || j.s.undo) continue;
     items.push({ t, v, j });
   }
-  box.classList.toggle("hidden", !items.length);
-  if (!items.length) { box.innerHTML = ""; return; }
-  items.sort((x, y) => y.j.s.n - x.j.s.n);
-  box.innerHTML = `<div class="lxh"><b>이번 검수에서 찾은 교정 후보 ${items.length}개</b><span class="msg">사전에 넣으면 이 화면과 다음 녹음부터 바로 쓰입니다</span></div>` + items.map(({ t, v, j }) => {
-    const here = v.by[id].n, other = j.s.jobs - 1, when = j.common ? whenOf(v) : [];
+  let plN = 0;
+  for (const t of lex.terms) for (const v of t.vars) if (v.st === "cand" && v.by && v.by[id] && v.by[id].pl) plN++;
+  const plNote = plN ? `<div class="lxh pln"><span class="grow">Plaud와 견줘 모은 후보 ${plN}개를 교정 사전 「후보」에 넣었습니다</span><button type="button" class="link" data-lc="glcand">보기</button></div>` : "";
+  box.classList.toggle("hidden", !items.length && !plN);
+  if (!items.length) { box.innerHTML = plNote; return; }
+  items.sort((x, y) => y.j.s.n + y.j.s.pl - x.j.s.n - x.j.s.pl);
+  box.innerHTML = `<div class="lxh"><b>이번 검수에서 찾은 교정 후보 ${items.length}개</b><span class="msg">사전에 넣으면 이 화면과 다음 녹음부터 바로 쓰입니다</span></div>` + plNote + items.map(({ t, v, j }) => {
+    const here = v.by[id].n || 0, hpl = v.by[id].pl || 0, other = j.s.jobs - 1, when = j.common ? whenOf(v) : [];
     const badge = j.conflict ? '<span class="chip warn">고친 말이 둘 이상</span>' : j.name ? '<span class="chip">이름일 수 있음</span>' : j.common ? '<span class="chip">흔한 낱말</span>' : '<span class="chip acc">추천</span>';
-    const ev = [`이번 녹음 ${here}곳`, other > 0 ? `다른 녹음 ${other}건` : "", j.common ? `고치지 않고 확인한 곳 ${j.s.neg}` : ""].filter(Boolean).join(" · ");
+    const ev = [here ? `이번 녹음 고침 ${here}곳` : "", hpl ? `Plaud 대조 ${hpl}곳` : "", other > 0 ? `다른 녹음 ${other}건` : "", j.common ? `고치지 않고 확인한 곳 ${j.s.neg}` : ""].filter(Boolean).join(" · ");
     const note = j.conflict ? "같은 말을 다른 말로도 고친 적이 있습니다 — 맞는 쪽만 넣으세요"
       : j.name ? "사람·업체 이름은 철자를 확인한 뒤 넣으세요"
       : j.common && when.length ? `「${esc(v.from)}」${josa(v.from, "은/는").slice(v.from.length)} 실제 낱말일 수 있어 뒤에 「${when.map(esc).join("·")}」${josa(when[when.length - 1], "이/가").slice(when[when.length - 1].length)} 올 때만 바꿉니다` : "";
@@ -1230,6 +1341,7 @@ function renderLexBox() {
 $("#lexBox").addEventListener("click", async (ev) => {
   const b = ev.target.closest("button[data-lc]");
   if (!b) return;
+  if (b.dataset.lc === "glcand") { GL.tab = "cand"; showTab("glossary"); return; }
   const c = b.closest(".lxc"), to = c.dataset.to, from = c.dataset.from, st = b.dataset.lc;
   b.disabled = true;
   try {
@@ -1651,7 +1763,7 @@ async function doExport(fmt) {
   try {
     await flushEdits(); // 방금 고친 글이 빠지지 않게
     const data = await reviewData(id);
-    const opts = { usePlaud: $("#exPlaud").checked, useGlossary: $("#exGl").checked };
+    const opts = { usePlaud: $("#exPlaud").checked, useGlossary: $("#exGl").checked, ...exOpts() };
     const name = safeName(data.job.title) + "_통합본." + fmt;
     // 앞에 UTF-8 표시(BOM)를 붙인다: 없으면 휴대폰 크롬의 글 보기·윈도 메모장·엑셀이 한글을 EUC-KR로 짐작해 깨져 보임
     const BOM = "\uFEFF";
@@ -1661,6 +1773,29 @@ async function doExport(fmt) {
     if (REVIEW.id === id) { saveRv({ exportedAt: S.now() }); renderHead(); }
     else await S.update("kv", "rv:" + id, (o) => ({ ...(o || {}), exportedAt: S.now() })).catch(() => {});
   } catch (e) { toast("내보내지 못했습니다: " + e.message); }
+}
+/* 통합본 정리(이어 붙이기·맞장구 빼기·금액 쉼표 — export.js tidyLines). 고른 값은 설정(settings.export)에 남긴다. 처음엔 이어 붙이기·쉼표만 켬 */
+const EX_DEF = { join: true, dropShort: false, comma: true };
+const exOpts = () => Object.fromEntries($$(".exopts input[data-xo]").map((x) => [x.dataset.xo, x.checked]));
+async function loadExOpts() {
+  const o = { ...EX_DEF, ...(((await S.get("kv", "settings")) || {}).export || {}) };
+  $$(".exopts input[data-xo]").forEach((x) => { x.checked = !!o[x.dataset.xo]; });
+}
+$$(".exopts input[data-xo]").forEach((x) => x.addEventListener("change", () => {
+  const o = exOpts();
+  S.update("kv", "settings", (st) => ({ ...(st || {}), export: o })).catch(() => {});
+}));
+/** 정리하면 몇 줄이 되는지(이어 붙이기·맞장구 줄) */
+function renderExOpts() {
+  const d = REVIEW.data;
+  if (!d || !d.result) return;
+  try {
+    const data = { ...d, edits: { ...d.edits, e: REVIEW.edits, names: REVIEW.names }, lexicon: REVIEW.lex, glossary: REVIEW.gl };
+    const base = { usePlaud: $("#exPlaud").checked, useGlossary: false };
+    const all = mergedLines(data, base).length, joined = mergedLines(data, { ...base, join: true }).length, kept = mergedLines(data, { ...base, dropShort: true }).length;
+    $("#exJoinN").textContent = all > joined ? `(${all} → ${joined}줄)` : "";
+    $("#exShortN").textContent = all > kept ? `(${all - kept}줄)` : "";
+  } catch (e) { console.warn(e); }
 }
 $("#exTxt").addEventListener("click", () => doExport("txt"));
 $("#exCsv").addEventListener("click", () => doExport("csv"));
@@ -1969,7 +2104,7 @@ async function loadGlossary() {
   for (const t of lex.terms) for (const v of t.vars) cnt[groupOf(t, v)]++;
   if (!cnt[GL.tab]) GL.tab = cnt.rec ? "rec" : cnt.on ? "on" : cnt.cand ? "cand" : cnt.off ? "off" : "on";
   $("#glTabs").innerHTML = GL_TABS.map(([k, n]) => `<button type="button" role="tab" data-gt="${k}" aria-selected="${GL.tab === k}" class="${GL.tab === k ? "on" : ""}"${cnt[k] ? "" : " disabled"}>${n} <b>${cnt[k]}</b></button>`).join("");
-  const why = { on: "검수 화면 표시와 내보내기에 적용됩니다.", rec: "서로 다른 발언 2곳 이상에서 같게 고친 말입니다. 확정하면 바로 적용됩니다.",
+  const why = { on: "검수 화면 표시와 내보내기에 적용됩니다.", rec: "서로 다른 발언 2곳 이상에서 같게 고친 말(Plaud 대조까지 더하면 3곳 이상)입니다. 확정하면 바로 적용됩니다.",
     cand: "한 번 고쳤거나 확인이 필요한 말입니다(이름·흔한 낱말·충돌). 자동으로 바꾸지 않습니다.", off: "적용하지 않는 말입니다. 근거는 남아 있어 다시 켤 수 있습니다." }[GL.tab];
   const cards = [];
   for (const t of [...lex.terms].sort((a, b) => a.to.localeCompare(b.to, "ko"))) {
@@ -1977,7 +2112,7 @@ async function loadGlossary() {
     if (!vs.length) continue;
     const rows = vs.map((v) => {
       const j = judge(lex, t, v, conf), s = j.s;
-      const ev = [s.jobs ? `녹음 ${s.jobs}건` : "", s.n ? `고침 ${s.n}` : "", s.app ? `적용 ${s.app}` : "", s.undo ? `되돌림 ${s.undo}` : "", s.neg ? `고치지 않고 확인 ${s.neg}` : "", v.manual ? (v.src ? `기본 사전(${v.src})` : "직접 넣음") : ""].filter(Boolean).join(" · ");
+      const ev = [s.jobs ? `녹음 ${s.jobs}건` : "", s.n ? `고침 ${s.n}` : "", s.app ? `적용 ${s.app}` : "", s.undo ? `되돌림 ${s.undo}` : "", s.neg ? `고치지 않고 확인 ${s.neg}` : "", s.pl ? `Plaud 대조 ${s.pl}` : "", v.manual ? (v.src ? `기본 사전(${v.src})` : "직접 넣음") : ""].filter(Boolean).join(" · ");
       const tags = [j.conflict ? '<span class="chip warn">충돌</span>' : "", j.common && v.st !== "on" ? '<span class="chip">흔한 낱말</span>' : "", v.when ? `<span class="chip">조건: 뒤에 ${v.when.map(esc).join("·")}</span>` : "", v.why ? `<span class="chip bad">${esc(v.why)}</span>` : ""].join("");
       const acts = v.st === "on" ? '<button type="button" data-g="when">조건</button><button type="button" data-g="off">끄기</button>'
         : v.st === "off" ? `<button type="button" data-g="on">다시 켜기</button>${s.n || s.app || s.undo || s.neg ? "" : '<button type="button" data-g="del">지우기</button>'}`
@@ -2271,6 +2406,7 @@ $("#rsPw").addEventListener("keydown", (e) => { if (e.key === "Enter") restoreEn
   }
   try { if (navigator.storage.persist) await navigator.storage.persist(); } catch { /* 무시 */ }
   startWorker();
+  loadExOpts().catch(() => {});
   const start = (location.hash || "#jobs").slice(1);
   // 홈 밖 화면 주소로 바로 열어도 그 아래에 홈 칸을 깔아 둔다(뒤로 가기 → 홈)
   history.replaceState({ home: 1 }, "", location.pathname + location.search + "#jobs");

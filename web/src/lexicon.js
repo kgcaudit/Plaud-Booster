@@ -7,6 +7,7 @@
 //   by  녹음별 근거 — 그 녹음을 검수할 때마다 통째로 다시 센다(같은 수정을 두 번 세지 않게)
 //       n=사람이 이렇게 고친 발언 수 · neg=이 꼴이 있는데 고치지 않고 ✓확인한 발언 수
 //       undo=사전이 바꾼 것을 사람이 되돌린 수 · app=사전이 바꾼 채로 ✓확인된 수 · nx=고친 자리 바로 뒤 어절(앞 두 글자)
+//       pl=같은 자리 Plaud 전사가 이렇게 적은 발언 수(Plaud 대조, 2026-10-12 — 사람이 고친 것보다 문턱을 높게: PL_REC)
 //
 // 적용(applyLexicon)은 어절 경계 안에서만, 긴 꼴부터 한 번에 훑어 바꾼다. 이미 바른 꼴이면 건너뛴다.
 // 후보 뽑기(diffPairs)는 원래 전사와 고친 글을 어절로 맞춰 바뀐 덩어리를 찾고, 조사를 떼고, 소리가 닮은 것만 남긴다.
@@ -14,6 +15,8 @@
 export const LEX_FORMAT = 1;
 export const SIM_MIN = 0.55; // 자모 닮음 문턱(이보다 낮으면 말을 바꿔 쓴 것으로 봄)
 export const REC_MIN = 2; // 추천: 서로 다른 발언 수
+export const PL_REC = 3; // 추천: Plaud 대조까지 더한 발언 수(Plaud도 자동 전사라 더 높게)
+export const PL_KEEP = 2; // Plaud 대조 쌍은 한 녹음에서 이만큼 나와야 후보로 넣음(1곳짜리는 대부분 말투 차이·Plaud 쪽 오인식)
 
 /* ------------------------------------------------------------------ 자모 */
 const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ", JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ",
@@ -212,10 +215,10 @@ export function termOf(lex, to, make = false) {
 }
 /** 꼴의 근거 합계 */
 export function totals(v) {
-  const s = { n: 0, neg: 0, undo: 0, app: 0, jobs: 0, nx: {} };
+  const s = { n: 0, neg: 0, undo: 0, app: 0, pl: 0, jobs: 0, nx: {} };
   for (const b of Object.values(v.by || {})) {
-    s.n += b.n || 0; s.neg += b.neg || 0; s.undo += b.undo || 0; s.app += b.app || 0;
-    if (b.n || b.app) s.jobs++;
+    s.n += b.n || 0; s.neg += b.neg || 0; s.undo += b.undo || 0; s.app += b.app || 0; s.pl += b.pl || 0;
+    if (b.n || b.app || b.pl) s.jobs++;
     for (const [w, c] of Object.entries(b.nx || {})) s.nx[w] = (s.nx[w] || 0) + c;
   }
   return s;
@@ -228,11 +231,11 @@ export function conflicts(lex) {
 }
 /**
  * 꼴 하나의 판정: { rec, name, common, conflict, s }
- * rec: 서로 다른 발언 REC_MIN곳 이상, 되돌림 0, 충돌 없음, 이름 아님 — 흔한 낱말(고치지 않고 확인한 곳 있음)이면 조건을 붙여야 함
+ * rec: 사람이 고친 발언 REC_MIN곳 이상(또는 Plaud 대조까지 더해 PL_REC곳 이상), 되돌림 0, 충돌 없음, 이름 아님 — 흔한 낱말(고치지 않고 확인한 곳 있음)이면 조건을 붙여야 함
  */
 export function judge(lex, t, v, conf = conflicts(lex)) {
   const s = totals(v), conflict = conf.has(v.from), name = t.kind === "name", common = s.neg > 0;
-  const rec = v.st === "cand" && s.n >= REC_MIN && !s.undo && !conflict && !name;
+  const rec = v.st === "cand" && (s.n >= REC_MIN || s.n + s.pl >= PL_REC) && !s.undo && !conflict && !name;
   return { rec, name, common, conflict, s };
 }
 /** 고친 자리 뒤에 자주 온 말(흔한 낱말 조건 후보) */
@@ -244,8 +247,10 @@ export function whenOf(v, max = 4) {
  * 녹음 하나의 근거를 다시 센다(그 녹음 몫은 지우고 새로). 사전 객체를 고쳐서 돌려준다.
  * segs: [{i, text}] 원래 전사 · edits: {i:{text?, parts?, ok?}} · names: 사람 이름 집합(이름 꼴은 늘 사람이 확인)
  * 확정 꼴이 사람 손으로 원래대로 돌아갔으면 undo, 그런 일이 많으면(되돌림 ≥2이고 적용의 ⅓ 넘음) 자동으로 끈다.
+ * plaud: [{i, from, to, next}] — 같은 자리 Plaud 글과 견준 쌍(compare.js plaudPairs, 발언마다 같은 쌍 한 번). 이 녹음에서 PL_KEEP곳 이상이거나
+ *   사전에 이미 있는 꼴만 pl로 센다. 사람이 그 발언에서 같은 쌍으로 고쳤으면 n으로만 센다.
  */
-export function harvest(lex, jobId, segs, edits, names = new Set()) {
+export function harvest(lex, jobId, segs, edits, names = new Set(), plaud = []) {
   lex = lex && lex.terms ? lex : emptyLex();
   for (const t of lex.terms) for (const v of t.vars) if (v.by) delete v.by[jobId];
   const rules = activeRules(lex);
@@ -255,8 +260,8 @@ export function harvest(lex, jobId, segs, edits, names = new Set()) {
     let v = t.vars.find((x) => x.from === from);
     if (!v) { v = { from, st: "cand", by: {} }; t.vars.push(v); }
     const b = (v.by[jobId] = v.by[jobId] || { n: 0, neg: 0, undo: 0, app: 0, ex: [], nx: {} });
-    b[field]++;
-    if (field === "n" && b.ex.length < 5 && !b.ex.includes(i)) b.ex.push(i);
+    b[field] = (b[field] || 0) + 1;
+    if ((field === "n" || field === "pl") && b.ex.length < 5 && !b.ex.includes(i)) b.ex.push(i);
     if (next) b.nx[next] = (b.nx[next] || 0) + 1;
   };
   // 이 녹음에서 사람이 고친 쌍 — 발언마다 같은 쌍은 한 번만
@@ -283,6 +288,20 @@ export function harvest(lex, jobId, segs, edits, names = new Set()) {
     if (ruleTo.has(p.from + "\u0000" + p.to)) continue; // 위에서 되돌림으로 셈
     add(p.from, p.to, "n", i, p.next);
   }
+  // Plaud 대조: 한 녹음에서 PL_KEEP곳 이상 나왔거나 사전에 이미 있는 꼴만
+  if (plaud && plaud.length) {
+    const have = new Set();
+    // 이미 있는 꼴: 사람이 정했거나(확정·꺼짐·직접 넣음) 다른 녹음에 근거가 있는 것(이 녹음 몫은 위에서 지웠음)
+    for (const t of lex.terms) for (const v of t.vars) if (v.st !== "cand" || v.manual || Object.keys(v.by || {}).length) have.add(v.from + "\u0000" + t.to);
+    const cnt = new Map();
+    for (const p of plaud) { const k = p.from + "\u0000" + p.to; cnt.set(k, (cnt.get(k) || 0) + 1); }
+    for (const p of plaud) {
+      const k = p.from + "\u0000" + p.to;
+      if (cnt.get(k) < PL_KEEP && !have.has(k)) continue;
+      if ((pairsOf.get(p.i) || []).some((x) => x.from === p.from && x.to === p.to)) continue; // 사람이 같게 고침 — n으로 셈
+      add(p.from, p.to, "pl", p.i, p.next);
+    }
+  }
   // 고치지 않고 확인한 발언: 후보 꼴이 그대로 있으면 반대 증거, 확정 꼴이 바뀐 채면 적용 증거
   const cands = [];
   for (const t of lex.terms) for (const v of t.vars) if (v.st === "cand") cands.push([t, v]);
@@ -306,7 +325,7 @@ export function harvest(lex, jobId, segs, edits, names = new Set()) {
   // 정리: 근거가 다 사라진 후보 꼴은 지우고(직접 넣은 것·확정·꺼짐은 남김), 빈 항목도 지움. 되돌림이 많은 확정 꼴은 끔
   for (const t of lex.terms) {
     t.vars = t.vars.filter((v) => {
-      for (const [k, b] of Object.entries(v.by || {})) if (!b.n && !b.neg && !b.undo && !b.app) delete v.by[k];
+      for (const [k, b] of Object.entries(v.by || {})) if (!b.n && !b.neg && !b.undo && !b.app && !b.pl) delete v.by[k];
       if (v.st === "cand" && !v.manual && !Object.keys(v.by || {}).length) return false;
       if (v.st === "on") { const s = totals(v); if (s.undo >= 2 && s.undo * 3 > s.app + s.n) { v.st = "off"; v.why = "되돌림이 많아 꺼짐"; } }
       return true;

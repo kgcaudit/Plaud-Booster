@@ -161,18 +161,20 @@
         <button type="button" data-f="ok" title="사람이 「✓ 확인」한 발언"><b data-n="ok">0</b><span>확인</span></button>
         <div class="grp">
           <button type="button" data-f="todo" title="아직 확인하지 않은 발언(= 불확실 + 확실)"><b data-n="todo">0</b><span>남음</span></button>
-          <button type="button" data-f="need" class="on" title="남은 것 중 화자 판정이 불확실한 발언 — 먼저 보세요"><b data-n="need">0</b><span>불확실</span></button>
+          <button type="button" data-f="need" class="on" title="남은 것 중 화자 판정이 불확실하거나 Plaud 글과 많이 다른 발언 — 먼저 보세요"><b data-n="need">0</b><span>불확실</span></button>
           <button type="button" data-f="sure" title="남은 것 중 자동 판정은 확실하나 아직 안 본 발언"><b data-n="sure">0</b><span>확실</span></button>
         </div>
       </div>
       <div class="filt">
         <label class="chk"><input type="checkbox" id="rvEdited"> 고친 것만 <span class="msg" id="rvEditedN"></span></label>
         <label class="chk" id="rvPlaudWrap"><input type="checkbox" id="rvPlaud"> Plaud 전사</label>
+        <label class="chk hidden" id="rvPlCmpWrap" title="발언마다 같은 자리의 Plaud 글을 아래에 작게 보입니다"><input type="checkbox" id="rvPlCmp" checked> Plaud 글</label>
         <span class="spacer"></span>
         <button type="button" id="rvAllOk" class="bulk" title="지금 보이는 발언을 모두 확인합니다">✓ 모두 확인</button>
         <button type="button" id="rvUndo" disabled title="되돌리기(Ctrl+Z / ⌘Z)">↶</button>
       </div>
       <div id="rvStats" class="rvstats"></div>
+      <div id="rvPlBar" class="plbar hidden"></div>
       <div class="tablewrap"><table class="rv">
         <thead><tr><th class="c-t">시각</th><th class="c-p"></th><th class="c-s">화자</th><th>발언</th><th class="c-k">판정</th><th class="c-ok">확인</th></tr></thead>
         <tbody id="rvBody"></tbody>
@@ -189,6 +191,12 @@
       <div class="warnline hidden" id="exWarn"></div>
       <label class="chk" id="exPlaudWrap"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
       <label class="chk" title="교정 사전에서 확정한 말을 통합본 TXT·CSV에 적용합니다(사람이 고친 글과 원래 전사는 그대로)"><input type="checkbox" id="exGl" checked> 내보낼 때 교정 사전 적용 <span class="msg" id="exGlN"></span></label>
+      <div class="exopts" role="group" aria-label="통합본 정리">
+        <label class="chk" title="30초 안에 같은 사람이 이어 말한 줄을 한 줄로 합칩니다"><input type="checkbox" id="exJoin" data-xo="join"> 같은 화자 연속 발언 이어 붙이기 <span class="msg" id="exJoinN"></span></label>
+        <label class="chk" title="「네」「음」처럼 문장부호를 뺀 글자가 2자 이하인 줄을 뺍니다"><input type="checkbox" id="exShort" data-xo="dropShort"> 맞장구 줄 빼기(「네」 등 2글자 이하) <span class="msg" id="exShortN"></span></label>
+        <label class="chk" title="「25억 4400」 → 「25억 4,400」처럼 돈 단위 앞뒤의 네 자리 이상 숫자에 쉼표를 넣습니다(연도·번호는 그대로)"><input type="checkbox" id="exComma" data-xo="comma"> 금액 숫자에 천 단위 쉼표</label>
+        <p class="hint">정리는 통합본에만 적용되고 검수 화면의 글은 그대로입니다. 고른 값은 다음에도 그대로 둡니다.</p>
+      </div>
       <div class="btns"><button type="button" id="exTxt" class="primary">통합본 TXT</button><button type="button" id="exCsv">CSV</button></div>
       <p class="hint">나눈 발언은 조각마다 한 줄씩, 각자의 화자·시각으로 나갑니다.</p>
     </div>

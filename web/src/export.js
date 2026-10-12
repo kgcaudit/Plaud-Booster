@@ -36,7 +36,7 @@ export function speakerOf(g, edits) {
 }
 
 /** 통합본 줄 목록 [{t,file,spk,text,src}] */
-export function mergedLines({ job, result, edits, plaud, glossary, lexicon }, { usePlaud = true, useGlossary = true } = {}) {
+export function mergedLines({ job, result, edits, plaud, glossary, lexicon }, { usePlaud = true, useGlossary = true, join = false, dropShort = false, comma = false } = {}) {
   const e = (edits && edits.e) || {};
   const rules = useGlossary ? rulesOf(lexicon, glossary) : [];
   const smap = job.speakerMap || {};
@@ -62,7 +62,42 @@ export function mergedLines({ job, result, edits, plaud, glossary, lexicon }, { 
   lines.sort((a, b) => a.file - b.file || a.t - b.t);
   // 사람이 고친 글은 그대로 둔다(검수 화면에서 보고 고친 그 글 — 사전이 바꾼 자리를 일부러 되돌렸을 수 있음). 전사 원문·Plaud 글·화자 이름에만 적용
   for (const x of lines) { if (!x.own) x.text = applyLexicon(x.text, rules).text; x.spk = applyLexicon(x.spk, rules).text; delete x.own; }
-  return lines;
+  return tidyLines(lines, { join, dropShort, comma });
+}
+
+/* ---- 내보내기 정리(2026-10-12 사용자 승인 — Plaud 대조 개선 4). 통합본에만 적용하고 검수 화면 글은 그대로 둔다. */
+export const JOIN_GAP = 30; // 같은 화자가 이만큼(초) 안에 이어 말하면 한 줄로
+export const SHORT_MAX = 2; // 맞장구 줄: 문장부호를 뺀 글자가 이만큼 이하
+const bare = (t) => String(t || "").replace(/[\s.,?!~·…"'“”‘’「」()\-]/g, "");
+/**
+ * 금액 숫자에 천 단위 쉼표 — 「25억 4400」 → 「25억 4,400」, 「12500원」 → 「12,500원」.
+ * 네 자리 이상 숫자가 돈 단위(원·만·억·조·천·달러) 앞이거나 억·조·만 바로 뒤일 때만. 연도(2026년)·번호(010-1234)·소수·이미 쉼표 친 수는 그대로.
+ */
+export function commaAmounts(text) {
+  return String(text ?? "").replace(/\d{4,}/g, (num, at, s) => {
+    const before = s.slice(0, at), after = s.slice(at + num.length);
+    if (/[\d,.\-:/]$/.test(before) || /^[\d,.\-:/]/.test(after)) return num; // 큰 수의 일부·번호·소수·시각
+    if (/^\s?(?:년|학년|번지|호|번|차|회)/.test(after)) return num;
+    const money = /^\s?(?:원|만|억|조|천|백만|달러|불)/.test(after) || /(?:억|조|만)\s?$/.test(before);
+    return money ? num.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : num;
+  });
+}
+/** 통합본 줄 정리: 맞장구 줄 빼기 → 같은 화자 이어 붙이기 → 금액 쉼표 */
+export function tidyLines(lines, { join = false, dropShort = false, comma = false } = {}) {
+  let out = lines;
+  if (dropShort) out = out.filter((x) => bare(x.text).length > SHORT_MAX);
+  if (join) {
+    const acc = [];
+    for (const x of out) {
+      const last = acc[acc.length - 1];
+      if (last && last.file === x.file && last.spk === x.spk && (last.src || "") === (x.src || "") && x.t - last.tl <= JOIN_GAP) {
+        last.text = (last.text.trim() + " " + x.text.trim()).trim(); last.tl = x.t;
+      } else acc.push({ ...x, tl: x.t });
+    }
+    out = acc.map(({ tl, ...x }) => x); // eslint-disable-line no-unused-vars
+  }
+  if (comma) out = out.map((x) => ({ ...x, text: commaAmounts(x.text) }));
+  return out;
 }
 
 export function exportTxt(data, opts) {
