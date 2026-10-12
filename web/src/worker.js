@@ -3,6 +3,7 @@
 import * as S from "./store.js";
 import { runJob, isGeneric, gpuCrashed } from "./engine.js";
 import { isDiar } from "./export.js";
+import { hintTerms } from "./lexicon.js";
 
 const FAKE = new URL(self.location.href).searchParams.get("fake") === "1";
 const post = (m) => self.postMessage(m);
@@ -143,6 +144,8 @@ async function ensureModels(need = "all") {
         if (s0 >= 0) segs.push([s0, a.length]);
         return segs.map(([x, y]) => ({ s: x / 16000, e: y / 16000, text: whisper.lang === "en" ? `fake transcript ${((y - x) / 16000).toFixed(1)}s` : `가짜 전사 ${((y - x) / 16000).toFixed(1)}초` }));
       },
+      hintIds: [], hintDrops: 0,
+      setHint(terms) { this.hintTerms = [...(terms || [])]; this.hintIds = this.hintTerms.map(() => 0); return this.hintTerms; },
     });
     camp = camp || { embed: async (a) => fakeEmbed(a) };
     vad = vad || { probs: async (x) => { const n = Math.floor(x.length / 512), p = new Float32Array(n); for (let i = 0; i < n; i++) { let s = 0; for (let k = i * 512; k < (i + 1) * 512; k++) s += x[k] * x[k]; p[i] = Math.sqrt(s / 512) > 0.01 ? 0.9 : 0.02; } return p; } };
@@ -257,6 +260,18 @@ async function processJob(job) {
     return;
   }
   if (whisper) whisper.lang = job.lang || "ko"; // 말하는 언어(한국어·영어·자동) — 예전 작업은 한국어
+  // 전사 힌트(설정, 기본 꺼짐 — 2026-10-12 실측 뒤 결정): 교정 사전 확정 말 중 이 녹음에 맞는 것을 디코더 「이전 글」 자리에.
+  // 넣은 말은 작업에 남긴다(job.hint — 검수 화면에 보임). 영어 회의는 넣지 않는다.
+  if (whisper && whisper.setHint) {
+    const set = (await S.get("kv", "settings")) || {};
+    let terms = [];
+    if (set.hint && need === "all" && (job.lang || "ko") === "ko") {
+      const pl = (await S.get("plaud", id)) || [];
+      terms = hintTerms(await S.get("kv", "lexicon"), [job.title, ...pl.map((p) => p.text)].join(" "), 10);
+    }
+    terms = whisper.setHint(terms);
+    if (terms.length || job.hint) await S.saveJob(id, { hint: terms.length ? terms : null });
+  }
   let last = 0;
   const progress = async (pct, msg) => {
     if (Date.now() - last < 1500 && pct < 99) return;
@@ -286,6 +301,7 @@ async function processJob(job) {
     shouldStop: () => stops.has(id),
   };
   const { result, fresh, awaiting, diar } = await runJob(job, job.audioFiles, ctx);
+  if (whisper && whisper.hintIds && whisper.hintIds.length && (await S.get("jobs", id))) await S.saveJob(id, { hintDrops: whisper.hintDrops || 0 }); // 힌트가 새어 나와 힌트 없이 다시 푼 창 수
   if (!(await S.get("jobs", id))) { await S.resetJob(id); return; } // 처리 중에 지워졌으면 남은 중간 결과도 치운다
   if (awaiting) {
     await S.saveJob(id, { status: "이름 대기", stats: { clusters: diar.clusters.length, units: diar.units.length }, progress: { pct: 100, msg: "화자 이름을 지정한 뒤 전사를 시작하세요" } });

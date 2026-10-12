@@ -3,6 +3,7 @@
 import { whisperLogMel, campFeatures } from "./dsp.js";
 import { normalize } from "./engine.js";
 import { agcGains } from "./diar.js";
+import { hintText, hintLeak } from "./lexicon.js";
 
 // 디코더 첫 걸음의 빈 self k·v 캐시(약 9MB). wasm 실행기는 입력을 복사해 쓰므로 하나를 계속 다시 쓴다
 // (예전엔 창마다 두 개씩 새로 만들어 0으로 채움 — 18MB씩 할당)
@@ -77,10 +78,57 @@ export class Whisper {
     }
     // sherpa-onnx turbo 메타데이터 값
     this.SOT = 50258n; this.KO = 50264n; this.EN = 50259n; this.TRANSCRIBE = 50360n; this.NOTS = 50364n; this.EOT = 50257;
+    this.PREV = 50362n; // <|startofprev|> — 그 뒤 글은 「앞에서 나온 말」로 읽혀 철자를 따라오게 한다(전사 힌트)
+    this.hintIds = []; this.hintTerms = []; this.hintDrops = 0;
     // 말하는 언어: "ko"(기본 — 한국어 속 영어 낱말·문장도 받아 적음) · "en"(영어 회의). 작업마다 일꾼이 정해 준다(job.lang)
     this.lang = "ko";
     // 더 줄이고 싶을 때만 정한다(없으면 디코더 자리 끝까지). 예전 220은 24초 묶음 창에서 끝까지 못 가 뒤 발언을 잃었다
     this.maxTokens = 0;
+  }
+
+  /**
+   * 글 → 토큰(전사 힌트용). UTF-8 바이트에서 가장 긴 토큰부터 고른다 — BPE 원래 쪼개기와 다를 수 있지만 모델이 읽는 데는 문제없다
+   * (실측 비교 스크립트도 같은 방식).
+   */
+  encodeText(t) {
+    if (!this.byTok) {
+      this.byTok = new Map(); this.maxTokLen = 1;
+      for (const [id, b] of this.bytes) {
+        if (id >= this.EOT || !b.length) continue;
+        const k = String.fromCharCode(...b);
+        if (!this.byTok.has(k)) this.byTok.set(k, id);
+        if (b.length > this.maxTokLen) this.maxTokLen = b.length;
+      }
+    }
+    const b = new TextEncoder().encode(t), out = [];
+    for (let i = 0; i < b.length;) {
+      let L = Math.min(this.maxTokLen, b.length - i), hit = -1;
+      for (; L > 0; L--) { const id = this.byTok.get(String.fromCharCode(...b.subarray(i, i + L))); if (id != null) { hit = id; break; } }
+      if (hit < 0) { i++; continue; }
+      out.push(hit); i += L;
+    }
+    return out;
+  }
+
+  /** 전사 힌트: 바른 표기 목록 → 「이전 글」 자리 토큰. maxTok을 넘으면 뒤 낱말부터 뺀다. 실제로 넣은 낱말 목록을 돌려준다 */
+  setHint(terms, maxTok = 48) {
+    const list = [...(terms || [])];
+    let ids = [];
+    while (list.length) { ids = this.encodeText(" " + hintText(list)); if (ids.length <= maxTok) break; list.pop(); }
+    this.hintTerms = list; this.hintIds = list.length ? ids : []; this.hintDrops = 0;
+    return list;
+  }
+
+  /** 디코더 앞머리: 힌트가 있으면 [이전 글, 힌트…] + 기본 */
+  head(base, hint = true) {
+    return hint && this.hintIds.length ? [this.PREV, ...this.hintIds.map((x) => BigInt(x)), ...base] : base;
+  }
+
+  /** 힌트 낱말이 소리 없이 새어 나왔나(나열만 남음) — 그러면 힌트 없이 다시 푼다 */
+  leaked(text) {
+    if (!this.hintIds.length || !hintLeak(text, this.hintTerms)) return false;
+    this.hintDrops++;
+    return true;
   }
 
   detok(ids) {
@@ -141,34 +189,39 @@ export class Whisper {
     const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
     const cache = () => new ort.Tensor("float32", ZERO_CACHE, [4, 1, 448, 1280]);
     const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
-    const prompt = [this.SOT, this.langToken(), this.TRANSCRIBE, this.NOTS];
-    let out = await this.dec.run({
-      tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
-      n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]),
-    });
-    const res = [];
-    let off = prompt.length;
-    const lim = this.stepLimit(prompt.length);
-    for (let step = 0; step < lim; step++) {
-      const L = out.logits;
-      const V = L.dims[2], base = (L.dims[1] - 1) * V, d = L.data;
-      let best = 0, bi = 0;
-      for (let i = 0; i < V; i++) if (d[base + i] > best || i === 0) { best = d[base + i]; bi = i; }
-      if (bi === this.EOT) break;
-      res.push(bi);
-      const loop = Whisper.looping(res);
-      if (loop) { res.length -= Whisper.trimLoop(res, loop); break; }
-      const prev = out;
-      out = await this.dec.run({
-        tokens: i64([BigInt(bi)], [1, 1]), in_n_layer_self_k_cache: prev.out_n_layer_self_k_cache,
-        in_n_layer_self_v_cache: prev.out_n_layer_self_v_cache, n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([BigInt(off)], [1]),
+    const base0 = [this.SOT, this.langToken(), this.TRANSCRIBE, this.NOTS];
+    const decode = async (prompt) => {
+      let out = await this.dec.run({
+        tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
+        n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]),
       });
-      for (const t of Object.values(prev)) t.dispose?.();
-      off++;
-    }
-    for (const t of Object.values(out)) t.dispose?.();
+      const res = [];
+      let off = prompt.length;
+      const lim = this.stepLimit(prompt.length);
+      for (let step = 0; step < lim; step++) {
+        const L = out.logits;
+        const V = L.dims[2], base = (L.dims[1] - 1) * V, d = L.data;
+        let best = 0, bi = 0;
+        for (let i = 0; i < V; i++) if (d[base + i] > best || i === 0) { best = d[base + i]; bi = i; }
+        if (bi === this.EOT) break;
+        res.push(bi);
+        const loop = Whisper.looping(res);
+        if (loop) { res.length -= Whisper.trimLoop(res, loop); break; }
+        const prev = out;
+        out = await this.dec.run({
+          tokens: i64([BigInt(bi)], [1, 1]), in_n_layer_self_k_cache: prev.out_n_layer_self_k_cache,
+          in_n_layer_self_v_cache: prev.out_n_layer_self_v_cache, n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([BigInt(off)], [1]),
+        });
+        for (const t of Object.values(prev)) t.dispose?.();
+        off++;
+      }
+      for (const t of Object.values(out)) t.dispose?.();
+      return this.detok(res);
+    };
+    let text = await decode(this.head(base0));
+    if (this.leaked(text)) text = await decode(base0); // 인코더 결과는 그대로 두고 앞머리만 바꿔 다시
     ck.dispose?.(); cv.dispose?.();
-    return this.detok(res);
+    return text;
   }
 }
 
@@ -185,7 +238,8 @@ Whisper.prototype.transcribeTs = async function (audio) {
   const { n_layer_cross_k: ck, n_layer_cross_v: cv } = await this.encode(mel);
   const cache = () => new ort.Tensor("float32", ZERO_CACHE, [4, 1, 448, 1280]);
   const i64 = (arr, dims) => new ort.Tensor("int64", BigInt64Array.from(arr), dims);
-  const prompt = [this.SOT, this.langToken(), this.TRANSCRIBE];
+  const base0 = [this.SOT, this.langToken(), this.TRANSCRIBE];
+  const decode = async (prompt) => {
   let out = await this.dec.run({ tokens: i64(prompt, [1, prompt.length]), in_n_layer_self_k_cache: cache(), in_n_layer_self_v_cache: cache(),
     n_layer_cross_k: ck, n_layer_cross_v: cv, offset: i64([0n], [1]) });
   const res = [];
@@ -236,6 +290,10 @@ Whisper.prototype.transcribeTs = async function (audio) {
     off++;
   }
   for (const t of Object.values(out)) t.dispose?.();
+  return { res, finished };
+  };
+  let { res, finished } = await decode(this.head(base0));
+  if (this.leaked(this.detok(res.filter((t) => t < TS0)))) ({ res, finished } = await decode(base0));
   ck.dispose?.(); cv.dispose?.();
   const segs = tsSegments(res, TS0, dur, (ids) => this.detok(ids));
   // 끝(EOT)까지 못 갔으면(토큰 한도·되풀이 멈춤) 마지막으로 닫힌 시각(초)을 알린다 — 그 뒤에 시작하는 발언은 부르는 쪽이 혼자 다시 전사

@@ -877,6 +877,7 @@ function renderReview() {
     ...(sony ? [["전사 제외", s.skipped], ["환각 제거", s.droppedHallucination]] : [["혼재", s.mixed], ["미상", s.unknown], ["저신뢰", s.lowConf], ["환각 제거", s.droppedHallucination]])
       .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`),
     ...(s.targets ? ["대상 " + s.targets.map((t) => (multi ? t.file + 1 + "번 " : "") + hms(t.from) + "~" + hms(t.to)).join(", ")] : []),
+    ...(job.hint && job.hint.length ? [`전사 힌트 ${job.hint.length}개(${job.hint.join(", ")})${job.hintDrops ? ` · 새어 나와 다시 푼 창 ${job.hintDrops}` : ""}`] : []),
   ].join(" · ");
   let rows = segs.map((g) => ({ g, e: REVIEW.edits[g.i] || {} }));
   if (REVIEW.only) rows = rows.filter((r) => r.g.cluster === REVIEW.only);
@@ -2060,6 +2061,7 @@ $("#glList").addEventListener("click", (ev) => {
 async function loadSettings() {
   const set = (await S.get("kv", "settings")) || {};
   $("#threads").value = set.threads || 0;
+  $("#hintOn").checked = !!set.hint;
   const dev = await detectDevice();
   const auto = dev.level;
   $("#gpuLevel").innerHTML = `<option value="auto">자동(권장) → ${esc(levelLabel(auto))}</option>` + LEVELS.map((l) => `<option value="${l.v}">${esc(l.label)}</option>`).join("");
@@ -2159,6 +2161,11 @@ $("#gpuLevel").addEventListener("change", async () => {
   if (!WSTATE.engineLoaded) { await sendLevel(); toast("다음 전사·성능 시험부터 적용됩니다"); }
   else toast("모델이 이미 올라가 있어 새로 고쳐야 적용됩니다");
   renderLevelNow();
+});
+$("#hintOn").addEventListener("change", async () => {
+  const on = $("#hintOn").checked;
+  await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), hint: on });
+  toast(on ? "다음 전사부터 교정 사전의 확정 말을 힌트로 넣습니다" : "전사 힌트를 껐습니다");
 });
 $("#btnThreads").addEventListener("click", async () => {
   await S.put("kv", "settings", { ...((await S.get("kv", "settings")) || {}), threads: Math.max(0, Math.min(32, +$("#threads").value || 0)) });

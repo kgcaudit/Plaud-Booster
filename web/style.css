@@ -636,3 +636,4 @@ button.play.on { background: var(--accent); color: var(--accent-ink); border-col
 @media (pointer: coarse) { .lexchip { min-height: 32px; } .lxrow { padding: 8px; } }
 .gllist .vf .to { color: var(--mute); font-size: 12.5px; }
 .gllist .vex mark { background: var(--mark); color: inherit; border-radius: 4px; padding: 0 2px; }
+.hintset { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }

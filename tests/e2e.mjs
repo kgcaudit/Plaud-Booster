@@ -240,6 +240,11 @@ const goReview = async (title) => {
   await page.waitForFunction(() => !document.getElementById("player").paused);
   await nav(page, "jobs");
   assert.ok(await page.evaluate(() => document.getElementById("player").paused), "작업 탭으로 갔는데 재생이 계속됨");
+  // 전사 힌트(설정, 기본 꺼짐) — 켜면 다음 전사에 교정 사전 확정 말을 넣고 작업에 남긴다
+  await nav(page, "settings");
+  assert.equal(await page.locator("#hintOn").isChecked(), false);
+  await page.check("#hintOn");
+  await nav(page, "jobs");
   await page.click("#btnNew");
   assert.ok(await page.locator("#newJob").isVisible());
   // Plaud 출처에도 화자 분리·전사가 있고, 고르면 Plaud 전사 파일 칸은 숨는다
@@ -313,7 +318,13 @@ const goReview = async (title) => {
   await page.locator(`#spkPanel .cl[data-c='${ids[1]}'] input[data-a='name']`).dispatchEvent("change");
   await page.click("#spkPanel button[data-a='go']");
   await page.waitForSelector(".job:has-text('소니 시험') .badge.st-완료", { timeout: 90000 });
-  console.log("✓ 소니 녹음: 파일 순서·화자 묶음 2개·이름 붙이고 전사");
+  const hintJob = await page.evaluate(async () => {
+    const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); });
+    const all = await new Promise((r) => { const q = db.transaction("jobs").objectStore("jobs").getAll(); q.onsuccess = () => r(q.result); });
+    return all.find((j) => j.title === "소니 시험").hint;
+  });
+  assert.deepEqual([...hintJob].sort(), ["전서", "진짜"]);
+  console.log("✓ 소니 녹음: 파일 순서·화자 묶음 2개·이름 붙이고 전사(전사 힌트: 교정 사전 확정 말)");
 
   await page.click(".job:has-text('소니 시험') button[data-a='review']");
   await page.click(".scope button[data-f='all']");
