@@ -49,6 +49,42 @@ export function isHallu(t) {
   return rest !== t && (rest.match(/[\p{L}\p{N}]/gu) || []).length < 2;
 }
 
+/* ---- 글이 모자란 발언 다시 전사(2026-10-12, 10-08 회의 Plaud 대조) ----
+ * Whisper가 긴 창에서 앞 몇 마디만 적고 끝을 내는 일이 있다(10-08 1:26 24초 창 → 「네.」, Plaud에는 그사이 말 52자).
+ * 6초 이상 발언인데 1초에 1.5글자도 못 받았으면: 묶은 창이었으면 혼자 다시, 그래도 모자라면 가장 조용한 곳에서 둘로 나눠 다시.
+ * 더 많이 받았고 헛말이 아닐 때만 바꾼다(그대로 짧은 말이면 원래 글을 둠). */
+export const THIN_SEC = 6, THIN_RATE = 1.5;
+const bareLen = (t) => (String(t || "").match(/[\p{L}\p{N}]/gu) || []).length;
+export const isThin = (text, dur) => dur >= THIN_SEC && bareLen(text) < THIN_RATE * dur;
+/** 더 나은 글인가: 되풀이를 줄인 뒤 글자가 3자 이상 더 많고 헛말이 아님 */
+export const fuller = (a, b) => !!a && !isHallu(a) && bareLen(collapseRepeats(a)) >= bareLen(b) + 3;
+/** 둘로 나눌 자리(표본 번호): 가운데 30~70% 안에서 0.2초 창 에너지가 가장 낮은 곳 */
+export function quietSplit(x, sr = 16000) {
+  const w = Math.round(sr * 0.2), a = Math.floor(x.length * 0.3), b = Math.floor(x.length * 0.7) - w;
+  let best = Math.floor(x.length / 2), bv = Infinity;
+  for (let k = a; k <= b; k += Math.round(w / 2)) {
+    let e = 0;
+    for (let j = k; j < k + w; j++) e += x[j] * x[j];
+    if (e < bv) { bv = e; best = k + (w >> 1); }
+  }
+  return best;
+}
+/** 모자란 글 다시 받기 → 바꿀 글(못 나아지면 null). alone: 묶은 창이었으면 혼자 다시 전사하는 함수 */
+export async function refill(clip, text, dur, transcribe, alone = true) {
+  let best = text;
+  if (alone) { const t = cleanText(await transcribe(clip)); if (fuller(t, best)) best = t; }
+  if (isThin(best, dur) && clip.length >= 16000 * 4) {
+    const at = quietSplit(clip), parts = [];
+    for (const piece of [clip.subarray(0, at), clip.subarray(at)]) {
+      const t = cleanText(await transcribe(piece));
+      if (t && !isHallu(t)) parts.push(collapseRepeats(t));
+    }
+    const t = parts.join(" ").trim();
+    if (fuller(t, best)) best = t;
+  }
+  return best !== text ? best : null;
+}
+
 export function normalize(v) {
   let s = 0;
   for (const x of v) s += x * x;
@@ -361,9 +397,18 @@ export async function runSony(job, files, ctx) {
       // 묶은 창에서 글을 못 받은 발언은 버리지 않고 혼자 다시 전사한다(말이 통째로 빠지지 않게)
       for (let j = 0; j < g.length; j++) if (!texts[j]) texts[j] = cleanText(await ctx.transcribe(clips[j]));
     }
+    // 긴 발언인데 글이 모자라면 다시(묶은 창이면 혼자 → 그래도 모자라면 둘로 나눠)
+    const thin = new Set();
+    for (let j = 0; j < g.length; j++) {
+      const u = diar.units[g[j]];
+      if (!isThin(texts[j], u.e - u.s)) continue;
+      const t = await refill(clips[j], texts[j], u.e - u.s, ctx.transcribe, g.length > 1);
+      if (t) { texts[j] = t; thin.add(j); }
+    }
     for (let j = 0; j < g.length; j++) {
       const rec = { k: g[j], text: collapseRepeats(texts[j]) };
       if (g.length > 1) rec.pack = g.length;
+      if (thin.has(j)) rec.thin = 1;
       if (!rec.text) rec.empty = true; // 혼자 다시 전사해도 글이 없는 발언
       else if (isHallu(texts[j])) rec.hallu = true;
       await ctx.savePartial(rec);
@@ -376,19 +421,22 @@ export async function runSony(job, files, ctx) {
   }
   const segs = [];
   let dropped = 0;
-  let merged = 0, packed = 0;
+  let merged = 0, packed = 0, refilled = 0;
   for (const k of todo) {
     const r = done[k], u = diar.units[k], c = diar.clusters[u.c];
     if (r.pack) packed++;
-    if (r.empty) { merged++; continue; }
+    if (r.thin) refilled++;
+    // 글을 못 받은 긴 발언(6초 이상)은 버리지 않고 빈 글로 남긴다 — 말이 통째로 사라진 것을 검수에서 알 수 있게(「불확실」, 내보내기에는 빠짐)
+    if (r.empty && u.e - u.s < THIN_SEC) { merged++; continue; }
     if (r.hallu) { dropped++; continue; }
-    segs.push({ i: k + 1, u: k, file: u.f, start: u.s, end: u.e, text: r.text, cluster: c.id, speaker: c.label, kind: "단일", conf: u.sim, margin: u.margin });
+    const thin = r.thin || r.empty || isThin(r.text, u.e - u.s) ? 1 : 0;
+    segs.push({ i: k + 1, u: k, file: u.f, start: u.s, end: u.e, text: r.empty ? "" : r.text, cluster: c.id, speaker: c.label, kind: "단일", conf: u.sim, margin: u.margin, ...(thin ? { thin } : {}) });
   }
   const r1 = (v) => Math.round(v * 10) / 10;
   const stats = {
-    segments: segs.length, single: segs.length, mixed: 0, unknown: 0,
+    segments: segs.length, single: segs.length, mixed: 0, unknown: 0, thin: segs.filter((g) => g.thin).length,
     lowConf: segs.filter((g) => g.conf < 0.5 || g.margin < 0.1).length, droppedHallucination: dropped,
-    clusters: diar.clusters.length, skipped: diar.units.length - todo.length, packed, merged,
+    clusters: diar.clusters.length, skipped: diar.units.length - todo.length, packed, merged, refilled,
     narrow: !!diar.narrow, band: diar.band ?? null, vadFallback: diar.vadFallback || 0,
     targetSec: r1(files.reduce((m, f) => m + f.dur, 0)),
     targets: files.map((f, i) => ({ file: i, from: 0, to: r1(f.dur) })),

@@ -8,6 +8,7 @@
 
 export const PL_MIN = 0.6; // 이보다 덜 같으면 「Plaud와 많이 다름」(10-08 회의: 120/580 — 짧은 발언 빼고)
 export const PL_SHORT = 4; // 이보다 짧은 발언(「네」 등)은 견주지 않음 — Plaud는 맞장구를 옆 발언에 붙임
+const LONG_EMPTY = 6; // 글이 이보다 짧아도 발언이 이만큼(초) 길면 시각으로 Plaud 글을 보인다(엔진 THIN_SEC과 같게)
 const SPLIT_MIN = 3; // 이보다 짧은 발언은 나누기 제안 안 함(초)
 const EDGE = 0.8; // 발언 끝에서 이만큼 안쪽에서 바뀔 때만(초)
 
@@ -55,8 +56,9 @@ function locate(h, c) {
  */
 export function plaudFor(g, plaud) {
   const htext = String(g.text || ""), H = normMap(htext);
-  if (H.n.length < PL_SHORT || !plaud || !plaud.length) return null;
+  if (!plaud || !plaud.length) return null;
   const s = g.start, e = Math.max(g.end ?? g.start, g.start + 0.5);
+  if (H.n.length < PL_SHORT) return e - s >= LONG_EMPTY ? byTime(s, e, plaud) : null;
   // 시각으로 고른 Plaud 줄 — 줄 안에서는 글자를 시간에 고르게 나눠 앞뒤 여유를 두고 자른다(긴 줄 전체와 맞추지 않게)
   const span = [];
   for (const p of plaud) {
@@ -111,6 +113,22 @@ export function plaudFor(g, plaud) {
     }
   }
   return { text, sim: Math.round(sim * 1000) / 1000, change };
+}
+
+/** 글이 거의 없는 긴 발언(Whisper가 말을 놓친 곳): 시각만으로 Plaud 글을 잘라 보인다(겹침 0 — 「불확실」) */
+function byTime(s, e, plaud) {
+  const out = [];
+  for (const p of plaud) {
+    const pe = Math.max(p.end ?? p.start, p.start + 0.5), t = String(p.text || "");
+    if (pe <= s || p.start >= e || !t) continue;
+    const cps = t.length / Math.max(1, pe - p.start);
+    let a = Math.max(0, Math.floor((s - p.start) * cps)), b = Math.min(t.length, Math.ceil((e - p.start) * cps));
+    while (a > 0 && !/\s/.test(t[a - 1])) a--;
+    while (b < t.length && !/\s/.test(t[b])) b++;
+    if (b > a) out.push(t.slice(a, b).trim());
+  }
+  const text = out.join(" ").replace(/\s+/g, " ").trim();
+  return normText(text).length >= PL_SHORT ? { text, sim: 0, change: null } : null;
 }
 
 /** 녹음 전체: 발언 번호 → plaudFor 결과(견줄 수 없는 발언은 빠짐) */

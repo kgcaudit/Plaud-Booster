@@ -254,3 +254,35 @@ test("이어하기: 말소리 구간·대역 비는 10분 묶음마다 저장해
   assert.equal(resumed.nwin, ctx2.store.chunks.nwin);
   assert.deepEqual(resumed.units.map((u) => [u.s, u.e, u.c]), ctx2.store.chunks.units.map((u) => [u.s, u.e, u.c]));
 });
+
+// 글이 모자란 발언 다시 전사(2026-10-12 — 10-08 회의 24초 창에서 「네.」만 받은 곳)
+import { isThin, fuller, quietSplit, refill, THIN_SEC } from "../../web/src/engine.js";
+test("글이 모자란 발언: 6초 이상인데 1초에 1.5글자 미만", () => {
+  assert.ok(isThin("네.", 24));
+  assert.ok(!isThin("네.", 3), "짧은 발언은 그대로");
+  assert.ok(!isThin("가".repeat(40), 24));
+  assert.equal(THIN_SEC, 6);
+  assert.ok(fuller("더 많은 말을 받았습니다", "네"));
+  assert.ok(!fuller("시청해 주셔서 감사합니다", "네"), "헛말은 고르지 않음");
+});
+test("둘로 나눌 자리는 가운데쯤 가장 조용한 곳", () => {
+  const sr = 16000, x = new Float32Array(sr * 10).fill(0.3);
+  x.fill(0, Math.round(sr * 6), Math.round(sr * 6.4)); // 6~6.4초 조용
+  const at = quietSplit(x, sr) / sr;
+  assert.ok(at > 5.9 && at < 6.5, String(at));
+});
+test("다시 받기: 혼자 → 둘로 나눠, 나아질 때만 바꿈", async () => {
+  const sr = 16000, clip = new Float32Array(sr * 20).fill(0.2);
+  const calls = [];
+  // 통째로 주면 「네.」, 반쪽이면 긴 글
+  const tr = async (a) => { calls.push(a.length / sr); return a.length > sr * 15 ? "네." : `반쪽 말을 잘 받아 적은 글 ${calls.length}번째 입니다`; };
+  const t = await refill(clip, "네.", 20, tr, true);
+  assert.match(t, /반쪽 말을 잘 받아 적은 글 2번째 입니다 반쪽 말을 잘 받아 적은 글 3번째 입니다/);
+  assert.equal(calls.length, 3, "혼자 1번 + 반쪽 2번");
+  // 나아지지 않으면 null(원래 글 그대로)
+  assert.equal(await refill(clip, "네.", 20, async () => "음", false), null);
+  // 반쪽이 헛말이면 그 반쪽은 버림
+  let n = 0;
+  const t2 = await refill(clip, "네.", 20, async () => (n++ === 0 ? "시청해 주셔서 감사합니다" : "뒤쪽 반에서 받은 진짜 말입니다 길게"), false);
+  assert.equal(t2, "뒤쪽 반에서 받은 진짜 말입니다 길게");
+});

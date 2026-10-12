@@ -340,3 +340,22 @@ test("파일 이름: 날짜 뒤 「1차」「2차」는 순번으로 먹지 않�
   assert.equal(titleFromFiles(["REC_260914075100.wav"]), "26년 9월 14일 오전 07시 51분 · 음성");
   assert.equal(nameTime("20251008_143000").y, 2025); // 4자리 해가 맞으면 그대로
 });
+
+test("글을 못 받은 긴 발언(6초 이상)은 빈 글로 남겨 「불확실」로 — 짧은 것은 예전처럼 뺌", async () => {
+  const ctx = sonyCtx(120);
+  const files = [{ name: "a.mp3", dur: 120 }];
+  const r1 = await runJob({ mode: "diar", stage: "diar" }, files, ctx);
+  ctx.store.chunks.narrow = true; // 묶지 않음(발언마다 혼자)
+  const U = ctx.store.chunks.units;
+  U[0].e = U[0].s + 8; // 하나는 8초짜리로
+  const long = U.map((u, k) => k).filter((k) => U[k].e - U[k].s >= 6);
+  assert.ok(long.length > 0 && long.length < U.length, `긴 발언 ${long.length}/${U.length}`);
+  ctx.transcribe = async () => "";
+  ctx.transcribeTs = undefined;
+  const r = await runJob({ mode: "diar", stage: "transcribe" }, files, ctx);
+  assert.equal(r.result.segs.length, long.length);
+  assert.ok(r.result.segs.every((g) => g.text === "" && g.thin === 1));
+  assert.equal(r.result.stats.merged, U.length - long.length);
+  // 통합본에는 빈 글이 나가지 않음
+  assert.equal(mergedLines({ job: { mode: "diar", audioFiles: files }, result: r.result, edits: { e: {} }, plaud: [], glossary: [] }).length, 0);
+});

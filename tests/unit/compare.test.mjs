@@ -94,3 +94,9 @@ test("통합본 정리: 맞장구 줄 빼기 → 같은 화자 30초 안 이어 
   assert.equal(mergedLines(data).length, 5);
   assert.equal(mergedLines(data, { join: true, dropShort: true }).length, 3);
 });
+
+test("글을 못 받은 긴 발언은 시각으로 Plaud 글을 보인다(겹침 0)", () => {
+  const r = plaudFor({ start: 30, end: 45, text: "" }, P);
+  assert.ok(r && r.text.includes("감정인이") && r.sim === 0 && plaudDiffers(r), JSON.stringify(r));
+  assert.equal(plaudFor({ start: 30, end: 33, text: "" }, P), null, "짧으면 그대로");
+});

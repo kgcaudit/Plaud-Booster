@@ -822,7 +822,7 @@ const isNeed = (g) => {
   if (g.cluster) { // 소니 녹음: 이름 없는 묶음 · 묶음과 덜 닮음 · 다른 묶음과 차이 작음 · 2초 미만
     const e = REVIEW.edits[g.i];
     const named = (e && (e.speaker || (e.parts && e.parts.every((p) => p.speaker)))) || (REVIEW.names[g.cluster] && !isGeneric(REVIEW.names[g.cluster]));
-    return !named || g.conf < 0.5 || g.margin < 0.1 || g.end - g.start < 2 || plaudDiffers(REVIEW.pl.get(g.i));
+    return !named || g.conf < 0.5 || g.margin < 0.1 || g.end - g.start < 2 || !!g.thin || plaudDiffers(REVIEW.pl.get(g.i));
   }
   return g.kind !== "단일" || g.conf < 0.6;
 };
@@ -949,7 +949,7 @@ function renderReview() {
   const multi = (s.files || []).length > 1;
   // 범위와 상관없는 처리 정보는 작게 한 줄
   $("#rvStats").textContent = [
-    ...(sony ? [["전사 제외", s.skipped], ["환각 제거", s.droppedHallucination]] : [["혼재", s.mixed], ["미상", s.unknown], ["저신뢰", s.lowConf], ["환각 제거", s.droppedHallucination]])
+    ...(sony ? [["전사 제외", s.skipped], ["환각 제거", s.droppedHallucination], ["글이 모자라 다시 전사", s.refilled], ["글이 적은 긴 발언", s.thin]] : [["혼재", s.mixed], ["미상", s.unknown], ["저신뢰", s.lowConf], ["환각 제거", s.droppedHallucination]])
       .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`),
     ...(s.targets ? ["대상 " + s.targets.map((t) => (multi ? t.file + 1 + "번 " : "") + hms(t.from) + "~" + hms(t.to)).join(", ")] : []),
     ...(job.hint && job.hint.length ? [`전사 힌트 ${job.hint.length}개(${job.hint.join(", ")})${job.hintDrops ? ` · 새어 나와 다시 푼 창 ${job.hintDrops}` : ""}`] : []),
@@ -1014,6 +1014,7 @@ function renderReview() {
       if (g.conf < 0.5) why.push("묶음과 덜 닮음");
       if (g.margin < 0.1) why.push("다른 묶음과 비슷");
       if (g.end - g.start < 2) why.push("짧음");
+      if (g.thin) why.push(g.text ? "말에 비해 글이 적음 — 들어 보세요" : "글을 받지 못함 — 들어 보세요");
       const pr = REVIEW.pl.get(g.i);
       if (plaudDiffers(pr)) why.push(pr.text ? `Plaud와 많이 다름(겹침 ${Math.round(pr.sim * 100)}%)` : "Plaud에 없는 말");
       judge = `<span class="kind ${why.length ? "k-저신뢰" : "k-단일"}">${esc(clusterLabel(g.cluster).replace("Speaker ", "S"))} ${Math.round(g.conf * 100)}%</span><span class="votes">${esc(why.join(" · "))}</span>`;
