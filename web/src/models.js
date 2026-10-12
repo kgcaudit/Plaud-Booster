@@ -124,10 +124,13 @@ export class Whisper {
     return hint && this.hintIds.length ? [this.PREV, ...this.hintIds.map((x) => BigInt(x)), ...base] : base;
   }
 
-  /** 힌트 낱말이 소리 없이 새어 나왔나(나열만 남음) — 그러면 힌트 없이 다시 푼다 */
-  leaked(text) {
-    if (!this.hintIds.length || !hintLeak(text, this.hintTerms)) return false;
-    this.hintDrops++;
+  /**
+   * 힌트를 넣고 푼 글(withHint)과 넣지 않고 푼 글(plain) 중 고르기. 힌트 낱말만 늘어놓았거나(새어 나옴), 글이 힌트 없을 때의 90%보다
+   * 짧으면(앞부분을 빠뜨림 — 2026-10-12 10-08 회의 실측에서 16초 발언 81자 → 46자) 힌트 없는 글을 쓴다. 버린 창 수는 hintDrops.
+   */
+  pickHint(withHint, plain) {
+    const n = (t) => String(t || "").replace(/[\s.,!?…·~"'-]/g, "").length;
+    if (hintLeak(withHint, this.hintTerms) || n(withHint) < 0.9 * n(plain)) { this.hintDrops++; return false; }
     return true;
   }
 
@@ -219,7 +222,10 @@ export class Whisper {
       return this.detok(res);
     };
     let text = await decode(this.head(base0));
-    if (this.leaked(text)) text = await decode(base0); // 인코더 결과는 그대로 두고 앞머리만 바꿔 다시
+    if (this.hintIds.length) { // 인코더 결과는 그대로 두고 앞머리만 바꿔 한 번 더 풀어 고른다(힌트를 켰을 때만 — 디코더 시간이 늘어남)
+      const plain = await decode(base0);
+      if (!this.pickHint(text, plain)) text = plain;
+    }
     ck.dispose?.(); cv.dispose?.();
     return text;
   }
@@ -293,7 +299,10 @@ Whisper.prototype.transcribeTs = async function (audio) {
   return { res, finished };
   };
   let { res, finished } = await decode(this.head(base0));
-  if (this.leaked(this.detok(res.filter((t) => t < TS0)))) ({ res, finished } = await decode(base0));
+  if (this.hintIds.length) {
+    const plain = await decode(base0);
+    if (!this.pickHint(this.detok(res.filter((t) => t < TS0)), this.detok(plain.res.filter((t) => t < TS0)))) ({ res, finished } = plain);
+  }
   ck.dispose?.(); cv.dispose?.();
   const segs = tsSegments(res, TS0, dur, (ids) => this.detok(ids));
   // 끝(EOT)까지 못 갔으면(토큰 한도·되풀이 멈춤) 마지막으로 닫힌 시각(초)을 알린다 — 그 뒤에 시작하는 발언은 부르는 쪽이 혼자 다시 전사

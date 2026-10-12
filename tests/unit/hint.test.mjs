@@ -15,10 +15,12 @@ test("전사 힌트: 가장 긴 토큰부터 부호화, 상한 넘으면 뒤 낱
   const base = [w.SOT, w.KO, w.TRANSCRIBE];
   assert.deepEqual(w.head(base), [50362n, 7n, 6n, ...base]);
   assert.deepEqual(w.head(base, false), base);
-  assert.equal(w.leaked("과기성."), false); // 한 낱말만이면 새어 나온 것으로 보지 않음
+  // 고르기: 힌트 낱말만 늘어놓았거나, 힌트 없을 때보다 10% 넘게 짧으면 힌트 없는 글
   w.setHint(["과기성", "노무비"], 9);
-  assert.equal(w.leaked("과기성, 노무비."), true);
-  assert.equal(w.hintDrops, 1);
+  assert.equal(w.pickHint("과기성 나간 부분은 노무비로", "과외성 나간 부분은 농업이로"), true);
+  assert.equal(w.pickHint("과기성, 노무비.", ""), false);
+  assert.equal(w.pickHint("부분은 노무비로", "과외성 나간 부분은 농업이로"), false);
+  assert.equal(w.hintDrops, 2);
   assert.deepEqual(w.setHint([]), []);
   assert.deepEqual(w.head(base), base);
 });
