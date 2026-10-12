@@ -152,6 +152,27 @@
      "manual": true,
      "src": "면담 녹취(클로바노트) 정정",
      "by": {}
+    },
+    {
+     "from": "과개성",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    },
+    {
+     "from": "가기상",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    },
+    {
+     "from": "곽이성",
+     "st": "cand",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
     }
    ]
   },
@@ -201,6 +222,20 @@
       "지급"
      ],
      "by": {}
+    },
+    {
+     "from": "기석",
+     "st": "cand",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "when": [
+      "이",
+      "을",
+      "나",
+      "청구",
+      "사정"
+     ],
+     "by": {}
     }
    ]
   },
@@ -215,6 +250,20 @@
      "manual": true,
      "src": "면담 녹취(클로바노트) 정정",
      "by": {}
+    },
+    {
+     "from": "관리비수",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    },
+    {
+     "from": "관리비스",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
     }
    ]
   },
@@ -228,6 +277,13 @@
      "st": "on",
      "manual": true,
      "src": "면담 녹취(클로바노트) 정정",
+     "by": {}
+    },
+    {
+     "from": "멀티팩",
+     "st": "cand",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
      "by": {}
     }
    ]
@@ -270,6 +326,19 @@
      "st": "cand",
      "manual": true,
      "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    },
+    {
+     "from": "중공",
+     "st": "cand",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "when": [
+      "할",
+      "때",
+      "정산",
+      "까지"
+     ],
      "by": {}
     }
    ]
@@ -381,6 +450,306 @@
      "st": "cand",
      "manual": true,
      "src": "면담 회의록(Plaud) 정정",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "기성 사정",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "개선사정",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    },
+    {
+     "from": "개성 사정",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "기성 청구서",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "기성청구석",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "임시소방시설",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "임지소방지서",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "유해위험방지계획서",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "유행위원 방지계획서",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "소화장치",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "소화장지",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    },
+    {
+     "from": "소화장집",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "원자재",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "온자재",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "야드",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "야대",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "합리적",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "한미적",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "펌프",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "포프트",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "절차상",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "절차장",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    },
+    {
+     "from": "전자상",
+     "st": "cand",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "착복",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "착북",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "관리 부실",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "갈림구식",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "미스",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "믿수",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "협력업체",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "현명업체",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "실투입",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "실주입",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    },
+    {
+     "from": "신수립",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "이권",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "미권",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "일률적",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "일렬적",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "계약 금액",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "대학금액",
+     "st": "on",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "by": {}
+    }
+   ]
+  },
+  {
+   "to": "부당한",
+   "kind": "term",
+   "hint": true,
+   "vars": [
+    {
+     "from": "부장한",
+     "st": "cand",
+     "manual": true,
+     "src": "09-16 면담 HAUD·클로바 대조",
+     "when": [
+      "경우",
+      "요구",
+      "지시",
+      "이익"
+     ],
      "by": {}
     }
    ]

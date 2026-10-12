@@ -166,3 +166,10 @@ test("배포(pages.yml)가 기본 사전 파일을 함께 올린다", () => {
   const yml = fs.readFileSync(new URL("../../.github/workflows/pages.yml", import.meta.url), "utf8");
   assert.match(yml, /cp [^\n]*web\/lexicon-seed\.json[^\n]*_site\//);
 });
+
+test("바꾼 말 뒤 조사를 받침에 맞추고, 「~다」로 끝나는 꼴도 바꿈", () => {
+  const lex = fromGlossary([{ from: "임지소방지서", to: "임시소방시설" }, { from: "관리비스", to: "관리 미스" }, { from: "야대", to: "야드" }, { from: "온자재", to: "원자재" }]);
+  assert.equal(applyLexicon("임지소방지서를 내고 임지소방지서가 있고 임지소방지서는", lex).text, "임시소방시설을 내고 임시소방시설이 있고 임시소방시설은");
+  assert.equal(applyLexicon("관리비스다 이렇게, 야대에 두고 야대로 옮김", lex).text, "관리 미스다 이렇게, 야드에 두고 야드로 옮김");
+  assert.equal(applyLexicon("온자재가가 올라", lex).text, "원자재가가 올라"); // 「가」 뒤에 글자가 이어지면 조사로 보지 않음
+});

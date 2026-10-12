@@ -51,8 +51,25 @@ const JOSA = ["에서부터", "으로부터", "이라고는", "에게서", "한�
   "이다", "이죠", "이요", "까지", "부터", "처럼", "보다", "라고", "라는", "라서", "였다", "예요", "이지", "인데", "인지", "하고",
   "을", "를", "이", "가", "은", "는", "의", "도", "만", "에", "와", "과", "로", "랑", "나", "요", "죠", "고", "인", "지"];
 // 꼴 바로 뒤에 와도 되는 것: 조사·「하다/되다」 활용·문장부호. 이것 말고 다른 글자가 이어지면 더 긴 낱말의 일부로 본다(「기상청」).
-const TAIL = new RegExp("^(?:(?:" + JOSA.join("|") + ")+|(?:하|했|할|한|해|합|됐|되|된|될|돼|됩|시켰|시키|이었|였|입니|이네|이니)[가-힣]*)?[\\s.,!?…·~\"'”’」』)\\]]*$");
+const TAIL = new RegExp("^(?:(?:" + JOSA.join("|") + "|다)+|(?:하|했|할|한|해|합|됐|되|된|될|돼|됩|시켰|시키|이었|였|입니|이네|이니)[가-힣]*)?[\\s.,!?…·~\"'”’」』)\\]]*$");
 const PUNCT_L = /^[\s"'“‘「『(\[]+/, PUNCT_R = /[\s.,!?…·~"'”’」』)\]]+$/;
+/** 받침 따라 조사 맞추기: 바뀐 말 뒤 「을/를·이/가·은/는·과/와·으로/로」를 바른 말 끝소리에 맞춤(「임지소방지서를」 → 「임시소방시설을」) */
+const PAIRS = [["으로", "로"], ["을", "를"], ["은", "는"], ["과", "와"], ["이", "가"]];
+function fixJosa(word, rest) {
+  const ch = String(word).slice(-1), c = ch.charCodeAt(0) - 0xac00;
+  if (c < 0 || c > 11171) return rest; // 한글로 끝나지 않으면 그대로(영문·숫자 읽기는 모름)
+  const jong = c % 28, has = jong > 0;
+  for (const [withB, noB] of PAIRS) {
+    for (const cur of [withB, noB]) {
+      if (!rest.startsWith(cur)) continue;
+      const after = rest.slice(cur.length);
+      if (cur === "이" || cur === "가") { if (after && !/^[\s.,!?…·~"'”’」』)\]]/.test(after)) continue; } // 「이다」·「이고」 같은 것은 건드리지 않음
+      const pick = withB === "으로" ? (has && jong !== 8 ? "으로" : "로") : has ? withB : noB;
+      return pick + after;
+    }
+  }
+  return rest;
+}
 /** 어절 끝 조사 떼기 → [줄기, 조사] (줄기가 한 글자 이상 남을 때만) */
 export function stripJosa(w) {
   for (const j of JOSA) if (w.length > j.length && w.endsWith(j)) return [w.slice(0, -j.length), j];
@@ -161,7 +178,7 @@ export function applyLexicon(text, lex, opt = {}) {
       // 바꾸기: 앞 어절들은 비우고(띄어쓰기도) 마지막 어절 자리에 바른 꼴 + 뒷말
       const first = (n === 1 ? lead : (parts[words[w]].match(PUNCT_L) || [""])[0]);
       for (let q = 0; q < n - 1; q++) { parts[words[w + q]] = ""; parts[words[w + q] + 1] = ""; }
-      parts[words[w + n - 1]] = first + r.to + rest;
+      parts[words[w + n - 1]] = first + r.to + fixJosa(r.to, rest);
       w += n - 1;
       break;
     }

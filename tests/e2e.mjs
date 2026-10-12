@@ -333,7 +333,7 @@ const goReview = async (title) => {
     return all.find((j) => j.title === "소니 시험").hint;
   });
   assert.equal(hintJob[0], "전서"); // 고친 횟수가 많은 말부터(기본 사전 말은 그 뒤), 10개까지
-  assert.ok(hintJob.length <= 10 && hintJob.includes("발주처"));
+  assert.ok(hintJob.length === 10); // 확정 말이 많으면 10개까지만
   console.log("✓ 소니 녹음: 파일 순서·화자 묶음 2개·이름 붙이고 전사(전사 힌트: 교정 사전 확정 말)");
 
   await page.click(".job:has-text('소니 시험') button[data-a='review']");
