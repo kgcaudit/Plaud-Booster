@@ -4,7 +4,7 @@ import { parse as parseTranscript } from "./plaud.js";
 import { decodeFile, wavHeader, embeddedTime } from "./audio.js";
 import { encryptBackup, decryptBackup, isEncrypted, backupName, MIN_PW, PLAIN_FORMAT } from "./backup.js";
 import { exportTxt, exportCsv, mergeBackup, mergedLines, speakerOf, hms as hmsLong, MODE_LABEL, SOURCE_LABEL, LANG_LABEL, sourceOf, isDiar } from "./export.js";
-import { orderFiles, printsFromReview, recordedAt, titleFromFiles, splitCluster, relabelRange, similarRegions, mixSuspects } from "./diar.js";
+import { orderFiles, deviceOf, printsFromReview, recordedAt, titleFromFiles, splitCluster, relabelRange, similarRegions, mixSuspects } from "./diar.js";
 import { isGeneric, knownPrints } from "./engine.js";
 import { SCOPES, inScope, scopeCounts, isEdited, splitPart, mergeParts, partEnd, jobFlow, josa } from "./review.js";
 import { describeDevice, LEVELS, levelLabel, lowerLevel } from "./devices.js";
@@ -305,12 +305,13 @@ $("#gpuAsk").addEventListener("click", async (ev) => {
 });
 
 /* ================================================================== 새 작업 */
-// 1. 녹음 출처(Plaud · 소니 녹음기 · 휴대폰·기타) → 2. 출처에 맞는 할 일 → 3. 파일 → 4. Plaud 전사(Plaud만) → 5. 참석자 → 6. 이름·고지
-const F = { audio: [], tr: null, voices: [], picked: new Set() };
+// 1. 음원 파일(녹음 기기는 파일로 짐작) → 2. Plaud 전사 파일(선택 — 붙이면 Plaud 전용 할 일이 열림) → 3. 할 일 → 참석자 → 이름·고지
+// 출처는 따로 묻지 않는다(2026-10-19 사용자 결정): 음원은 형식으로 풀고, 처리 방식을 가르는 것은 Plaud 전사가 있느냐뿐이다.
+// job.source는 예전처럼 남긴다 — 전사를 붙였으면 plaud, 아니면 파일로 짐작한 기기(sony·phone·etc). 이름표에만 쓰임.
+const F = { audio: [], tr: null, voices: [], picked: new Set(), dev: null };
 let PREP = false; // 등록한 음원을 16kHz로 바꿔 저장하는 중 — 그동안 양식·파일 고르기·등록을 막는다
-const source = () => ($('input[name="source"]:checked') || {}).value || "";
 const mode = () => ($('input[name="mode"]:checked') || {}).value || "";
-const DEFAULT_TASK = { plaud: "gap", sony: "diar", phone: "diar" };
+const source = () => (F.tr ? "plaud" : (F.dev && F.dev.src) || "etc");
 
 // 새 녹음은 전용 화면(위 바 ＋). 들어올 때마다 양식을 비운다 — 파일부터 고르면 작업 이름·녹음 시각이 채워진다
 async function enterNew() {
@@ -325,18 +326,12 @@ function resetForm() {
   if (PREP) return;
   $("#newJob").reset();
   $("#jobTitle").dataset.auto = "1";
-  F.audio = []; F.tr = null; F.picked = new Set();
+  F.audio = []; F.tr = null; F.picked = new Set(); F.dev = null;
   $("#audioList").innerHTML = ""; $("#trInfo").innerHTML = ""; $("#spkMap").innerHTML = ""; $("#gapTape").classList.add("hidden");
   setMsg("");
   applyMode();
 }
 function setMsg(t, err = false) { $("#formMsg").textContent = t; $("#formMsg").classList.toggle("err", err); }
-$$('input[name="source"]').forEach((r) => r.addEventListener("change", () => {
-  const src = source(), cur = $('input[name="mode"]:checked');
-  const ok = cur && srcOk(cur.closest(".mode"), src);
-  if (!ok) $(`input[name="mode"][value="${DEFAULT_TASK[src]}"]`).checked = true;
-  applyMode();
-}));
 $$('input[name="mode"]').forEach((r) => r.addEventListener("change", applyMode));
 $("#isCall").addEventListener("change", () => { if ($("#isCall").checked) $("#attendees").value = 2; });
 const SRC_TIPS = {
@@ -351,42 +346,55 @@ const SRC_TIPS = {
     "통화 녹음은 전화 음질(8kHz)이라 대면 녹음보다 전사·화자 구분이 덜 정확합니다.",
     "휴대폰은 화면을 아래로 해 탁자 가운데에 두고, 알림·진동은 꺼 두세요.",
     "녹음 중 다른 앱으로 오래 넘어가면 기종에 따라 녹음이 끊길 수 있습니다."],
+  etc: ["녹음 음질은 높게(MP3 192kbps 이상 또는 WAV) 두세요.",
+    "녹음기는 탁자 가운데, 모든 사람에게서 비슷한 거리에 두세요.",
+    "통화 녹음은 「통화 녹음(두 사람)」을 켜면 두 사람으로 묶습니다."],
 };
-// 할 일 카드의 data-src: "plaud"(Plaud만) · "plaud dev"(모든 출처). dev = 소니·휴대폰
-const srcOk = (label, src) => (label.dataset.src || "").split(" ").includes(src === "plaud" ? "plaud" : "dev");
-const NEEDS_TR = (m) => m === "gap" || m === "range" || m === "enroll"; // Plaud 전사 파일을 쓰는 할 일
-// Plaud 출처 화자 분리는 Plaud 전사를 붙일 수 있다(선택 — 검수에서 발언마다 Plaud 글과 견줌, 2026-10-12)
-const TR_OPT = (src, m) => src === "plaud" && isDiar(m);
+const NEEDS_TR = (m) => m === "gap" || m === "range" || m === "enroll"; // Plaud 전사 파일이 있어야 하는 할 일
+// 화자 분리에 Plaud 전사를 붙이면(선택) 검수에서 발언마다 Plaud 글과 견준다(2026-10-12)
+const TR_OPT = (m) => !!F.tr && isDiar(m);
+/** 고른 음원의 녹음 기기(첫 파일 머리의 ID3 등·파일 이름으로) — 이름표·녹음 요령에만 쓴다 */
+async function detectRecorder() {
+  const a = F.audio[0];
+  if (!a) { F.dev = null; return; }
+  let head = null;
+  try { head = new Uint8Array(await a.file.slice(0, 65536).arrayBuffer()); } catch {}
+  F.dev = deviceOf(a.file.name, head);
+}
 function applyMode() {
-  const src = source(), m = mode(), dev = src && !NEEDS_TR(m) && !TR_OPT(src, m);
-  $("#fsTask").classList.toggle("hidden", !src);
-  $$("#fsTask .mode").forEach((l) => l.classList.toggle("hidden", !src || !srcOk(l, src)));
-  $$("#newJob .after-src").forEach((f) => f.classList.toggle("hidden", !src));
-  $("#audioFiles").multiple = !src || MULTI(m); // 출처를 고르기 전에는 여러 개 허용(파일부터 고를 수 있게)
-  if (src && !MULTI(m) && F.audio.length > 1) setMsg("이 할 일은 음원 1개만 받습니다 — 파일을 다시 골라 주세요.", true);
+  let m = mode();
+  // 전사를 떼면 전사가 필요한 할 일은 고를 수 없다 → 화자 분리로
+  if (NEEDS_TR(m) && !F.tr) { $('input[name="mode"][value="diar"]').checked = true; m = "diar"; }
+  const src = source();
+  $$("#fsTask .mode").forEach((l) => l.classList.toggle("hidden", l.dataset.tr === "need" && !F.tr));
+  $("#trClear").classList.toggle("hidden", !F.tr);
+  $("#audioFiles").multiple = MULTI(m);
+  if (!MULTI(m) && F.audio.length > 1) setMsg("이 할 일은 음원 1개만 받습니다 — 파일을 다시 골라 주세요.", true);
   else if ($("#formMsg").classList.contains("err") && /음원 1개/.test($("#formMsg").textContent)) setMsg("");
-  $("#callWrap").classList.toggle("hidden", !(src === "phone" && isDiar(m)));
-  $("#srcTip").classList.toggle("hidden", !src);
-  if (src) $("#srcTip").innerHTML = `<summary>녹음 요령 — ${SOURCE_LABEL[src]}(전사·화자 구분을 더 정확하게)</summary><ul class="tips">${SRC_TIPS[src].map((t) => `<li>${t}</li>`).join("")}</ul>`;
-  if (!src) { $("#audioHint").textContent = "m4a·mp3·wav 등 — 여러 개면 녹음 시각 순으로 자동 정렬"; return; }
-  $("#audioHint").textContent = src === "sony" ? "MP3·WAV 여러 개 가능 — 파일 이름의 녹음 시각 순으로 자동 정렬"
-    : src === "phone" ? "m4a·mp3·wav 등 여러 개 가능 — 녹음 시각(파일 이름 → 파일 정보 → 저장 시각) 순으로 자동 정렬"
-      : MULTI(m) ? "Plaud에서 내려받은 음원(MP3·WAV) — 여러 개 가능, 녹음 시각 순으로 자동 정렬" : "Plaud에서 내려받은 음원(MP3) 1개";
+  $("#callWrap").classList.toggle("hidden", !isDiar(m));
+  const tipSrc = F.audio.length ? src : "";
+  $("#srcTip").classList.toggle("hidden", !tipSrc);
+  if (tipSrc) {
+    const who = SOURCE_LABEL[tipSrc] + (tipSrc !== "plaud" && F.dev && F.dev.model ? " " + F.dev.model : "");
+    $("#srcTip").innerHTML = `<summary>녹음 요령 — ${esc(who)}(전사·화자 구분을 더 정확하게)</summary><ul class="tips">${SRC_TIPS[tipSrc].map((t) => `<li>${t}</li>`).join("")}</ul>`;
+  }
+  $("#audioHint").textContent = MULTI(m) ? "m4a·mp3·wav 등 — 여러 개면 녹음 시각(파일 이름 → 파일 정보 → 저장 시각) 순으로 자동 정렬" : "m4a·mp3·wav 등 1개";
   $("#fsRange").classList.toggle("hidden", m !== "range");
   $("#fsSpeakers").classList.toggle("hidden", m === "enroll");
-  $("#fsTranscript").classList.toggle("hidden", dev);
   $("#spkLegend").textContent = isDiar(m) ? "참석자(선택)" : "화자 후보";
   $("#spkHint").textContent = isDiar(m) ? "고르면 그 사람들의 목소리 기준으로만 이름을 추천합니다. 인원 수는 묶음이 지나치게 많아지지 않게 하는 데만 씁니다."
     : m === "fragment" ? "고르지 않으면 저장된 사람 전원 중에서 맞힙니다" : "고르지 않으면 저장된 사람 전원과 이 회의 전사에 나온 사람 중에서 맞힙니다";
   $("#attWrap").classList.toggle("hidden", !isDiar(m));
   $("#useVpWrap").classList.toggle("hidden", isDiar(m));
-  // 단계 번호: Plaud 전사를 쓰는 할 일은 4번이 전사 파일, 그 밖에는 전사 파일 단계가 없다
-  const nums = $$("#newJob legend .num");
-  nums.forEach((n, i) => { n.textContent = (i < 3 ? i + 1 : dev && i >= 4 ? i : i + 1) + "."; });
+  // 단계 번호는 보이는 칸에 차례로
+  let k = 0;
+  $$("#newJob fieldset").forEach((f) => { const n = f.querySelector("legend .num"); if (n) n.textContent = f.classList.contains("hidden") ? "" : ++k + "."; });
   if (MULTI(m) && F.audio.length > 1) { F.audio = orderFiles(F.audio); renderAudioList(); }
-  $("#trHint").textContent = m === "gap" || m === "enroll" ? "필수 — Plaud에서 TXT·SRT·DOCX로 내보낸 파일(시간·화자를 켜고 내보내기)"
-    : TR_OPT(src, m) ? "선택 — 같은 녹음의 Plaud 전사가 있으면 검수에서 발언마다 Plaud 글을 함께 보고, 많이 다른 발언을 먼저 확인합니다(나중에 검수 화면에서 붙여도 됨)"
-      : "권장 — 같은 녹음의 전사가 있으면 그 사람들 목소리로 화자를 맞힙니다";
+  $("#trHint").textContent = !F.tr ? "선택 — 같은 녹음을 Plaud로 전사했다면 붙이세요(TXT·SRT·DOCX, 시간·화자를 켜고 내보내기). 붙이면 Plaud 전용 할 일이 열립니다"
+    : m === "gap" || m === "enroll" ? "이 할 일에 필요합니다 — 이 전사의 화자 이름으로 목소리를 맞힙니다"
+      : TR_OPT(m) ? "붙임 — 검수에서 발언마다 Plaud 글을 함께 보고, 많이 다른 발언을 먼저 확인합니다(음원 1개일 때만)"
+        : m === "range" ? "붙임 — 이 전사의 화자 이름으로 다시 전사한 구간의 화자를 맞힙니다"
+          : "붙임 — 이 할 일에는 쓰지 않습니다";
   drawTape();
 }
 
@@ -419,8 +427,11 @@ $("#audioFiles").addEventListener("change", async (ev) => {
   renderAudioList();
   autoTitle();
   for (const a of F.audio) { a.dur = await mediaDuration(a.file); renderAudioList(); }
-  if (source() !== "plaud" || MULTI(mode())) { await stampTimes(); if (MULTI(mode())) F.audio = orderFiles(F.audio); renderAudioList(); autoTitle(); }
-  drawTape();
+  await stampTimes(); if (MULTI(mode())) F.audio = orderFiles(F.audio); renderAudioList(); autoTitle();
+  await detectRecorder();
+  // 이름에 「통화」가 들어 있으면 통화 녹음으로(사람이 고친 뒤에는 그대로)
+  if (F.audio.some((a) => /통화|call/i.test(a.file.name)) && !$("#isCall").checked) { $("#isCall").checked = true; $("#attendees").value = 2; }
+  applyMode();
 });
 // 작업 이름: 사람이 직접 쓰기 전까지는 고른 파일 이름을 다듬어 채운다(직접 쓰면 그대로 둠)
 function autoTitle() {
@@ -460,7 +471,12 @@ $("#trFile").addEventListener("change", async (ev) => {
       + (r.segs.length ? `<div class="msg">첫 발언: [${hms(r.segs[0].start)}] ${esc(r.segs[0].speaker)} — ${esc(r.segs[0].text.slice(0, 60))}</div>` : "");
     renderSpkMap(sp);
   } catch (e) { F.tr = null; $("#trInfo").innerHTML = `<span class="msg err">전사 파일을 읽지 못했습니다: ${esc(e.message)}</span>`; }
-  drawTape(); renderChips();
+  applyMode(); renderChips();
+});
+$("#trClear").addEventListener("click", () => {
+  if (PREP) return;
+  F.tr = null; $("#trFile").value = ""; $("#trInfo").innerHTML = ""; $("#spkMap").innerHTML = "";
+  applyMode(); renderChips();
 });
 function renderSpkMap(sp) {
   if (!sp.length) { $("#spkMap").innerHTML = ""; return; }
@@ -498,12 +514,11 @@ $("#newJob").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   if (PREP) { toast("음원을 준비하는 중입니다"); return; }
   // 고른 파일·전사는 지금 것을 붙잡아 둔다(준비하는 동안 양식이 바뀌어도 이 등록에는 영향 없게)
-  const m = mode(), src = source(), files = F.audio.slice(), trIn = F.tr;
-  if (!src) return setMsg("녹음 출처를 골라 주세요.", true);
+  const m = mode(), files = F.audio.slice(), trIn = F.tr;
   if (!m) return setMsg("할 일을 골라 주세요.", true);
   if (!files.length) return setMsg("음원을 골라 주세요.", true);
   if (!MULTI(m) && files.length !== 1) return setMsg("이 할 일은 음원 1개만 받습니다.", true);
-  if ((m === "gap" || m === "enroll") && !trIn) return setMsg("Plaud 전사 파일이 필요합니다.", true);
+  if (NEEDS_TR(m) && !trIn) return setMsg("이 할 일은 Plaud 전사 파일이 필요합니다.", true);
   let range = null;
   if (m === "range") {
     const a = parseHms($("#rFrom").value), b = parseHms($("#rTo").value);
@@ -512,8 +527,9 @@ $("#newJob").addEventListener("submit", async (ev) => {
   }
   const id = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14) + "-" + Math.random().toString(36).slice(2, 6);
   // Plaud 전사는 음원 1개와 짝 — 화자 분리는 여러 파일을 받으므로 1개일 때만 붙인다
-  if (trIn && TR_OPT(src, m) && files.length !== 1) return setMsg("Plaud 전사는 음원 1개일 때만 붙일 수 있습니다 — 전사 파일을 빼거나 음원을 1개만 고르세요.", true);
-  const tr = !MULTI(m) || TR_OPT(src, m) ? trIn : null;
+  if (trIn && TR_OPT(m) && files.length !== 1) return setMsg("Plaud 전사는 음원 1개일 때만 붙일 수 있습니다 — 전사 파일을 빼거나 음원을 1개만 고르세요.", true);
+  const tr = !MULTI(m) || TR_OPT(m) ? trIn : null;
+  const src = tr ? "plaud" : (F.dev && F.dev.src) || "etc"; // 이름표(처리 방식에는 쓰지 않음)
   const att = Math.max(0, Math.min(30, Math.round(+$("#attendees").value || 0)));
   const job = {
     title: $("#jobTitle").value.trim() || files[0].file.name.replace(/\.[^.]+$/, ""),
@@ -522,7 +538,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
     transcript: tr ? { name: tr.name, count: tr.segs.length, endSec: tr.endSec } : null,
     transcriptEndSec: tr ? tr.endSec : 0, range, speakerMap: speakerMap(), speakers: [...F.picked],
     useVoiceprints: $("#useVp").checked, note: $("#jobNote").value.trim(), progress: { pct: 0, msg: "음원 준비 중" },
-    ...(isDiar(m) ? { attendees: ($("#isCall").checked && src === "phone" ? 2 : att) || null, call: $("#isCall").checked && src === "phone", stage: "diar", skip: [] } : {}),
+    ...(isDiar(m) ? { attendees: ($("#isCall").checked ? 2 : att) || null, call: $("#isCall").checked, stage: "diar", skip: [] } : {}),
   };
   PREP = true; $("#btnSubmit").disabled = true; $("#audioFiles").disabled = true;
   keepAwake("prep", true); // 긴 음원을 16kHz로 바꿔 저장하는 동안에도 화면을 켜 둔다
@@ -884,7 +900,8 @@ function plLine(g, shown) {
 /** 검수 위 Plaud 줄: 붙이기(없을 때) · 견준 결과(있을 때) */
 function renderPlBar() {
   const d = REVIEW.data, bar = $("#rvPlBar");
-  const can = d && d.result && isDiar(d.job.mode) && sourceOf(d.job) === "plaud";
+  // 출처와 상관없이 화자 분리면 붙일 수 있다(2026-10-19 — 출처를 묻지 않게 되어 Plaud 음원도 「기타 녹음」으로 등록될 수 있음)
+  const can = d && d.result && isDiar(d.job.mode);
   bar.classList.toggle("hidden", !can);
   $("#rvPlCmpWrap").classList.toggle("hidden", !plaudCmp(d));
   if (!can) { bar.innerHTML = ""; return; }
@@ -908,9 +925,9 @@ $("#rvPlBar").addEventListener("change", async (ev) => {
     const dur = (REVIEW.data.job.audioFiles || []).reduce((m, x) => m + (x.dur || 0), 0);
     if (dur && r.endSec > dur + 60) throw new Error(`전사(${hms(r.endSec)})가 음원(${hms(dur)})보다 깁니다 — 같은 녹음인지 확인하세요`);
     await S.put("plaud", id, r.segs);
-    await S.saveJob(id, { transcript: { name: f.name, count: r.segs.length, endSec: r.endSec } });
+    await S.saveJob(id, { transcript: { name: f.name, count: r.segs.length, endSec: r.endSec }, source: "plaud" });
     if (REVIEW.id !== id) return;
-    REVIEW.data.plaud = r.segs; REVIEW.data.job.transcript = { name: f.name, count: r.segs.length, endSec: r.endSec };
+    REVIEW.data.plaud = r.segs; REVIEW.data.job.transcript = { name: f.name, count: r.segs.length, endSec: r.endSec }; REVIEW.data.job.source = "plaud";
     REVIEW.pl = plaudOf(REVIEW.data);
     renderReview();
     scheduleHarvest(id, REVIEW.edits, REVIEW.names, 300);

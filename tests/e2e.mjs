@@ -114,15 +114,15 @@ const goReview = async (title) => {
   await page.waitForSelector("#jobList .empty");
   console.log("✓ 녹음이 없으면 안내와 새 녹음 단추 · 새 녹음은 전용 화면");
 
-  // ---- 누락 구간 보충(출처 Plaud → 할 일 기본값 「빠진 구간 채우기」)
+  // ---- 누락 구간 보충(출처는 묻지 않음 — Plaud 전사를 붙이면 「빠진 구간 채우기」가 열림, 2026-10-19)
   await page.click("#btnNew");
-  assert.ok(await page.locator("#fsTask").isHidden()); // 출처를 고르기 전에는 할 일이 안 보임
-  await page.check("input[name='source'][value='plaud']");
-  assert.ok(await page.locator("input[name='mode'][value='gap']").isChecked());
-  assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible()); // Plaud에도 화자 분리·전사
+  assert.equal(await page.locator("input[name='source']").count(), 0); // 녹음 출처 선택 없음
+  assert.ok(await page.locator("input[name='mode'][value='diar']").isChecked()); // 기본은 화자 분리·전사
+  assert.ok(await page.locator("input[name='mode'][value='gap']").isHidden()); // 전사를 붙이기 전에는 Plaud 전용 할 일이 안 보임
   await page.setInputFiles("#audioFiles", asFile(audioPath, "audio/wav"));
   await page.setInputFiles("#trFile", asFile(trPath, "text/plain"));
   await page.waitForSelector("#trInfo:has-text('7개 발언')");
+  await page.check("input[name='mode'][value='gap']");
   await page.waitForSelector("#gapTape .lbl:has-text('빠진')");
   await page.fill("#spkMap input[data-from='Speaker 2']", "배소정");
   await page.fill("#jobTitle", "시험 회의");
@@ -259,25 +259,31 @@ const goReview = async (title) => {
   await nav(page, "jobs");
   await page.click("#btnNew");
   assert.ok(await page.locator("#newJob").isVisible());
-  // Plaud 출처에도 화자 분리·전사가 있고, 고르면 Plaud 전사 파일은 「선택」(검수에서 발언마다 견줌)
-  await page.check("input[name='source'][value='plaud']");
-  assert.ok(await page.locator("input[name='mode'][value='diar']").isVisible());
-  await page.check("input[name='mode'][value='diar']");
+  // Plaud 전사 파일은 늘 「선택」 칸 — 붙이면 Plaud 전용 할 일이 열리고, 화자 분리에서는 「붙임」(검수에서 발언마다 견줌)
   assert.ok(await page.locator("#fsTranscript").isVisible());
   assert.match(await page.locator("#trHint").textContent(), /선택/);
+  assert.ok(await page.locator("input[name='mode'][value='gap']").isHidden());
+  assert.ok(await page.locator("#trClear").isHidden());
+  await page.setInputFiles("#trFile", asFile(trPath, "text/plain"));
+  await page.waitForSelector("#trInfo:has-text('7개 발언')");
+  assert.ok(await page.locator("input[name='mode'][value='gap']").isVisible());
+  assert.ok(await page.locator("input[name='mode'][value='diar']").isChecked());
+  assert.match(await page.locator("#trHint").textContent(), /붙임/);
   assert.ok(await page.locator("#audioFiles").evaluate((e) => e.multiple));
   await page.check("input[name='mode'][value='gap']");
-  assert.ok(await page.locator("#fsTranscript").isVisible());
-  await page.check("input[name='source'][value='sony']");
+  assert.match(await page.locator("#trHint").textContent(), /필요/);
+  assert.ok(!(await page.locator("#audioFiles").evaluate((e) => e.multiple)));
+  // 전사를 떼면 Plaud 전용 할 일은 닫히고 화자 분리로 돌아간다
+  await page.click("#trClear");
   assert.ok(await page.locator("input[name='mode'][value='gap']").isHidden());
   assert.ok(await page.locator("input[name='mode'][value='diar']").isChecked());
-  assert.ok(await page.locator("#fsTranscript").isHidden());
-  assert.ok(await page.locator("#callWrap").isHidden());
-  assert.match(await page.locator("#srcTip summary").textContent(), /소니 녹음기/); // 출처별 녹음 요령
-  assert.match(await page.locator("#srcTip").textContent(), /저역 차단/);
+  assert.equal((await page.locator("#trInfo").textContent()).trim(), "");
+  assert.ok(await page.locator("#callWrap").isVisible()); // 화자 분리면 「통화 녹음」 선택(출처와 상관없이)
   await page.setInputFiles("#audioFiles", [asFile(sony2, "audio/wav"), asFile(sony1, "audio/wav")]); // 거꾸로 골라도
   await page.waitForSelector("#audioList li:first-child:has-text('251009_1430.wav')"); // 녹음 시각 순
   await page.waitForSelector("#audioList li:nth-child(2):has-text('앞 파일과')");
+  await page.waitForSelector("#srcTip summary:has-text('소니 녹음기')"); // 녹음 기기는 파일 이름(YYMMDD_HHMM)으로 알아봄 → 기기별 녹음 요령
+  assert.match(await page.locator("#srcTip").textContent(), /저역 차단/);
   // 작업 이름은 고른 파일 이름(녹음 시각)을 다듬어 저절로 채워짐
   assert.equal(await page.locator("#jobTitle").inputValue(), "25년 10월 9일 오후 02시 30분 외 1개");
   // 참석자 칩은 단추 — 자판(Enter·Space)으로 고르고 풀 수 있다
@@ -433,15 +439,14 @@ const goReview = async (title) => {
   await page.waitForSelector("#vpBody tr[data-n='정']");
   console.log("✓ 통합본(묶음 이름·녹음 시각)·목소리 기준 저장");
 
-  // Plaud 대조(2026-10-12): Plaud 출처 화자 분리 녹음에 검수 화면에서 Plaud 전사를 붙이면
-  // 발언마다 Plaud 글·「Plaud 글로」·많이 다른 발언은 「불확실」·화자 바뀜 「✂ 여기서 나누기」. 시험용으로 이 녹음의 출처를 Plaud로 바꾼다.
+  // Plaud 대조(2026-10-12): 화자 분리 녹음에 검수 화면에서 Plaud 전사를 붙이면(2026-10-19부터 출처와 상관없이)
+  // 발언마다 Plaud 글·「Plaud 글로」·많이 다른 발언은 「불확실」·화자 바뀜 「✂ 여기서 나누기」. 소니로 알아본 녹음에도 붙는지 보려고 출처는 그대로 둔다.
   const plInfo = await page.evaluate(async () => {
     const db = await new Promise((r) => { const q = indexedDB.open("plaud-booster"); q.onsuccess = () => r(q.result); });
     const get = (st, k) => new Promise((r) => { const q = db.transaction(st).objectStore(st).get(k); q.onsuccess = () => r(q.result); });
     const all = await new Promise((r) => { const q = db.transaction("jobs").objectStore("jobs").getAll(); q.onsuccess = () => r(q.result); });
     const keys = await new Promise((r) => { const q = db.transaction("jobs").objectStore("jobs").getAllKeys(); q.onsuccess = () => r(q.result); });
     const k = all.findIndex((j) => j.title === "소니 시험"), id = keys[k];
-    await new Promise((r) => { const tx = db.transaction("jobs", "readwrite"); tx.objectStore("jobs").put({ ...all[k], source: "plaud" }, id); tx.oncomplete = r; });
     const edits = (await get("edits", id)) || { e: {} };
     const segs = (await get("results", id)).segs.filter((g) => !(edits.e[g.i] && edits.e[g.i].parts) && (g.file || 0) === 0).sort((a, b) => a.start - b.start);
     const t = (x) => { const ms = Math.round(x * 1000); return `${String(Math.floor(ms / 3600000)).padStart(2, "0")}:${String(Math.floor(ms / 60000) % 60).padStart(2, "0")}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")},${String(ms % 1000).padStart(3, "0")}`; };
@@ -548,9 +553,8 @@ const goReview = async (title) => {
   if (mp3Path) {
     await nav(page, "jobs");
     await page.click("#btnNew");
-    await page.check("input[name='source'][value='phone']");
-    await page.check("input[name='mode'][value='diar']");
-    assert.ok(await page.locator("#callWrap").isVisible()); // 휴대폰 + 화자 분리면 「통화 녹음」 선택
+    assert.ok(await page.locator("input[name='mode'][value='diar']").isChecked());
+    assert.ok(await page.locator("#callWrap").isVisible()); // 화자 분리면 「통화 녹음」 선택
     await page.check("#isCall");
     assert.equal(await page.inputValue("#attendees"), "2");
     await page.check("input[name='mode'][value='fragment']");
@@ -563,7 +567,7 @@ const goReview = async (title) => {
     const meta = await page.locator(".job:has-text('조각 시험') .info").first().textContent();
     assert.match(meta, /조각\.mp3 \(2:30\)/, meta);
     const head = await page.locator(".job:has-text('조각 시험') .meta").first().textContent(); // 카드 둘째 줄: 출처 · 할 일 · 언어 · 길이 · 발언 수
-    assert.match(head, /휴대폰·기타 기기 · 저장된 목소리로 바로 맞히기 · 영어 · 4:00/, head);
+    assert.match(head, /기타 녹음 · 저장된 목소리로 바로 맞히기 · 영어 · 4:00/, head);
     const d2 = page.waitForEvent("download");
     await page.click(".job:has-text('조각 시험') button[data-a='review']");
     await page.click("#exTxt");

@@ -420,6 +420,27 @@ export function recordedAt(name) {
   return { at: `${r.y}-${pad2(r.mo)}-${pad2(r.d)}T${pad2(r.time.h)}:${pad2(r.time.mi)}:${pad2(r.time.s)}`, seq: r.seq };
 }
 
+/**
+ * 녹음 기기 짐작(목록·통합본의 출처 이름표용 — 처리 방식은 바꾸지 않음, 2026-10-19).
+ * name: 파일 이름, head: 파일 앞부분 바이트(Uint8Array, 64KB면 충분 — 소니는 ID3 태그에 「SONY IC RECORDER」·기종 「ICD-…」)
+ * → { src: "sony" | "phone" | "etc", model }
+ */
+export function deviceOf(name, head) {
+  let raw = "";
+  if (head && head.length) {
+    const n = Math.min(head.length, 65536);
+    for (let i = 0; i < n; i += 8192) raw += String.fromCharCode.apply(null, head.subarray(i, Math.min(n, i + 8192)));
+  }
+  const txt = raw.replace(/\0/g, ""); // UTF-16 태그(글자 사이 0)도 같은 글자로 — 다만 끝 0이 사라져 옆 태그와 붙으므로 기종은 원문에서 먼저
+  const model = (/ICD-[A-Z0-9]{2,}/.exec(raw) || /ICD-[A-Z]{1,3}\d{2,4}/.exec(txt) || [""])[0];
+  if (model || /SONY IC RECORDER/i.test(txt)) return { src: "sony", model };
+  const file = String(name || ""), ext = (/\.([A-Za-z0-9]{1,5})$/.exec(file) || ["", ""])[1].toLowerCase();
+  const base = file.replace(/\.[A-Za-z0-9]{1,5}$/, "");
+  if (/^\d{6}_\d{4}(_\d{1,3})?$/.test(base) && (ext === "mp3" || ext === "wav")) return { src: "sony", model: "" }; // 소니 이름꼴 YYMMDD_HHMM[_nn]
+  if (/^(m4a|3gp|3gpp|amr|aac)$/.test(ext) || /(음성|통화|녹음|voice|recording|kakaotalk|call)/i.test(base)) return { src: "phone", model: "" };
+  return { src: "etc", model: "" };
+}
+
 /** 소니 파일 여러 개를 녹음 시각 순으로(시각을 못 읽으면 이름 순) */
 export function orderFiles(list) {
   return [...list].map((x, i) => ({ x, i, r: recordedAt(x.name) || (x.recordedAt ? { at: x.recordedAt, seq: 0 } : null) })).sort((a, b) => {

@@ -359,3 +359,21 @@ test("글을 못 받은 긴 발언(6초 이상)은 빈 글로 남겨 「불확�
   // 통합본에는 빈 글이 나가지 않음
   assert.equal(mergedLines({ job: { mode: "diar", audioFiles: files }, result: r.result, edits: { e: {} }, plaud: [], glossary: [] }).length, 0);
 });
+
+import { deviceOf } from "../../web/src/diar.js";
+test("녹음 기기 짐작: 소니 ID3 태그(기종)·소니 이름꼴·휴대폰·그 밖", () => {
+  // 소니 IC 레코더 MP3 머리 흉내: ID3v2.3 + GEOB(기종) + TENC(인코더) — 합성 바이트
+  const enc = (s) => [...s].map((c) => c.charCodeAt(0));
+  const head = new Uint8Array([...enc("ID3"), 3, 0, 0, 0, 0, 0, 80, ...enc("GEOB"), 0, 0, 0, 20, 0, 0, 0, 0, 0, ...enc("IcdRInfo"), 0, 0, ...enc("ICD-TX660"), 0, ...enc("TENC"), 0, 0, 0, 25, 0, 0, 0, ...enc("SONY IC RECORDER 12.4.0"), 0]);
+  assert.deepEqual(deviceOf("아무이름.mp3", head), { src: "sony", model: "ICD-TX660" });
+  // UTF-16 태그(글자 사이 0)도 알아봄
+  const u16 = new Uint8Array(enc("SONY IC RECORDER").flatMap((c) => [c, 0]));
+  assert.equal(deviceOf("x.mp3", u16).src, "sony");
+  assert.equal(deviceOf("251009_1430.wav").src, "sony");
+  assert.equal(deviceOf("251009_1430_01.mp3").src, "sony");
+  assert.equal(deviceOf("251009_1430.m4a").src, "phone"); // 소니 이름꼴이라도 m4a는 휴대폰
+  assert.equal(deviceOf("음성 260914_075100.m4a").src, "phone");
+  assert.equal(deviceOf("통화 녹음 홍길동_260914_075100.mp3").src, "phone");
+  assert.equal(deviceOf("meeting.mp3", new Uint8Array(100)).src, "etc");
+  assert.equal(deviceOf("").src, "etc");
+});
