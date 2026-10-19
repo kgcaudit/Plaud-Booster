@@ -336,8 +336,8 @@ $$('input[name="mode"]').forEach((r) => r.addEventListener("change", applyMode))
 $("#isCall").addEventListener("change", () => { if ($("#isCall").checked) $("#attendees").value = 2; });
 const SRC_TIPS = {
   plaud: ["내보낼 때 「시간」과 「화자」를 켜 두세요 — 화자 맞히기의 기준이 됩니다.",
-    "Plaud에서 화자 이름을 몇 명이라도 붙여 두면 그 사람의 목소리 기준이 정확해집니다.",
-    "음원(MP3)은 전사와 같은 녹음의 원본을 받으세요."],
+    "전사 서비스(Plaud·클로바노트 등)에서 화자 이름을 몇 명이라도 붙여 두면 그 사람의 목소리 기준이 정확해집니다.",
+    "음원은 전사와 같은 녹음의 원본을 쓰세요."],
   sony: ["녹음 방식은 MP3 192kbps 이상 또는 LPCM(WAV)으로 두세요.",
     "저역 차단(LOW CUT)을 켜면 에어컨·책상 울림이 줄어 말소리 찾기가 정확해집니다.",
     "녹음기는 탁자 가운데, 모든 사람에게서 비슷한 거리에 두세요.",
@@ -390,9 +390,9 @@ function applyMode() {
   let k = 0;
   $$("#newJob fieldset").forEach((f) => { const n = f.querySelector("legend .num"); if (n) n.textContent = f.classList.contains("hidden") ? "" : ++k + "."; });
   if (MULTI(m) && F.audio.length > 1) { F.audio = orderFiles(F.audio); renderAudioList(); }
-  $("#trHint").textContent = !F.tr ? "선택 — 같은 녹음을 Plaud로 전사했다면 붙이세요(TXT·SRT·DOCX, 시간·화자를 켜고 내보내기). 붙이면 Plaud 전용 할 일이 열립니다"
+  $("#trHint").textContent = !F.tr ? "선택 — 같은 녹음을 Plaud·클로바노트 등 다른 서비스로 전사했다면 붙이세요(TXT·SRT·DOCX, 시간·화자를 켜고 내보내기). 붙이면 전사 파일을 쓰는 할 일이 열립니다"
     : m === "gap" || m === "enroll" ? "이 할 일에 필요합니다 — 이 전사의 화자 이름으로 목소리를 맞힙니다"
-      : TR_OPT(m) ? "붙임 — 검수에서 발언마다 Plaud 글을 함께 보고, 많이 다른 발언을 먼저 확인합니다(음원 1개일 때만)"
+      : TR_OPT(m) ? "붙임 — 검수에서 발언마다 붙인 전사 글을 함께 보고, 많이 다른 발언을 먼저 확인합니다(음원 1개일 때만)"
         : m === "range" ? "붙임 — 이 전사의 화자 이름으로 다시 전사한 구간의 화자를 맞힙니다"
           : "붙임 — 이 할 일에는 쓰지 않습니다";
   drawTape();
@@ -518,7 +518,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
   if (!m) return setMsg("할 일을 골라 주세요.", true);
   if (!files.length) return setMsg("음원을 골라 주세요.", true);
   if (!MULTI(m) && files.length !== 1) return setMsg("이 할 일은 음원 1개만 받습니다.", true);
-  if (NEEDS_TR(m) && !trIn) return setMsg("이 할 일은 Plaud 전사 파일이 필요합니다.", true);
+  if (NEEDS_TR(m) && !trIn) return setMsg("이 할 일은 타 플랫폼 전사 파일이 필요합니다.", true);
   let range = null;
   if (m === "range") {
     const a = parseHms($("#rFrom").value), b = parseHms($("#rTo").value);
@@ -527,7 +527,7 @@ $("#newJob").addEventListener("submit", async (ev) => {
   }
   const id = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14) + "-" + Math.random().toString(36).slice(2, 6);
   // Plaud 전사는 음원 1개와 짝 — 화자 분리는 여러 파일을 받으므로 1개일 때만 붙인다
-  if (trIn && TR_OPT(m) && files.length !== 1) return setMsg("Plaud 전사는 음원 1개일 때만 붙일 수 있습니다 — 전사 파일을 빼거나 음원을 1개만 고르세요.", true);
+  if (trIn && TR_OPT(m) && files.length !== 1) return setMsg("타 플랫폼 전사는 음원 1개일 때만 붙일 수 있습니다 — 전사 파일을 빼거나 음원을 1개만 고르세요.", true);
   const tr = !MULTI(m) || TR_OPT(m) ? trIn : null;
   const src = tr ? "plaud" : (F.dev && F.dev.src) || "etc"; // 이름표(처리 방식에는 쓰지 않음)
   const att = Math.max(0, Math.min(30, Math.round(+$("#attendees").value || 0)));
@@ -892,9 +892,9 @@ function plLine(g, shown) {
   const out = [];
   const pt = r.text ? gloss(r.text) : ""; // Plaud 글에도 교정 사전 확정 꼴을 적용해 보인다(통합본과 같게)
   if (pt && normText(pt) !== normText(shown)) {
-    out.push(`<div class="pltx"><span class="plb">Plaud</span><span class="grow">${esc(pt)}</span><button type="button" class="act" data-a="usePlaud" title="이 발언 글을 Plaud 글로 바꿉니다(↶로 되돌림)">Plaud 글로</button></div>`);
-  } else if (!r.text && plaudDiffers(r)) out.push('<div class="pltx"><span class="plb">Plaud</span><span class="grow msg">이 자리에 Plaud 글이 없습니다 — 헛말인지 들어 보세요</span></div>');
-  if (r.change) out.push(`<div class="pltx plchg"><span class="plb">Plaud</span><span class="grow">${hms(r.change.t)}부터 ${esc(r.change.to)}의 말로 적혀 있습니다</span><button type="button" class="act" data-a="plSplit" title="Plaud 화자가 바뀌는 자리를 나눌 곳으로 잡습니다">✂ 여기서 나누기</button></div>`);
+    out.push(`<div class="pltx"><span class="plb">대조</span><span class="grow">${esc(pt)}</span><button type="button" class="act" data-a="usePlaud" title="이 발언 글을 타 플랫폼 전사 글로 바꿉니다(↶로 되돌림)">대조 글로</button></div>`);
+  } else if (!r.text && plaudDiffers(r)) out.push('<div class="pltx"><span class="plb">대조</span><span class="grow msg">이 자리에 타 플랫폼 전사 글이 없습니다 — 헛말인지 들어 보세요</span></div>');
+  if (r.change) out.push(`<div class="pltx plchg"><span class="plb">대조</span><span class="grow">${hms(r.change.t)}부터 ${esc(r.change.to)}의 말로 적혀 있습니다</span><button type="button" class="act" data-a="plSplit" title="타 플랫폼 전사의 화자가 바뀌는 자리를 나눌 곳으로 잡습니다">✂ 여기서 나누기</button></div>`);
   return out.join("");
 }
 /** 검수 위 Plaud 줄: 붙이기(없을 때) · 견준 결과(있을 때) */
@@ -906,14 +906,14 @@ function renderPlBar() {
   $("#rvPlCmpWrap").classList.toggle("hidden", !plaudCmp(d));
   if (!can) { bar.innerHTML = ""; return; }
   if (!plaudCmp(d)) {
-    bar.innerHTML = `<span class="grow">같은 녹음의 Plaud 전사(TXT·SRT·DOCX)를 붙이면 발언마다 Plaud 글과 견주고, 많이 다른 발언을 「불확실」에 넣습니다.</span>
-      <label class="button">Plaud 전사 붙이기<input type="file" id="plFile" accept=".txt,.srt,.docx,.json" class="hidden"></label>`;
+    bar.innerHTML = `<span class="grow">같은 녹음의 타 플랫폼 전사(Plaud·클로바노트 등 TXT·SRT·DOCX)를 붙이면 발언마다 그 글과 견주고, 많이 다른 발언을 「불확실」에 넣습니다.</span>
+      <label class="button">타 플랫폼 전사 붙이기<input type="file" id="plFile" accept=".txt,.srt,.docx,.json" class="hidden"></label>`;
     return;
   }
   let diff = 0, chg = 0;
   for (const r of REVIEW.pl.values()) { if (plaudDiffers(r)) diff++; if (r.change) chg++; }
-  bar.innerHTML = `<span class="grow"><b>Plaud 대조</b> · ${REVIEW.pl.size}개 발언 견줌 · 많이 다름(겹침 ${Math.round(PL_MIN * 100)}% 미만) ${diff}개 — 「불확실」에 넣음${chg ? ` · 화자 바뀜 ${chg}곳` : ""}</span>
-    <button type="button" class="link" id="plDrop" title="붙인 Plaud 전사를 뗍니다(검수 수정은 그대로)">떼기</button>`;
+  bar.innerHTML = `<span class="grow"><b>전사 대조</b> · ${REVIEW.pl.size}개 발언 견줌 · 많이 다름(겹침 ${Math.round(PL_MIN * 100)}% 미만) ${diff}개 — 「불확실」에 넣음${chg ? ` · 화자 바뀜 ${chg}곳` : ""}</span>
+    <button type="button" class="link" id="plDrop" title="붙인 타 플랫폼 전사를 뗍니다(검수 수정은 그대로)">떼기</button>`;
 }
 $("#rvPlBar").addEventListener("change", async (ev) => {
   if (!ev.target.matches("#plFile")) return;
@@ -931,13 +931,13 @@ $("#rvPlBar").addEventListener("change", async (ev) => {
     REVIEW.pl = plaudOf(REVIEW.data);
     renderReview();
     scheduleHarvest(id, REVIEW.edits, REVIEW.names, 300);
-    toast(`Plaud 전사 ${r.segs.length}개 발언을 붙였습니다` + (r.warnings.length ? ` — ${r.warnings[0]}` : ""));
-  } catch (e) { toast("Plaud 전사를 읽지 못했습니다: " + e.message); }
+    toast(`타 플랫폼 전사 ${r.segs.length}개 발언을 붙였습니다` + (r.warnings.length ? ` — ${r.warnings[0]}` : ""));
+  } catch (e) { toast("전사 파일을 읽지 못했습니다: " + e.message); }
 });
 $("#rvPlBar").addEventListener("click", async (ev) => {
   if (!ev.target.closest("#plDrop")) return;
   const id = REVIEW.id;
-  if (!id || !confirm("붙인 Plaud 전사를 뗄까요? 검수 수정은 그대로 남습니다.")) return;
+  if (!id || !confirm("붙인 타 플랫폼 전사를 뗄까요? 검수 수정은 그대로 남습니다.")) return;
   await S.del("plaud", id);
   await S.saveJob(id, { transcript: null });
   if (REVIEW.id !== id) return;
@@ -1033,7 +1033,7 @@ function renderReview() {
       if (g.end - g.start < 2) why.push("짧음");
       if (g.thin) why.push(g.text ? "말에 비해 글이 적음 — 들어 보세요" : "글을 받지 못함 — 들어 보세요");
       const pr = REVIEW.pl.get(g.i);
-      if (plaudDiffers(pr)) why.push(pr.text ? `Plaud와 많이 다름(겹침 ${Math.round(pr.sim * 100)}%)` : "Plaud에 없는 말");
+      if (plaudDiffers(pr)) why.push(pr.text ? `타 플랫폼 전사와 많이 다름(겹침 ${Math.round(pr.sim * 100)}%)` : "타 플랫폼 전사에 없는 말");
       judge = `<span class="kind ${why.length ? "k-저신뢰" : "k-단일"}">${esc(clusterLabel(g.cluster).replace("Speaker ", "S"))} ${Math.round(g.conf * 100)}%</span><span class="votes">${esc(why.join(" · "))}</span>`;
     } else {
       const kl = g.kind === "단일" && g.conf < 0.6 ? "저신뢰" : g.kind;
@@ -1144,7 +1144,7 @@ $("#rvBody").addEventListener("click", (ev) => {
     const e = editOf(i), before = e.text ?? gloss(g.text), v = gloss(r.text).trim();
     if (v === gloss(g.text).trim()) delete e.text; else e.text = v;
     saveEdits(); renderReview(); lexHintFrom(i, before, v);
-    toast("Plaud 글로 바꿨습니다 — ↶ 단추로 되돌릴 수 있습니다");
+    toast("대조 글로 바꿨습니다 — ↶ 단추로 되돌릴 수 있습니다");
     return;
   }
   if (a === "plSplit") { // Plaud 화자 바뀜 자리를 나눌 곳으로 잡아 둔다(커서를 옮기면 그 자리에서)
@@ -1341,14 +1341,14 @@ function renderLexBox() {
   }
   let plN = 0;
   for (const t of lex.terms) for (const v of t.vars) if (v.st === "cand" && v.by && v.by[id] && v.by[id].pl) plN++;
-  const plNote = plN ? `<div class="lxh pln"><span class="grow">Plaud와 견줘 모은 후보 ${plN}개를 교정 사전 「후보」에 넣었습니다</span><button type="button" class="link" data-lc="glcand">보기</button></div>` : "";
+  const plNote = plN ? `<div class="lxh pln"><span class="grow">타 플랫폼 전사와 견줘 모은 후보 ${plN}개를 교정 사전 「후보」에 넣었습니다</span><button type="button" class="link" data-lc="glcand">보기</button></div>` : "";
   box.classList.toggle("hidden", !items.length && !plN);
   if (!items.length) { box.innerHTML = plNote; return; }
   items.sort((x, y) => y.j.s.n + y.j.s.pl - x.j.s.n - x.j.s.pl);
   box.innerHTML = `<div class="lxh"><b>이번 검수에서 찾은 교정 후보 ${items.length}개</b><span class="msg">사전에 넣으면 이 화면과 다음 녹음부터 바로 쓰입니다</span></div>` + plNote + items.map(({ t, v, j }) => {
     const here = v.by[id].n || 0, hpl = v.by[id].pl || 0, other = j.s.jobs - 1, when = j.common ? whenOf(v) : [];
     const badge = j.conflict ? '<span class="chip warn">고친 말이 둘 이상</span>' : j.name ? '<span class="chip">이름일 수 있음</span>' : j.common ? '<span class="chip">흔한 낱말</span>' : '<span class="chip acc">추천</span>';
-    const ev = [here ? `이번 녹음 고침 ${here}곳` : "", hpl ? `Plaud 대조 ${hpl}곳` : "", other > 0 ? `다른 녹음 ${other}건` : "", j.common ? `고치지 않고 확인한 곳 ${j.s.neg}` : ""].filter(Boolean).join(" · ");
+    const ev = [here ? `이번 녹음 고침 ${here}곳` : "", hpl ? `전사 대조 ${hpl}곳` : "", other > 0 ? `다른 녹음 ${other}건` : "", j.common ? `고치지 않고 확인한 곳 ${j.s.neg}` : ""].filter(Boolean).join(" · ");
     const note = j.conflict ? "같은 말을 다른 말로도 고친 적이 있습니다 — 맞는 쪽만 넣으세요"
       : j.name ? "사람·업체 이름은 철자를 확인한 뒤 넣으세요"
       : j.common && when.length ? `「${esc(v.from)}」${josa(v.from, "은/는").slice(v.from.length)} 실제 낱말일 수 있어 뒤에 「${when.map(esc).join("·")}」${josa(when[when.length - 1], "이/가").slice(when[when.length - 1].length)} 올 때만 바꿉니다` : "";
@@ -2088,7 +2088,7 @@ async function loadVoices() {
     return `<tr data-n="${esc(name)}"><td><b>${esc(name)}</b></td><td>${n}</td>
       <td class="src">${items.map(([src, it]) => `<div><span>${esc(src)} (${it.n})</span><button type="button" data-src="${esc(src)}" title="이 출처만 빼기">빼기</button></div>`).join("")}</td>
       <td class="nowrap"><button type="button" data-a="ren">이름 바꾸기·합치기</button> <button type="button" data-a="del">지우기</button></td></tr>`;
-  }).join("") : '<tr><td colspan="4" class="empty">저장된 목소리 기준이 없습니다. Plaud 녹음을 처리하거나, 검수 화면의 「화자 이름 지정」에서 「목소리 기준 저장」을 누르면 쌓입니다.</td></tr>';
+  }).join("") : '<tr><td colspan="4" class="empty">저장된 목소리 기준이 없습니다. 이름이 붙은 타 플랫폼 전사와 함께 처리하거나, 검수 화면의 「화자 이름 지정」에서 「목소리 기준 저장」을 누르면 쌓입니다.</td></tr>';
 }
 $("#vpBody").addEventListener("click", async (ev) => {
   const b = ev.target.closest("button");
@@ -2123,7 +2123,7 @@ async function loadGlossary() {
   for (const t of lex.terms) for (const v of t.vars) cnt[groupOf(t, v)]++;
   if (!cnt[GL.tab]) GL.tab = cnt.rec ? "rec" : cnt.on ? "on" : cnt.cand ? "cand" : cnt.off ? "off" : "on";
   $("#glTabs").innerHTML = GL_TABS.map(([k, n]) => `<button type="button" role="tab" data-gt="${k}" aria-selected="${GL.tab === k}" class="${GL.tab === k ? "on" : ""}"${cnt[k] ? "" : " disabled"}>${n} <b>${cnt[k]}</b></button>`).join("");
-  const why = { on: "검수 화면 표시와 내보내기에 적용됩니다.", rec: "서로 다른 발언 2곳 이상에서 같게 고친 말(Plaud 대조까지 더하면 3곳 이상)입니다. 확정하면 바로 적용됩니다.",
+  const why = { on: "검수 화면 표시와 내보내기에 적용됩니다.", rec: "서로 다른 발언 2곳 이상에서 같게 고친 말(전사 대조까지 더하면 3곳 이상)입니다. 확정하면 바로 적용됩니다.",
     cand: "한 번 고쳤거나 확인이 필요한 말입니다(이름·흔한 낱말·충돌). 자동으로 바꾸지 않습니다.", off: "적용하지 않는 말입니다. 근거는 남아 있어 다시 켤 수 있습니다." }[GL.tab];
   const cards = [];
   for (const t of [...lex.terms].sort((a, b) => a.to.localeCompare(b.to, "ko"))) {
@@ -2131,7 +2131,7 @@ async function loadGlossary() {
     if (!vs.length) continue;
     const rows = vs.map((v) => {
       const j = judge(lex, t, v, conf), s = j.s;
-      const ev = [s.jobs ? `녹음 ${s.jobs}건` : "", s.n ? `고침 ${s.n}` : "", s.app ? `적용 ${s.app}` : "", s.undo ? `되돌림 ${s.undo}` : "", s.neg ? `고치지 않고 확인 ${s.neg}` : "", s.pl ? `Plaud 대조 ${s.pl}` : "", v.manual ? (v.src ? `기본 사전(${v.src})` : "직접 넣음") : ""].filter(Boolean).join(" · ");
+      const ev = [s.jobs ? `녹음 ${s.jobs}건` : "", s.n ? `고침 ${s.n}` : "", s.app ? `적용 ${s.app}` : "", s.undo ? `되돌림 ${s.undo}` : "", s.neg ? `고치지 않고 확인 ${s.neg}` : "", s.pl ? `전사 대조 ${s.pl}` : "", v.manual ? (v.src ? `기본 사전(${v.src})` : "직접 넣음") : ""].filter(Boolean).join(" · ");
       const tags = [j.conflict ? '<span class="chip warn">충돌</span>' : "", j.common && v.st !== "on" ? '<span class="chip">흔한 낱말</span>' : "", v.when ? `<span class="chip">조건: 뒤에 ${v.when.map(esc).join("·")}</span>` : "", v.why ? `<span class="chip bad">${esc(v.why)}</span>` : ""].join("");
       const acts = v.st === "on" ? '<button type="button" data-g="when">조건</button><button type="button" data-g="off">끄기</button>'
         : v.st === "off" ? `<button type="button" data-g="on">다시 켜기</button>${s.n || s.app || s.undo || s.neg ? "" : '<button type="button" data-g="del">지우기</button>'}`

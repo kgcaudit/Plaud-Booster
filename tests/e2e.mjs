@@ -471,12 +471,12 @@ const goReview = async (title) => {
   await goReview("소니 시험");
   await page.waitForSelector("#rvPlBar:not(.hidden) #plFile", { state: "attached" });
   await page.setInputFiles("#plFile", { name: "plaud-test.srt", mimeType: "text/plain", buffer: Buffer.from(plInfo.srt, "utf8") });
-  await page.waitForSelector("#rvPlBar:has-text('Plaud 대조')");
+  await page.waitForSelector("#rvPlBar:has-text('전사 대조')");
   assert.ok(await page.locator("#rvPlCmpWrap").isVisible());
   await page.click(".scope button[data-f='all']");
   const sameRow = page.locator(`#rvBody tr[data-i='${plInfo.same}']`), diffRow = page.locator(`#rvBody tr[data-i='${plInfo.diff}']`);
   assert.match(await sameRow.locator(".pltx").first().textContent(), /정사 \d/); // Plaud 글(교정 사전 적용)
-  assert.match(await diffRow.locator(".votes").textContent(), /Plaud와 많이 다름/);
+  assert.match(await diffRow.locator(".votes").textContent(), /타 플랫폼 전사와 많이 다름/);
   // 많이 다른 발언은 확인 전이면 「불확실」
   await page.click(".scope button[data-f='need']").catch(() => {});
   if (await diffRow.locator("button.okbtn:not(.done)").count()) assert.ok(await page.locator(`#rvBody tr[data-i='${plInfo.diff}']`).count(), "많이 다른 발언이 불확실에 없음");

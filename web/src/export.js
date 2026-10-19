@@ -3,7 +3,7 @@ import { applyLexicon, activeRules, fromGlossary, mergeLex, emptyLex } from "./l
 
 /** 할 일 이름 — 「sony」는 예전 작업(지금은 「diar」)과 같은 화자 분리 */
 export const MODE_LABEL = { diar: "화자 분리·전사", sony: "화자 분리·전사", gap: "빠진 구간 채우기", range: "잘못된 구간 다시 전사", fragment: "저장된 목소리로 바로 맞히기", enroll: "목소리 기준만 등록" };
-export const SOURCE_LABEL = { plaud: "Plaud 녹음", sony: "소니 녹음기", phone: "휴대폰·기타 기기", etc: "일반 녹음" };
+export const SOURCE_LABEL = { plaud: "타 플랫폼 전사", sony: "소니 녹음기", phone: "휴대폰·기타 기기", etc: "일반 녹음" };
 export const isDiar = (m) => m === "diar" || m === "sony";
 /** 녹음 출처(예전 작업은 할 일로 짐작) */
 export function sourceOf(job) {

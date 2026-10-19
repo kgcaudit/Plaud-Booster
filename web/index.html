@@ -60,7 +60,7 @@
   <form id="newJob" class="card" autocomplete="off">
 
     <!-- 파일부터 고르면 작업 이름·녹음 시각·녹음 기기가 채워진다. 출처는 따로 묻지 않는다(2026-10-19 사용자 결정):
-         음원은 형식(MP3·m4a·WAV)으로 풀고, Plaud 전용 할 일은 Plaud 전사 파일을 붙였을 때만 열린다 -->
+         음원은 형식(MP3·m4a·WAV)으로 풀고, 전사 파일을 쓰는 할 일은 타 플랫폼(Plaud·클로바노트 등) 전사 파일을 붙였을 때만 열린다 -->
     <fieldset id="fsAudio">
       <legend><span class="num">1.</span> 음원 파일 <small id="audioHint">m4a·mp3·wav 등 — 여러 개면 녹음 시각 순으로 자동 정렬</small></legend>
       <input type="file" id="audioFiles" multiple accept="audio/*,.mp3,.wav,.m4a,.mp4,.aac,.3gp,.ogg,.opus,.flac,.webm">
@@ -69,7 +69,7 @@
     </fieldset>
 
     <fieldset id="fsTranscript">
-      <legend><span class="num">2.</span> Plaud 전사 파일 <small id="trHint">선택 — 같은 녹음을 Plaud로 전사했다면 붙이세요(TXT·SRT·DOCX, 시간·화자를 켜고 내보내기). 붙이면 Plaud 전용 할 일이 열립니다</small></legend>
+      <legend><span class="num">2.</span> 타 플랫폼 전사 파일 <small id="trHint">선택 — 같은 녹음을 Plaud·클로바노트 등 다른 서비스로 전사했다면 붙이세요(TXT·SRT·DOCX, 시간·화자를 켜고 내보내기). 붙이면 전사 파일을 쓰는 할 일이 열립니다</small></legend>
       <div class="row trrow"><input type="file" id="trFile" accept=".txt,.srt,.docx,.json"><button type="button" id="trClear" class="hidden">떼기</button></div>
       <div id="trInfo" class="trinfo"></div>
       <div id="gapTape" class="tape hidden"></div>
@@ -79,17 +79,17 @@
     <fieldset id="fsTask" class="modes">
       <legend><span class="num">3.</span> 할 일</legend>
       <label class="mode" data-tr="need"><input type="radio" name="mode" value="gap">
-        <b>빠진 구간 채우기</b><span>Plaud 전사가 녹음 도중에 끊겼을 때 그 뒤부터 녹음 끝까지 전사하고, Plaud에 붙은 이름으로 화자를 맞힙니다.</span></label>
+        <b>빠진 구간 채우기</b><span>붙인 전사가 녹음 도중에 끊겼을 때 그 뒤부터 녹음 끝까지 전사하고, 전사에 붙은 이름으로 화자를 맞힙니다.</span></label>
       <label class="mode" data-tr="need"><input type="radio" name="mode" value="range">
         <b>잘못된 구간 다시 전사</b><span>잘못 전사된 구간(시작~끝)만 다시 전사하고 화자를 맞힙니다.</span></label>
       <label class="mode" data-tr="need"><input type="radio" name="mode" value="enroll">
-        <b>목소리 기준만 등록</b><span>Plaud에 이름이 붙은 사람의 목소리를 저장해, 다른 녹음에서 이름을 추천·판정하는 데 씁니다.</span></label>
+        <b>목소리 기준만 등록</b><span>전사에 이름이 붙은 사람의 목소리를 저장해, 다른 녹음에서 이름을 추천·판정하는 데 씁니다.</span></label>
       <label class="mode"><input type="radio" name="mode" value="diar" checked>
         <b>화자 분리·전사 <em>권장</em></b><span>비슷한 목소리를 먼저 묶고(Speaker 1, 2…) 대표 구간을 들어 이름을 지정한 뒤 전사합니다.</span></label>
       <label class="mode"><input type="radio" name="mode" value="fragment">
         <b>저장된 목소리로 바로 맞히기</b><span>이름 지정 없이, 저장된 목소리 기준 중 가장 닮은 사람으로 바로 판정합니다(아는 사람만 있을 때).</span></label>
       <label class="chk span hidden" id="callWrap"><input type="checkbox" id="isCall"> 통화 녹음(두 사람) — 인원을 2명으로 두고 묶습니다</label>
-      <p class="note span">같은 회의를 Plaud와 다른 기기로 함께 녹음했어도 아직은 두 녹음을 합칠 수 없습니다. 녹음마다 따로 등록하세요.</p>
+      <p class="note span">같은 회의를 기기 두 대로 함께 녹음했어도 아직은 두 녹음을 합칠 수 없습니다. 녹음마다 따로 등록하세요.</p>
     </fieldset>
 
     <fieldset id="fsRange" class="hidden">
@@ -152,14 +152,14 @@
         <button type="button" data-f="ok" title="사람이 「✓ 확인」한 발언"><b data-n="ok">0</b><span>확인</span></button>
         <div class="grp">
           <button type="button" data-f="todo" title="아직 확인하지 않은 발언(= 불확실 + 확실)"><b data-n="todo">0</b><span>남음</span></button>
-          <button type="button" data-f="need" class="on" title="남은 것 중 화자 판정이 불확실하거나 Plaud 글과 많이 다른 발언 — 먼저 보세요"><b data-n="need">0</b><span>불확실</span></button>
+          <button type="button" data-f="need" class="on" title="남은 것 중 화자 판정이 불확실하거나 타 플랫폼 전사와 많이 다른 발언 — 먼저 보세요"><b data-n="need">0</b><span>불확실</span></button>
           <button type="button" data-f="sure" title="남은 것 중 자동 판정은 확실하나 아직 안 본 발언"><b data-n="sure">0</b><span>확실</span></button>
         </div>
       </div>
       <div class="filt">
         <label class="chk"><input type="checkbox" id="rvEdited"> 고친 것만 <span class="msg" id="rvEditedN"></span></label>
-        <label class="chk" id="rvPlaudWrap"><input type="checkbox" id="rvPlaud"> Plaud 전사</label>
-        <label class="chk hidden" id="rvPlCmpWrap" title="발언마다 같은 자리의 Plaud 글을 아래에 작게 보입니다"><input type="checkbox" id="rvPlCmp" checked> Plaud 글</label>
+        <label class="chk" id="rvPlaudWrap"><input type="checkbox" id="rvPlaud"> 타 플랫폼 전사</label>
+        <label class="chk hidden" id="rvPlCmpWrap" title="발언마다 같은 자리의 타 플랫폼 전사 글을 아래에 작게 보입니다"><input type="checkbox" id="rvPlCmp" checked> 대조 글</label>
         <span class="spacer"></span>
         <button type="button" id="rvAllOk" class="bulk" title="지금 보이는 발언을 모두 확인합니다">✓ 모두 확인</button>
         <button type="button" id="rvUndo" disabled title="되돌리기(Ctrl+Z / ⌘Z)">↶</button>
@@ -180,7 +180,7 @@
     <div class="sb exp">
       <div id="lexBox" class="lexbox hidden" aria-live="polite"></div>
       <div class="warnline hidden" id="exWarn"></div>
-      <label class="chk" id="exPlaudWrap"><input type="checkbox" id="exPlaud" checked> Plaud 전사 합치기</label>
+      <label class="chk" id="exPlaudWrap"><input type="checkbox" id="exPlaud" checked> 타 플랫폼 전사 합치기</label>
       <label class="chk" title="교정 사전에서 확정한 말을 통합본 TXT·CSV에 적용합니다(사람이 고친 글과 원래 전사는 그대로)"><input type="checkbox" id="exGl" checked> 내보낼 때 교정 사전 적용 <span class="msg" id="exGlN"></span></label>
       <div class="exopts" role="group" aria-label="통합본 정리">
         <label class="chk" title="30초 안에 같은 사람이 이어 말한 줄을 한 줄로 합칩니다"><input type="checkbox" id="exJoin" data-xo="join"> 같은 화자 연속 발언 이어 붙이기 <span class="msg" id="exJoinN"></span></label>
@@ -216,7 +216,7 @@
   <div class="vprule">
     <b>어떻게 쌓이나요</b>
     <ul>
-      <li><b>Plaud 녹음</b> — Plaud 전사에 이름이 붙은 사람은 처리할 때 자동으로 쌓입니다.</li>
+      <li><b>타 플랫폼 전사를 붙인 녹음</b> — 전사(Plaud·클로바노트 등)에 이름이 붙은 사람은 처리할 때 자동으로 쌓입니다.</li>
       <li><b>휴대폰·소니 녹음</b> — 자동으로 쌓이지 않습니다. 전사가 끝난 뒤 녹음을 열어 「화자 이름 지정」의 「목소리 기준 저장」을 눌러야 저장됩니다.</li>
       <li>이름을 붙이고 그 녹음에서 <b>30초 이상</b> 말한 사람만 저장합니다. 「Speaker 1」 같은 임시 이름이나 짧게 말한 사람은 빠집니다.</li>
       <li>녹음 제목이 출처가 되고, 같은 녹음에서 다시 저장하면 덧붙이지 않고 바꿉니다.</li>
