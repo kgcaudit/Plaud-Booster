@@ -205,7 +205,7 @@ tests/e2e.mjs                 Chromium 전체 흐름(가짜 엔진 ?fake=1, 합�
   기준값을 바꾸면 10-08 회의(Plaud 이름 숨김)로 다시 재서 98% 안팎·5명 모두 따로인지 확인합니다(실제 음원은 저장소 밖).
 - 새 작업은 **출처를 묻지 않습니다**(2026-10-19 사용자 결정 — 음원은 형식으로 풀고 엔진은 출처로 갈리지 않음). 순서: 음원 → Plaud 전사 파일(선택) → 할 일(job.mode, 기본 `diar`).
   gap·range·enroll(data-tr="need")은 Plaud 전사를 붙였을 때만 열리고, 떼면 diar로 돌아감(#trClear). 화자 분리에 붙인 전사는 Plaud 대조용(음원 1개일 때만). 「통화 녹음」은 화자 분리면 늘 보임(이름에 「통화」면 자동 체크).
-  job.source는 이름표로만 남김(형식 그대로): 전사를 붙였으면 plaud, 아니면 diar.js deviceOf — 파일 머리 ID3의 「SONY IC RECORDER」·기종 「ICD-…」 또는 소니 이름꼴 YYMMDD_HHMM.mp3/wav → sony, m4a·「음성·통화」 이름 → phone, 그 밖 etc(「기타 녹음」).
+  job.source는 이름표로만 남김(형식 그대로): 전사를 붙였으면 plaud, 아니면 diar.js deviceOf — 파일 머리 ID3의 「SONY IC RECORDER」·기종 「ICD-…」 또는 소니 이름꼴 YYMMDD_HHMM.mp3/wav → sony, m4a·「음성·통화」 이름 → phone, 그 밖 etc(「일반 녹음」).
   검수의 「Plaud 전사 붙이기」는 출처와 상관없이 화자 분리 녹음이면 열리고, 붙이면 source를 plaud로. 예전 작업의 source·mode `sony`는 그대로 읽고, 출처가 없는 예전 작업은 sourceOf()로 짐작합니다.
 - 테스트용 Chromium은 AAC를 못 풀어 m4a는 e2e로 못 돌립니다. m4a→ADTS 변환은 tests/unit/audio.test.mjs에서 ffmpeg로 확인하고, 실제 풀이는 Chrome에서 확인합니다.
 - 소니 발언 번호 `i`는 단위 번호 + 1로 고정입니다(묶음을 빼고 넣어도 검수 수정이 그대로 붙게). 이름은 edits.names(묶음 → 이름),

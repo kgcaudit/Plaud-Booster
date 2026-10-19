@@ -102,6 +102,12 @@ h2 { font-size: 16px; margin: 0; } h3 { font-size: 15px; margin: 0 0 10px; }
 .tips { padding-left: 18px; margin: 0; } .tips li { margin-bottom: 6px; }
 
 fieldset { border: 0; border-top: 1px solid var(--line); margin: 0; padding: 12px 0; }
+/* fieldset은 기본으로 내용의 최소 폭보다 줄지 않는다(min-inline-size: min-content) — 아이폰 사파리의 파일 고르기 칸은 최소 폭이 넓어 새 녹음 화면이 옆으로 넘쳤음(2026-10-19) */
+fieldset { min-width: 0; min-inline-size: 0; }
+input[type="file"] { width: 100%; min-width: 0; }
+.trrow { flex-wrap: nowrap; }
+.trrow input[type="file"] { flex: 1 1 0; }
+.trrow button { flex: 0 0 auto; }
 legend { font-weight: 600; padding-right: 8px; }
 legend small { font-weight: 400; color: var(--mute); margin-left: 6px; }
 .modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 8px; }

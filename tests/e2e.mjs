@@ -547,6 +547,16 @@ const goReview = async (title) => {
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/${tab}.png`, fullPage: true });
   }
   await page.setViewportSize({ width: 1280, height: 720 });
+  // 아이폰 사파리는 파일 고르기 칸의 최소 폭이 넓어 fieldset이 넘쳤음 — fieldset이 줄어들 수 있고 파일 칸이 칸 폭을 넘지 않는지(크로미엄으로는 넘침이 재현되지 않아 규칙으로 확인)
+  await page.setViewportSize({ width: 360, height: 800 });
+  await nav(page, "jobs"); await page.click("#btnNew"); await page.waitForSelector("#newJob", { state: "visible" });
+  const fsw = await page.evaluate(() => [...document.querySelectorAll("#newJob fieldset")].map((f) => getComputedStyle(f).minInlineSize));
+  assert.ok(fsw.every((w) => w === "0px"), "fieldset min-inline-size: " + fsw.join(","));
+  const fileFit = await page.evaluate(() => [...document.querySelectorAll("#newJob input[type=file]")].every((i) => i.getBoundingClientRect().right <= i.closest("fieldset").getBoundingClientRect().right + 1));
+  assert.ok(fileFit, "파일 고르기 칸이 칸 폭을 넘음");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
+  await page.click("#btnCancel");
+  await page.setViewportSize({ width: 1280, height: 720 });
   console.log("✓ 휴대폰 폭(412px) 모든 탭 가로 넘침 없음");
 
   // ---- 조각 음원(MP3 프레임 단위 풀기)
@@ -567,7 +577,7 @@ const goReview = async (title) => {
     const meta = await page.locator(".job:has-text('조각 시험') .info").first().textContent();
     assert.match(meta, /조각\.mp3 \(2:30\)/, meta);
     const head = await page.locator(".job:has-text('조각 시험') .meta").first().textContent(); // 카드 둘째 줄: 출처 · 할 일 · 언어 · 길이 · 발언 수
-    assert.match(head, /기타 녹음 · 저장된 목소리로 바로 맞히기 · 영어 · 4:00/, head);
+    assert.match(head, /일반 녹음 · 저장된 목소리로 바로 맞히기 · 영어 · 4:00/, head);
     const d2 = page.waitForEvent("download");
     await page.click(".job:has-text('조각 시험') button[data-a='review']");
     await page.click("#exTxt");

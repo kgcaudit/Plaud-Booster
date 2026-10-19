@@ -900,7 +900,7 @@ function plLine(g, shown) {
 /** 검수 위 Plaud 줄: 붙이기(없을 때) · 견준 결과(있을 때) */
 function renderPlBar() {
   const d = REVIEW.data, bar = $("#rvPlBar");
-  // 출처와 상관없이 화자 분리면 붙일 수 있다(2026-10-19 — 출처를 묻지 않게 되어 Plaud 음원도 「기타 녹음」으로 등록될 수 있음)
+  // 출처와 상관없이 화자 분리면 붙일 수 있다(2026-10-19 — 출처를 묻지 않게 되어 Plaud 음원도 「일반 녹음」으로 등록될 수 있음)
   const can = d && d.result && isDiar(d.job.mode);
   bar.classList.toggle("hidden", !can);
   $("#rvPlCmpWrap").classList.toggle("hidden", !plaudCmp(d));
